@@ -1,0 +1,120 @@
+# Local infrastructure for the payment platform.
+#
+# No image tag, port or credential is written here - they all come from .env,
+# so the stack is reproducible and an upgrade is one deliberate edit in one
+# file. Copy .env.example to .env before the first run.
+#
+#   docker compose up -d
+#
+# Port map lives in CONTEXT.md.
+
+services:
+
+  keycloak-postgres:
+    image: ${POSTGRES_IMAGE}
+    environment:
+      POSTGRES_DB: ${KEYCLOAK_DB_NAME}
+      POSTGRES_USER: ${KEYCLOAK_DB_USER}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+    ports:
+      - "${KEYCLOAK_POSTGRES_PORT}:5432"
+    volumes:
+      - keycloak-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USER} -d ${KEYCLOAK_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: ${KEYCLOAK_IMAGE}
+    command: start-dev --import-realm
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    environment:
+      # Renamed in Keycloak 26; the old KEYCLOAK_ADMIN / KEYCLOAK_ADMIN_PASSWORD
+      # still work but are deprecated.
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/${KEYCLOAK_DB_NAME}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - ./individuals-api/src/main/resources/realm/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    ports:
+      - "${KEYCLOAK_PORT}:8080"
+
+  person-postgres:
+    image: ${POSTGRES_IMAGE}
+    environment:
+      POSTGRES_DB: ${PERSON_DB_NAME}
+      POSTGRES_USER: ${PERSON_DB_USER}
+      POSTGRES_PASSWORD: ${PERSON_DB_PASSWORD}
+    ports:
+      - "${PERSON_POSTGRES_PORT}:5432"
+    volumes:
+      - person-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PERSON_DB_USER} -d ${PERSON_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  individuals-api:
+    build:
+      context: ./individuals-api
+    depends_on:
+      # service_started, not service_healthy: Keycloak needs a while to finish
+      # importing the realm, so the application must tolerate it not answering
+      # for the first few seconds after start.
+      keycloak:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+    ports:
+      - "${INDIVIDUALS_API_PORT}:8081"
+
+  prometheus:
+    image: ${PROMETHEUS_IMAGE}
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT}:9090"
+
+  tempo:
+    image: ${TEMPO_IMAGE}
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./infra/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "${TEMPO_PORT}:3200"
+      - "${TEMPO_OTLP_HTTP_PORT}:4318"
+
+  grafana:
+    image: ${GRAFANA_IMAGE}
+    depends_on:
+      - prometheus
+      - tempo
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT}:3000"
+
+volumes:
+  keycloak-postgres-data:
+  person-postgres-data:
+  tempo-data:
+  grafana-data:
