@@ -1,0 +1,17 @@
+# Line endings.
+#
+# The repository always stores LF, no matter which OS the commit came from.
+# Without this, core.autocrlf=true on Windows rewrites the working copy to CRLF
+# on checkout, and gradlew - a POSIX shell script - starts failing under Git
+# Bash and WSL with "bad interpreter: /bin/sh^M".
+
+* text=auto eol=lf
+
+# cmd.exe needs CRLF; the batch wrapper breaks without it.
+*.bat text eol=crlf
+
+# Explicit, because this one is the trap described above.
+gradlew text eol=lf
+
+# Never touched by line-ending conversion.
+*.jar binary
