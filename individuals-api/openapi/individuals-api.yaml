@@ -17,7 +17,7 @@ info:
     url: https://www.apache.org/licenses/LICENSE-2.0
 
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:8081
     description: Local
 
 tags:
@@ -384,6 +384,16 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            unexpected:
+              summary: Nothing leaks outwards but the trace id
+              value:
+                timestamp: "2026-08-19T12:34:56Z"
+                path: /api/v1/auth/registration
+                status: 500
+                error: INTERNAL_ERROR
+                message: Unexpected error
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
     ServiceUnavailable:
       description: A downstream dependency is unavailable
       content:
