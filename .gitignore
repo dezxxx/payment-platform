@@ -1,0 +1,55 @@
+# --- Gradle ---
+.gradle/
+build/
+
+# --- Generated from OpenAPI: never committed, always regenerated ---
+**/build/generated/
+**/generated-sources/
+
+# --- Java ---
+*.class
+*.war
+*.ear
+hs_err_pid*
+replay_pid*
+
+# --- Keep the wrapper in git ---
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# --- IDE: IntelliJ ---
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# --- IDE: Eclipse / VS Code ---
+.classpath
+.project
+.settings/
+bin/
+.vscode/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Secrets and local overrides ---
+# .env holds image tags and local credentials; .env.example is committed instead.
+.env
+*.local
+application-local.yml
+application-local.yaml
+secrets.properties
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Docker volumes mounted into the repo ---
+.docker-data/
+
+# --- Working screenshots: shared with the assistant, never part of the repo ---
+screenShoots/

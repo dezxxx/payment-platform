@@ -1,0 +1,64 @@
+# Single source of truth for all versions across the monorepo.
+# Modules never hardcode a version - they always reference this catalog.
+
+[versions]
+java                        = "25"
+springBoot                  = "4.1.0"
+springDependencyManagement  = "1.1.7"
+openapiGenerator            = "7.14.0"
+lombok                      = "1.18.46"
+springdocOpenapi            = "3.1.0"
+testcontainersKeycloak      = "4.3.1"
+swaggerAnnotations          = "2.2.42"
+jacksonDatabindNullable     = "0.2.6"
+
+# Container image tags used by docker-compose and integration tests.
+keycloakImage               = "26.7.2"
+postgresImage               = "18.2"
+prometheusImage             = "v3.11.0"
+tempoImage                  = "2.10.0"
+grafanaImage                = "12.4.0"
+
+[libraries]
+# --- Spring Boot starters (versions managed by the Boot BOM) ---
+spring-boot-starter-webflux          = { module = "org.springframework.boot:spring-boot-starter-webflux" }
+spring-boot-starter-security         = { module = "org.springframework.boot:spring-boot-starter-security" }
+spring-boot-starter-oauth2-resource-server = { module = "org.springframework.boot:spring-boot-starter-oauth2-resource-server" }
+spring-boot-starter-validation       = { module = "org.springframework.boot:spring-boot-starter-validation" }
+spring-boot-starter-actuator         = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+spring-boot-starter-opentelemetry    = { module = "org.springframework.boot:spring-boot-starter-opentelemetry" }
+spring-boot-starter-json             = { module = "org.springframework.boot:spring-boot-starter-json" }
+spring-web                           = { module = "org.springframework:spring-web" }
+spring-context                       = { module = "org.springframework:spring-context" }
+reactor-core                         = { module = "io.projectreactor:reactor-core" }
+
+# --- Observability ---
+micrometer-registry-prometheus       = { module = "io.micrometer:micrometer-registry-prometheus" }
+
+# --- API documentation (Swagger UI over the contract-first spec) ---
+springdoc-openapi-starter-webflux-ui = { module = "org.springdoc:springdoc-openapi-starter-webflux-ui", version.ref = "springdocOpenapi" }
+
+# --- Code generated from OpenAPI needs these at compile time ---
+swagger-annotations                  = { module = "io.swagger.core.v3:swagger-annotations", version.ref = "swaggerAnnotations" }
+jackson-databind-nullable            = { module = "org.openapitools:jackson-databind-nullable", version.ref = "jacksonDatabindNullable" }
+jakarta-annotation-api               = { module = "jakarta.annotation:jakarta.annotation-api" }
+jakarta-validation-api               = { module = "jakarta.validation:jakarta.validation-api" }
+jackson-databind                     = { module = "com.fasterxml.jackson.core:jackson-databind" }
+jackson-datatype-jsr310              = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310" }
+
+# --- Lombok ---
+lombok                               = { module = "org.projectlombok:lombok", version.ref = "lombok" }
+
+# --- Test ---
+spring-boot-starter-test             = { module = "org.springframework.boot:spring-boot-starter-test" }
+spring-boot-testcontainers           = { module = "org.springframework.boot:spring-boot-testcontainers" }
+spring-security-test                 = { module = "org.springframework.security:spring-security-test" }
+reactor-test                         = { module = "io.projectreactor:reactor-test" }
+testcontainers-junit-jupiter         = { module = "org.testcontainers:testcontainers-junit-jupiter" }
+testcontainers-postgresql            = { module = "org.testcontainers:testcontainers-postgresql" }
+testcontainers-keycloak              = { module = "com.github.dasniko:testcontainers-keycloak", version.ref = "testcontainersKeycloak" }
+
+[plugins]
+spring-boot                 = { id = "org.springframework.boot",         version.ref = "springBoot" }
+spring-dependency-management= { id = "io.spring.dependency-management",  version.ref = "springDependencyManagement" }
+openapi-generator           = { id = "org.openapi.generator",            version.ref = "openapiGenerator" }
