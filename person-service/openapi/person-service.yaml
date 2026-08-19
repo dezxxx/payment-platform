@@ -1,0 +1,374 @@
+openapi: 3.0.3
+
+info:
+  title: person-service
+  description: |
+    Source of truth for the domain user of the dezxxx payment platform.
+
+    Owns the user, the address and the individual data. Knows nothing about
+    Keycloak, tokens or roles - the account lives in Keycloak and is linked
+    back here only by keycloakUserId.
+
+    This contract is consumed by individuals-api through person-client, which
+    is generated from this file and published to Nexus. The operation ids and
+    paths below are frozen: renaming them breaks every consumer.
+  version: 1.0.0
+  contact:
+    name: dezxxx
+    email: web7tudio@gmail.com
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8081
+    description: Local
+  - url: http://person-service:8081
+    description: Docker network
+
+tags:
+  - name: persons
+    description: Domain users
+
+paths:
+
+  /api/v1/persons/registration:
+    post:
+      tags: [persons]
+      operationId: registerPerson
+      summary: Create a domain user
+      description: |
+        Creates the domain user and returns its user_uid. This is the first
+        step of registration: individuals-api calls it before creating the
+        Keycloak account, so a failure here leaves no orphaned account behind.
+
+        The profile is created incomplete - `filled` stays false until the
+        individual data and the address are supplied.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonRegistrationRequest"
+            examples:
+              minimal:
+                summary: Only the email is known at registration time
+                value:
+                  email: user@dezxxx.com
+              withName:
+                summary: The name was collected by the caller
+                value:
+                  email: user@dezxxx.com
+                  firstName: Sergey
+                  lastName: Zatulsky
+      responses:
+        "201":
+          description: Domain user created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonRegistrationResponse"
+              examples:
+                created:
+                  summary: Newly created domain user
+                  value:
+                    userUid: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/persons/{userUid}:
+    get:
+      tags: [persons]
+      operationId: getPersonByUserUid
+      summary: Get a domain user by its identifier
+      parameters:
+        - name: userUid
+          in: path
+          required: true
+          description: Domain user identifier issued at registration
+          schema:
+            type: string
+            format: uuid
+          example: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+      responses:
+        "200":
+          description: Domain user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonResponse"
+              examples:
+                incomplete:
+                  summary: Right after registration, profile not filled yet
+                  value:
+                    userUid: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+                    email: user@dezxxx.com
+                    filled: false
+                    createdAt: "2026-08-19T12:34:56Z"
+                    updatedAt: "2026-08-19T12:34:56Z"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/persons/by-email:
+    get:
+      tags: [persons]
+      operationId: getPersonByEmail
+      summary: Get a domain user by email
+      description: |
+        Used by individuals-api to detect a duplicate registration before it
+        touches Keycloak. Email is unique across the domain.
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+            format: email
+            maxLength: 1024
+          example: user@dezxxx.com
+      responses:
+        "200":
+          description: Domain user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+
+  schemas:
+
+    PersonRegistrationRequest:
+      type: object
+      description: |
+        Mirrors what is known about the user at registration time. Only the
+        email is guaranteed - the name is optional here because the external
+        registration form collects credentials only.
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 1024
+          example: user@dezxxx.com
+        firstName:
+          type: string
+          maxLength: 64
+          example: Sergey
+        lastName:
+          type: string
+          maxLength: 64
+          example: Zatulsky
+
+    PersonRegistrationResponse:
+      type: object
+      required: [userUid]
+      properties:
+        userUid:
+          type: string
+          format: uuid
+          description: Domain identifier of the created user
+          example: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+
+    PersonResponse:
+      type: object
+      required: [userUid, email, filled, createdAt, updatedAt]
+      properties:
+        userUid:
+          type: string
+          format: uuid
+          example: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+        email:
+          type: string
+          format: email
+          example: user@dezxxx.com
+        firstName:
+          type: string
+          maxLength: 64
+          example: Sergey
+        lastName:
+          type: string
+          maxLength: 64
+          example: Zatulsky
+        filled:
+          type: boolean
+          description: True once the profile carries individual data and an address
+          example: false
+        keycloakUserId:
+          type: string
+          maxLength: 64
+          description: Link back to the Keycloak account, set after the account exists
+          example: 0b7a5f2c-19d4-4a8e-9c3b-77e1a0d4f5b6
+        createdAt:
+          type: string
+          format: date-time
+          example: "2026-08-19T12:34:56Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2026-08-19T12:34:56Z"
+        address:
+          $ref: "#/components/schemas/AddressResponse"
+        individual:
+          $ref: "#/components/schemas/IndividualResponse"
+
+    AddressResponse:
+      type: object
+      required: [id, addressLine, city]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 2c9a1f30-5b6d-4e71-8a02-9d3f7c1e4b58
+        country:
+          $ref: "#/components/schemas/CountryResponse"
+        addressLine:
+          type: string
+          maxLength: 128
+          example: Nezavisimosti Ave 4
+        zipCode:
+          type: string
+          maxLength: 32
+          example: "220030"
+        city:
+          type: string
+          maxLength: 64
+          example: Minsk
+        state:
+          type: string
+          maxLength: 64
+          example: Minsk Region
+
+    CountryResponse:
+      type: object
+      required: [id, name, alpha2, alpha3, status]
+      properties:
+        id:
+          type: integer
+          format: int32
+          example: 112
+        name:
+          type: string
+          maxLength: 64
+          example: Belarus
+        alpha2:
+          type: string
+          minLength: 2
+          maxLength: 2
+          example: BY
+        alpha3:
+          type: string
+          minLength: 3
+          maxLength: 3
+          example: BLR
+        status:
+          $ref: "#/components/schemas/CountryStatus"
+
+    CountryStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE]
+      example: ACTIVE
+
+    IndividualResponse:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 8e4b6d21-3c7a-4f95-b1e0-6a2d9f3c8b74
+        passportNumber:
+          type: string
+          maxLength: 32
+          example: MP1234567
+        phoneNumber:
+          type: string
+          maxLength: 32
+          example: "+375291234567"
+        verifiedAt:
+          type: string
+          format: date-time
+          description: Empty until verification actually happened
+          example: "2026-08-19T12:34:56Z"
+        status:
+          $ref: "#/components/schemas/IndividualStatus"
+
+    IndividualStatus:
+      type: string
+      enum: [NEW, VERIFIED, REJECTED, ARCHIVED]
+      example: NEW
+
+    # Single error model shared by every service of the platform.
+    ErrorResponse:
+      type: object
+      required: [timestamp, path, status, error, message, traceId]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-08-19T12:34:56Z"
+        path:
+          type: string
+          example: /api/v1/persons/registration
+        status:
+          type: integer
+          format: int32
+          example: 400
+        error:
+          type: string
+          description: Stable machine-readable error code
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          example: Email is already registered
+        traceId:
+          type: string
+          description: Correlates the response with the trace stored in Tempo
+          example: 4bf92f3577b34da6a3ce929d0e0e4736
+        details:
+          type: array
+          description: Field-level failures, one readable line each
+          items:
+            type: string
+          example:
+            - "email: must be a well-formed email address"
+
+  responses:
+    BadRequest:
+      description: Request failed validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: No such domain user
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Email is already registered
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalServerError:
+      description: Unexpected error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

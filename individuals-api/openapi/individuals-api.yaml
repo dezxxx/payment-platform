@@ -1,0 +1,401 @@
+openapi: 3.0.3
+
+info:
+  title: individuals-api
+  description: |
+    External entry layer of the dezxxx payment platform.
+
+    Orchestrates registration and authentication. Owns no domain data:
+      - person-service is the source of truth about the domain user
+      - Keycloak is the source of truth about the account, tokens and roles
+  version: 1.0.0
+  contact:
+    name: dezxxx
+    email: web7tudio@gmail.com
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local
+
+tags:
+  - name: auth
+    description: Registration and authentication
+
+paths:
+
+  /api/v1/auth/registration:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Register a new user
+      description: |
+        Creates the domain user through person-service, then creates the
+        account in Keycloak, stores user_uid as a Keycloak user attribute and
+        logs the user in. The Keycloak account is created only after the
+        domain step succeeded.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegistrationRequest"
+            examples:
+              valid:
+                summary: Well-formed registration
+                value:
+                  email: user@dezxxx.com
+                  password: Str0ngP@ssw0rd
+                  confirmPassword: Str0ngP@ssw0rd
+              mismatchedConfirmation:
+                summary: Rejected with 400 - confirmation does not match
+                value:
+                  email: user@dezxxx.com
+                  password: Str0ngP@ssw0rd
+                  confirmPassword: Str0ngP@ssw0rt
+      responses:
+        "201":
+          description: User registered and logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+              examples:
+                registered:
+                  summary: Tokens issued right after registration
+                  value:
+                    accessToken: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9
+                    refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+                    expiresIn: 300
+                    tokenType: Bearer
+                    userUid: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Log in with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            examples:
+              valid:
+                summary: Known user
+                value:
+                  email: user@dezxxx.com
+                  password: Str0ngP@ssw0rd
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+              examples:
+                authenticated:
+                  value:
+                    accessToken: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9
+                    refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+                    expiresIn: 300
+                    tokenType: Bearer
+                    userUid: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/auth/refresh-token:
+    post:
+      tags: [auth]
+      operationId: refreshToken
+      summary: Exchange a refresh token for a new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenRequest"
+            examples:
+              valid:
+                summary: Refresh token issued by a previous login
+                value:
+                  refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+      responses:
+        "200":
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+              examples:
+                refreshed:
+                  value:
+                    accessToken: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9
+                    refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+                    expiresIn: 300
+                    tokenType: Bearer
+                    userUid: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      operationId: getCurrentUser
+      summary: Get the currently authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUserResponse"
+              examples:
+                current:
+                  summary: Resolved from the bearer token
+                  value:
+                    userUid: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+                    email: user@dezxxx.com
+                    emailVerified: false
+                    roles: [USER]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+
+    RegistrationRequest:
+      type: object
+      required: [email, password, confirmPassword]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          example: user@dezxxx.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          example: Str0ngP@ssw0rd
+        confirmPassword:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          example: Str0ngP@ssw0rd
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          example: user@dezxxx.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          example: Str0ngP@ssw0rd
+
+    RefreshTokenRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+
+    TokenResponse:
+      type: object
+      required: [accessToken, refreshToken, expiresIn, tokenType]
+      properties:
+        accessToken:
+          type: string
+          example: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9
+        refreshToken:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+        expiresIn:
+          type: integer
+          format: int64
+          description: Access token lifetime in seconds
+          example: 300
+        tokenType:
+          type: string
+          example: Bearer
+        userUid:
+          type: string
+          format: uuid
+          description: Domain user identifier issued by person-service
+          example: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+
+    CurrentUserResponse:
+      type: object
+      required: [userUid, email]
+      properties:
+        userUid:
+          type: string
+          format: uuid
+          example: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+        email:
+          type: string
+          format: email
+          example: user@dezxxx.com
+        emailVerified:
+          type: boolean
+          example: false
+        roles:
+          type: array
+          items:
+            type: string
+          example: [USER]
+
+    # Single error model shared by every service of the platform.
+    ErrorResponse:
+      type: object
+      required: [timestamp, path, status, error, message, traceId]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-08-19T12:34:56Z"
+        path:
+          type: string
+          example: /api/v1/auth/registration
+        status:
+          type: integer
+          format: int32
+          example: 400
+        error:
+          type: string
+          description: Stable machine-readable error code
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          example: Password confirmation does not match
+        traceId:
+          type: string
+          description: Correlates the response with the trace stored in Tempo
+          example: 4bf92f3577b34da6a3ce929d0e0e4736
+        details:
+          type: array
+          description: Field-level failures, one readable line each
+          items:
+            type: string
+          example:
+            - "confirmPassword: must match password"
+
+  responses:
+    BadRequest:
+      description: Request failed validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            validationFailed:
+              value:
+                timestamp: "2026-08-19T12:34:56Z"
+                path: /api/v1/auth/registration
+                status: 400
+                error: VALIDATION_ERROR
+                message: Password confirmation does not match
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details:
+                  - "confirmPassword: must match password"
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            badCredentials:
+              value:
+                timestamp: "2026-08-19T12:34:56Z"
+                path: /api/v1/auth/login
+                status: 401
+                error: INVALID_CREDENTIALS
+                message: Email or password is incorrect
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+    Conflict:
+      description: User already exists
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            duplicate:
+              value:
+                timestamp: "2026-08-19T12:34:56Z"
+                path: /api/v1/auth/registration
+                status: 409
+                error: USER_ALREADY_EXISTS
+                message: Email is already registered
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+    InternalServerError:
+      description: Unexpected error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServiceUnavailable:
+      description: A downstream dependency is unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            keycloakDown:
+              value:
+                timestamp: "2026-08-19T12:34:56Z"
+                path: /api/v1/auth/registration
+                status: 503
+                error: DEPENDENCY_UNAVAILABLE
+                message: Keycloak is not reachable
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
