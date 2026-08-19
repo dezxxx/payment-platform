@@ -1,4 +1,3 @@
-| Testcontainers | 2.0.5, inherited from the Boot BOM | artifact ids differ from 1.x — see section 9 |
 # CONTEXT
 
 Project context for humans and LLMs. Read this first before touching anything.
@@ -82,6 +81,137 @@ installed at `C:\Users\Dez\.jdks\openjdk-25.0.1`.
    `openApiGenerate`, and `check` depends on it. A broken contract fails the
    build, not the runtime.
 
+### individuals-api layers
+
+Mandatory chain, one direction only:
+
+```
+controller -> service -> gateway -> external system
+```
+
+| Layer | Holds | Never does |
+|---|---|---|
+| `controller` | accepts and returns DTOs, implements the generated `AuthApi` | business logic; direct calls to Keycloak or person-service |
+| `service` | orchestration of the registration and login scenarios | HTTP, JSON, Keycloak or person-client types |
+| `gateway` | every outbound call, one gateway per external system | domain decisions |
+| `validation`, `error`, `config`, `metrics` | validation rules, error mapping, security wiring, meters | anything belonging to another layer |
+
+Three gateways, no exceptions:
+
+- `PersonServiceGateway` — wraps the generated `PersonsApi`
+- `KeycloakAdminGateway` — account creation, password, attributes
+- `KeycloakOidcGateway` — token endpoint: login and refresh
+
+**Identifiers.** The business layer knows only the domain `user_uid`. The
+Keycloak `sub` is stored as a technical link (`keycloak_user_id`) and never
+becomes the platform's primary identifier. Nothing above the gateway layer is
+allowed to address a user by it.
+
+**Why gateways rather than repositories.** individuals-api owns no data, so it
+has no repository. The gateway takes that seat in the layer chain: an
+interface out front, an implementation behind it, injected into the service
+through the constructor as a reference type. The rule that Service and
+Controller never get invented interfaces of their own still holds.
+
+Patterns in play: `PersonServiceGateway` is an **Adapter** - it translates the
+generated client's types into domain types so generated code never leaks
+upwards. `KeycloakAdminGateway` is a **Facade** - one method hides the three
+Admin API calls that create an account, set its password and write the
+`user_uid` attribute.
+
+### Compensation policy
+
+The order - domain user first, Keycloak account second - guarantees no Keycloak
+account is ever left without a domain user. The inverse case is real: if the
+Keycloak steps fail, the domain user already exists in person-service.
+
+When that happens the service must:
+
+- write a structured error,
+- mark the incident as an inconsistent registration,
+- return an error to the client,
+- never hide the partial failure.
+
+Module 1 uses the simplified form: logging plus an explicit error code. Real
+compensating transactions come later in the course. Nothing here silently
+retries or pretends the registration succeeded.
+
+### Observability
+
+**Metrics.** Actuator plus Prometheus. Only `health` is exposed over HTTP by
+default, so the Prometheus endpoint is turned on explicitly:
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,prometheus"
+  endpoint:
+    health:
+      probes:
+        enabled: true
+```
+
+`prometheus.yml` must point at `metrics_path: /actuator/prometheus`.
+
+Required application meters:
+
+| Meter | Type | Meaning |
+|---|---|---|
+| `auth.registration` | counter | registration attempts |
+| `auth.registration.success` | counter | successful registrations |
+| `auth.registration.failure` | counter | failed registrations |
+| `auth.login` | counter | logins |
+| `auth.login.failure` | counter | failed logins |
+| `auth.refresh` | counter | token refreshes |
+| `external.keycloak.requests` | timer | Keycloak call duration |
+| `external.person_service.requests` | timer | person-service call duration |
+
+Named in Micrometer's dotted convention, **not** with the `_total` suffix the
+handout table shows. Prometheus appends `_total` to counters itself, so a meter
+registered as `auth_registration_total` is scraped as
+`auth_registration_total_total`. The handout lists the scraped names; the code
+must register the dotted ones.
+
+**Tracing.** Micrometer Tracing over OpenTelemetry, exported by OTLP:
+
+```yaml
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: http://tempo:4318/v1/traces
+```
+
+The `management.opentelemetry.tracing.export.otlp.*` namespace is the Boot 4
+one - Boot 3 used `management.otlp.tracing.*`. Trace context propagates across
+the network only when the HTTP client is built from Spring's autoconfigured
+builders, which is another reason the gateways must not construct their own.
+
+**Logs.** JSON to stdout, every record carrying: service name, `traceId`,
+`spanId`, request path, HTTP method, response status, business error code, and
+the domain `user_uid` when known.
+
+### Keycloak realm
+
+`realm/realm-export.json` must define:
+
+- a realm of its own for the course
+- a confidential client for individuals-api
+- a service account on that client for the Admin REST API
+- a mapper putting `user_uid` into the token, or a consistent way to read it
+  through `/me`
+- the roles needed to read and manage users (`view-users`, `manage-users` from
+  `realm-management`)
+
+The client secret is a credential: it lives in `.env`, never in the export
+committed to git.
+
 ### Deviations from the course handout, and why
 
 | Handout | Here | Reason |
@@ -120,6 +250,24 @@ succeeded.
 | POST | `/api/v1/auth/login` | none |
 | POST | `/api/v1/auth/refresh-token` | none |
 | GET | `/api/v1/auth/me` | Bearer |
+
+### Port map
+
+Host ports, as fixed by the course handout. Values live in `.env`, never in
+`docker-compose.yml`.
+
+| Service | Host | Container |
+|---|---|---|
+| keycloak | 8080 | 8080 |
+| individuals-api | 8081 | 8081 |
+| keycloak-postgres | 5433 | 5432 |
+| person-postgres | 5434 | 5432 |
+| prometheus | 9090 | 9090 |
+| tempo | 3200, 4318 | 3200, 4318 |
+| grafana | 3000 | 3000 |
+
+`person-service` gets 8082 in module 2 - not from the handout, chosen because
+8081 is taken. The OpenAPI `servers` entries follow this table.
 
 ---
 
@@ -176,15 +324,16 @@ Until Nexus is up, `mavenLocal()` covers it:
 - [x] `person-service/openapi/person-service.yaml` — the 3 frozen operations,
       schemas mirroring the DDL, same shared error model
 - [x] Flyway `V001__init_person_schema.sql`
+- [x] Flyway `V002__seed_countries.sql` — all 249 ISO 3166-1 entries
+- [x] `.env` + `.env.example` + `docker-compose.yml` — images pinned, ports per
+      the handout table
 - [x] **First real `./gradlew build` — green.** See section 9.
 
 ### Next up, in this order
 
-- [ ] Flyway migration `V002__seed_countries.sql`
 - [ ] `application.yml` / `application-docker.yml` / `logback-spring.xml`
 - [ ] `realm/realm-export.json`
 - [ ] `individuals-api/Dockerfile`
-- [ ] `.env` + `.env.example` + `docker-compose.yml`
 - [ ] `infra/` — prometheus, tempo, grafana provisioning
 - [ ] `README.md`
 - [ ] Postman collection
