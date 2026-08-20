@@ -3,7 +3,7 @@ openapi: 3.0.3
 info:
   title: individuals-api
   description: |
-    External entry layer of the dezxxx payment platform.
+    External entry layer of the payment platform.
 
     Orchestrates registration and authentication. Owns no domain data:
       - person-service is the source of truth about the domain user
@@ -50,12 +50,16 @@ paths:
                   email: user@dezxxx.com
                   password: Str0ngP@ssw0rd
                   confirmPassword: Str0ngP@ssw0rd
+                  firstName: Ivan
+                  lastName: Ivanov
               mismatchedConfirmation:
                 summary: Rejected with 400 - confirmation does not match
                 value:
                   email: user@dezxxx.com
                   password: Str0ngP@ssw0rd
                   confirmPassword: Str0ngP@ssw0rt
+                  firstName: Ivan
+                  lastName: Ivanov
       responses:
         "201":
           description: User registered and logged in
@@ -183,7 +187,10 @@ paths:
                   summary: Resolved from the bearer token
                   value:
                     userUid: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+                    keycloakUserId: 0b7a5f2c-19d4-4a8e-9c3b-77e1a0d4f5b6
                     email: user@dezxxx.com
+                    firstName: Ivan
+                    lastName: Ivanov
                     emailVerified: false
                     roles: [USER]
         "401":
@@ -205,12 +212,12 @@ components:
 
     RegistrationRequest:
       type: object
-      required: [email, password, confirmPassword]
+      required: [email, password, confirmPassword, firstName, lastName]
       properties:
         email:
           type: string
           format: email
-          maxLength: 255
+          maxLength: 1024
           example: user@dezxxx.com
         password:
           type: string
@@ -224,6 +231,18 @@ components:
           minLength: 8
           maxLength: 72
           example: Str0ngP@ssw0rd
+        # Required because person.users declares first_name and last_name
+        # NOT NULL - the domain user cannot be created without them.
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: Ivan
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: Ivanov
 
     LoginRequest:
       type: object
@@ -232,12 +251,15 @@ components:
         email:
           type: string
           format: email
-          maxLength: 255
+          maxLength: 1024
           example: user@dezxxx.com
+        # No minLength here on purpose. Password policy is enforced at
+        # registration and by Keycloak; rejecting a short attempt with 400
+        # instead of 401 would leak the policy and would lock out existing
+        # users if it ever loosened. maxLength stays only as a payload guard.
         password:
           type: string
           format: password
-          minLength: 8
           maxLength: 72
           example: Str0ngP@ssw0rd
 
@@ -252,7 +274,7 @@ components:
 
     TokenResponse:
       type: object
-      required: [accessToken, refreshToken, expiresIn, tokenType]
+      required: [accessToken, refreshToken, expiresIn, tokenType, userUid]
       properties:
         accessToken:
           type: string
@@ -276,16 +298,35 @@ components:
 
     CurrentUserResponse:
       type: object
-      required: [userUid, email]
+      # All of these are always known for an authenticated user: the token
+      # carries sub and the roles, and the domain columns behind firstName and
+      # lastName are NOT NULL. Matches the payload the handout shows for /me.
+      required: [userUid, keycloakUserId, email, firstName, lastName, emailVerified, roles]
       properties:
         userUid:
           type: string
           format: uuid
+          description: The platform identifier - the only one the business layer uses
           example: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+        keycloakUserId:
+          type: string
+          maxLength: 64
+          description: |
+            Keycloak `sub`. A technical link to the account, never the
+            platform's primary identifier.
+          example: 0b7a5f2c-19d4-4a8e-9c3b-77e1a0d4f5b6
         email:
           type: string
           format: email
           example: user@dezxxx.com
+        firstName:
+          type: string
+          maxLength: 64
+          example: Ivan
+        lastName:
+          type: string
+          maxLength: 64
+          example: Ivanov
         emailVerified:
           type: boolean
           example: false

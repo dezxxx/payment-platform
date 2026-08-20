@@ -1,0 +1,42 @@
+@startuml deployment
+title Local stack - docker compose
+
+skinparam shadowing false
+
+actor Client
+
+node "docker compose network" {
+  node "individuals-api\nhost 8081 -> 8081" as API
+  node "keycloak\nhost 8080 -> 8080" as KC
+  database "keycloak-postgres\nhost 5433 -> 5432" as KCDB
+  database "person-postgres\nhost 5434 -> 5432" as PSDB
+  node "prometheus\nhost 9090 -> 9090" as PROM
+  node "tempo\nhost 3200, 4318" as TEMPO
+  node "grafana\nhost 3000 -> 3000" as GRAF
+}
+
+node "person-service\n8082 - arrives in module 2" as PS
+
+Client --> API : POST /api/v1/auth/...
+API --> KC : Admin REST API\nand OIDC token endpoint
+API ..> PS : HTTP, not running yet
+KC --> KCDB : JDBC
+PROM --> API : scrape /actuator/prometheus
+API --> TEMPO : OTLP push /v1/traces
+GRAF --> PROM
+GRAF --> TEMPO
+
+note right of PROM
+  Prometheus pulls, the application pushes.
+  That is why the app address lives in
+  prometheus.yml while the Tempo address
+  lives in application.yml.
+end note
+
+note bottom of PSDB
+  Runs in module 1 only so the Flyway
+  migrations have something to apply to.
+  Nothing connects to it yet.
+end note
+
+@enduml

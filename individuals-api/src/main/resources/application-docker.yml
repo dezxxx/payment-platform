@@ -1,0 +1,27 @@
+# Overrides for SPRING_PROFILES_ACTIVE=docker.
+#
+# Only addresses change. On the compose network a service is reached by its
+# service name and its container port - the host port mapping is irrelevant
+# here, which is why Keycloak is 8080 and not whatever .env published it as.
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://keycloak:8080/realms/${KEYCLOAK_REALM:payment-platform}
+
+individuals:
+  person-service:
+    # person-service itself arrives in module 2; only its database runs today,
+    # so any call through this address fails until then. That is expected.
+    base-url: http://person-service:8082
+  keycloak:
+    base-url: http://keycloak:8080
+
+management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: http://tempo:4318/v1/traces

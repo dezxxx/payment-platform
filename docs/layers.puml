@@ -1,0 +1,73 @@
+@startuml layers
+title individuals-api - target layer structure
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+package "api (generated)" <<Frame>> {
+  interface AuthApi
+  note right of AuthApi
+    Generated from individuals-api.yaml
+    with interfaceOnly. The controller
+    implements it, so the contract and
+    the code cannot drift apart.
+  end note
+}
+
+package controller {
+  class AuthController
+}
+
+package service {
+  class RegistrationService
+  class AuthenticationService
+}
+
+package gateway {
+  interface PersonServiceGateway
+  interface KeycloakAdminGateway
+  interface KeycloakOidcGateway
+}
+
+package validation {
+  class PasswordConfirmationValidator
+}
+
+package error {
+  class GlobalExceptionHandler
+}
+
+package metrics {
+  class AuthMetrics
+}
+
+AuthController ..|> AuthApi
+AuthController --> RegistrationService
+AuthController --> AuthenticationService
+
+RegistrationService --> PersonServiceGateway
+RegistrationService --> KeycloakAdminGateway
+RegistrationService --> KeycloakOidcGateway
+AuthenticationService --> KeycloakOidcGateway
+
+RegistrationService --> AuthMetrics
+AuthenticationService --> AuthMetrics
+
+note bottom of gateway
+  individuals-api owns no data, so it has no
+  repository. The gateway takes that seat:
+  an interface out front, an implementation
+  behind it, injected through the constructor.
+
+  Nothing above this layer may see person-client
+  types or the Keycloak sub. Only the domain
+  user_uid crosses upwards.
+end note
+
+note bottom of error
+  Controllers declare throws Exception, so
+  errors land here and become one ErrorResponse
+  carrying the traceId.
+end note
+
+@enduml

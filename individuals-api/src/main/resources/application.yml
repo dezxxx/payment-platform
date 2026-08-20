@@ -1,0 +1,62 @@
+# individuals-api - base configuration.
+#
+# Everything environment-specific is an environment variable with a local
+# default, so this file works unchanged when running from the IDE. Only the
+# addresses differ inside the compose network, and application-docker.yml
+# overrides exactly those.
+
+spring:
+  application:
+    # Also becomes the ECS service.name in the structured logs - the ECS
+    # formatter defaults to this property, so it is not repeated below.
+    name: individuals-api
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_URL:http://localhost:8080}/realms/${KEYCLOAK_REALM:payment-platform}
+
+server:
+  # Fixed by the handout port map: the container listens on 8081 and compose
+  # maps 8081:8081.
+  port: 8081
+
+# Outbound targets. Only the gateway layer is allowed to read these.
+individuals:
+  person-service:
+    base-url: ${PERSON_SERVICE_URL:http://localhost:8082}
+  keycloak:
+    base-url: ${KEYCLOAK_URL:http://localhost:8080}
+    realm: ${KEYCLOAK_REALM:payment-platform}
+    client-id: ${KEYCLOAK_CLIENT_ID:individuals-api}
+    # Never hardcoded - the confidential client's secret comes from .env.
+    client-secret: ${KEYCLOAK_CLIENT_SECRET:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Actuator publishes only health over HTTP by default; prometheus has
+        # to be named explicitly or the scrape job gets a 404.
+        include: "health,info,prometheus"
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      # Everything is sampled. Fine for a local stack, never for production.
+      probability: 1.0
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  structured:
+    format:
+      # JSON to stdout. traceId and spanId are added by Boot itself once
+      # tracing is on; the request path, method, status, business error code
+      # and user_uid are put into MDC by the application.
+      console: ecs

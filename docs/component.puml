@@ -1,0 +1,45 @@
+@startuml component
+title payment-platform - modules and how a contract travels
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+package "payment-platform monorepo" {
+  component "person-service" as PS
+  component "person-client" as PC
+  component "individuals-api" as API
+
+  artifact "person-service.yaml" as PSY
+  artifact "individuals-api.yaml" as IAY
+  artifact "V001, V002\nFlyway migrations" as MIG
+}
+
+database "Nexus\n(mavenLocal until it is up)" as NEXUS
+artifact "com.dezxxx:person-client:1.0.0-SNAPSHOT" as PCJ
+
+PS *-- PSY
+PS *-- MIG
+API *-- IAY
+
+PSY --> PC : openApiGenerate\nDTOs + @HttpExchange
+IAY --> API : openApiGenerate\nAuthApi interface only
+PC --> PCJ : publish
+PCJ --> NEXUS
+NEXUS --> API : resolved by Maven coordinates
+
+note bottom of API
+  Never project(":person-client").
+  Cross-module contracts travel as
+  published artifacts, so any module
+  can move to its own repository
+  without a rewrite.
+end note
+
+note right of PS
+  Module 1 ships no code here.
+  Only the frozen contract and
+  the migrations the next module
+  will run.
+end note
+
+@enduml

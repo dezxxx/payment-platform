@@ -208,9 +208,50 @@ the domain `user_uid` when known.
   through `/me`
 - the roles needed to read and manage users (`view-users`, `manage-users` from
   `realm-management`)
+- `upConfig` declaring `user_uid` as a user profile attribute — see below
 
 The client secret is a credential: it lives in `.env`, never in the export
 committed to git.
+
+#### Why `upConfig` is not optional
+
+Since Keycloak 24 the declarative user profile is always on, and unmanaged
+attributes are **disabled** by default. An attribute that the profile does not
+declare is dropped silently: `POST /admin/realms/{realm}/users` still answers
+`201`, the account is created, and the attribute is simply not there. No error,
+no warning. The protocol mapper then has nothing to map and the claim never
+appears in the token.
+
+That is exactly what happened here, and it was invisible until a token was
+decoded. The fix is to declare `user_uid` in `upConfig`. Declaring `upConfig`
+replaces the whole default profile, so `username`, `email`, `firstName` and
+`lastName` have to be listed again with their original validations.
+
+Editing the user profile needs `manage-realm`, which our service account
+deliberately does **not** have — it is configuration, not runtime work, so it
+belongs in `realm-export.json` and nowhere else.
+
+#### Verified against a running Keycloak 26.7.2
+
+Checked end to end after a `down -v` and a fresh import:
+
+| Check | Result |
+|---|---|
+| `client_credentials` on `individuals-api` | token issued — client is confidential, secret matches `.env`, service account is on |
+| `GET /admin/realms/{realm}/users` with that token | `200` — `view-users` really is granted |
+| create user with `credentials` + `attributes` in one call | `201`, account complete |
+| password grant as that user | tokens issued, and `user_uid` present as a claim |
+| same, but `"temporary": true` | `400 invalid_grant`, `Account is not fully set up` |
+| create a second user with an existing email | `409`, `User exists with same email` |
+| password grant with a wrong password | `400 invalid_grant`, `Invalid user credentials` |
+
+Two consequences for the gateway code:
+
+- Keycloak answers a bad password with **400**, not 401. `KeycloakOidcGateway`
+  translates it: our contract says 401, and the client must never see 400 here.
+- `400 invalid_grant` covers both a wrong password and a not-fully-set-up
+  account. The status code alone cannot tell them apart — only
+  `error_description` can. Log the description, return 401.
 
 ### Deviations from the course handout, and why
 
@@ -221,6 +262,8 @@ committed to git.
 | spec kept in `common/` | spec kept in the module that owns it | matches the artifact table: `person-service/openapi/person-service.yaml` |
 | Spring Boot 4.0.6 | 4.1.0 | 4.1.0 reached GA after the handout was written |
 | `proselyte` / `com.example` | `dezxxx` / `com.dezxxx` | handout placeholders |
+| Tempo traces under `/tmp/tempo/traces` | `/var/tempo`, with an explicit wal path | that is where docker-compose mounts the named volume; under `/tmp` the traces die with the container and the volume stays empty |
+| postgres volume at `/var/lib/postgresql/data` | `/var/lib/postgresql` | PostgreSQL 18 moved the data directory one level down and refuses to start when the old path is mounted — the container exits with code 1 |
 
 ---
 
@@ -234,11 +277,70 @@ succeeded.
 3. calls `person-service` over HTTP to create the domain user
 4. receives `user_uid`
 5. obtains a Keycloak admin token
-6. `POST /admin/realms/{realm}/users` — creates the account
-7. `PUT /admin/realms/{realm}/users/{id}/reset-password` — sets the password
-8. writes `user_uid` as a Keycloak user attribute
-9. logs in via `/realms/{realm}/protocol/openid-connect/token`
-10. returns access token, refresh token, lifetime and `user_uid`
+6. `POST /admin/realms/{realm}/users` — creates the account in a single call
+7. logs in via `/realms/{realm}/protocol/openid-connect/token`
+8. returns access token, refresh token, lifetime and `user_uid`
+
+Step 6 carries the password and the attribute in the same body, so the account
+is either created complete or not created at all:
+
+```json
+{
+  "username": "user@example.com",
+  "email": "user@example.com",
+  "firstName": "...",
+  "lastName": "...",
+  "enabled": true,
+  "emailVerified": true,
+  "attributes": { "user_uid": ["<uuid returned by person-service>"] },
+  "credentials": [
+    { "type": "password", "value": "<password>", "temporary": false }
+  ]
+}
+```
+
+`temporary: false` is mandatory. A temporary password makes Keycloak attach the
+`UPDATE_PASSWORD` required action, and step 7 then fails with
+`400 invalid_grant: Account is not fully set up`.
+
+The separate `PUT /admin/realms/{realm}/users/{id}/reset-password` call is not
+used during registration. It stays available for a future change-password
+scenario, and it takes the same `temporary` flag.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant Ctl as AuthController
+    participant Svc as RegistrationService
+    participant PGw as PersonServiceGateway
+    participant Per as person-service
+    participant AGw as KeycloakAdminGateway
+    participant OGw as KeycloakOidcGateway
+    participant Kc as Keycloak
+
+    Client->>Ctl: POST /api/v1/auth/registration
+    Ctl->>Svc: register
+    Note over Svc: format and password confirmation
+    Svc->>PGw: create domain user
+    PGw->>Per: POST /api/v1/persons/registration
+    Per-->>PGw: user_uid
+    PGw-->>Svc: user_uid
+    Svc->>AGw: create account
+    AGw->>Kc: POST /admin/realms/REALM/users<br/>credentials plus user_uid attribute
+    Kc-->>AGw: keycloak user id
+    AGw-->>Svc: keycloak user id
+    Svc->>OGw: log in
+    OGw->>Kc: POST /realms/REALM/protocol/openid-connect/token
+    Kc-->>OGw: access, refresh, expiresIn
+    OGw-->>Svc: tokens
+    Svc-->>Ctl: TokenResponse
+    Ctl-->>Client: 201 tokens plus user_uid
+```
+
+Everything from step 6 onwards can fail with the domain user already created.
+That is the window the compensation policy covers: log it, mark the
+registration inconsistent, return an error, hide nothing.
 
 ---
 
@@ -250,6 +352,42 @@ succeeded.
 | POST | `/api/v1/auth/login` | none |
 | POST | `/api/v1/auth/refresh-token` | none |
 | GET | `/api/v1/auth/me` | Bearer |
+
+### What each endpoint does
+
+**`POST /registration`** — creates the domain user, then the Keycloak account,
+then logs in on the caller's behalf so the client never has to send a second
+request. Answers `201` with `TokenResponse`. A duplicate email is a `409`, and
+it can be raised by either side: `person-service` may already hold that email,
+and Keycloak answers `User exists with same email` with its own `409`. Both map
+to the same `409` outward — the client does not care which store objected.
+
+**`POST /login`** — no database of ours is touched. Email and password go
+straight to Keycloak as `grant_type=password`; on success `200` with
+`TokenResponse`. Bad credentials come back from Keycloak as `400 invalid_grant`
+and are translated to `401`.
+
+**`POST /refresh-token`** — a thin wrapper over `grant_type=refresh_token`.
+Keycloak normally rotates the refresh token too, so both tokens in the response
+are fresh. `200` on success; an expired or revoked token is `401`.
+
+**`GET /auth/me`** — protected. Spring Security validates the JWT against the
+realm's JWKS, then the service reads `sub` from it and calls
+`GET /admin/realms/{realm}/users/{id}` through `KeycloakAdminGateway`.
+
+The call to Keycloak is deliberate, not laziness about parsing the token. A JWT
+is a snapshot from the moment it was issued and stays valid for its lifetime, so
+a token alone cannot tell us whether the account was disabled or deleted a
+minute ago; the Admin API can. It also carries fields the token does not, such
+as the creation timestamp. If the account is gone, `/me` answers `404`; if the
+token itself is bad or expired, `401`.
+
+The roles in `CurrentUserResponse` are read from the token's `realm_access`, not
+from a second Admin API call — they are already there and cost nothing.
+
+> Open point: the handout's `/me` description mentions the registration
+> timestamp, which `CurrentUserResponse` does not currently declare. Adding it
+> means touching the frozen contract, so it waits for a decision.
 
 ### Port map
 
@@ -283,6 +421,8 @@ payment-platform/
 ├── .env                       image tags, ports, credentials (not in git)
 ├── infra/                     prometheus, tempo, grafana provisioning
 ├── postman/
+├── docs/                      PlantUML diagrams (component, deployment,
+│                              registration sequence, layers)
 ├── person-client/             generated DTOs + HTTP clients -> Nexus
 ├── individuals-api/           the orchestrator
 └── person-service/            contract + Flyway migrations only (module 2)
@@ -303,6 +443,63 @@ Until Nexus is up, `mavenLocal()` covers it:
 ---
 
 ## 8. Progress — module 1
+
+### Acceptance criteria
+
+The module is accepted only when every line below is true. These are the
+handout's, verbatim in meaning.
+
+| # | Criterion |
+|---|---|
+| 1 | the monorepo contains individuals-api and person-service |
+| 2 | the OpenAPI contracts exist and pass `openApiValidate` |
+| 3 | registration works through the orchestration scenario |
+| 4 | `user_uid` is written into Keycloak as a user attribute |
+| 5 | `/login`, `/refresh-token` and `/me` work |
+| 6 | the HTTP client with its DTOs is published to Nexus |
+| 7 | `docker compose up --build` brings up the infrastructure and the app |
+| 8 | `/actuator/health` and `/actuator/prometheus` are reachable |
+| 9 | traces are visible in Grafana/Tempo |
+| 10 | unit and integration tests exist |
+| 11 | the main scenario is covered at 80% or better on the key services |
+| 12 | README.md and CONTEXT.md are written |
+
+Criterion 11 needs a coverage tool, and the build has none yet - JaCoCo is on
+the list below.
+
+### Mandatory test cases
+
+**Unit** - orchestration, validation, error mapping, conflicts, parsing the
+answers of external systems.
+
+| Code | Scenario | Expected |
+|---|---|---|
+| UT-REG-001 | valid registration request | person-service is called first, then Keycloak, then tokens are returned |
+| UT-REG-002 | password and confirmation differ | 400, Keycloak is never called |
+| UT-REG-003 | person-service reports an email conflict | 409, Keycloak is never called |
+| UT-REG-004 | domain user created, Keycloak unreachable | 502/503, the partial failure is recorded |
+| UT-LOG-001 | successful login | access and refresh tokens returned |
+| UT-LOG-002 | wrong password | 401 |
+| UT-REF-001 | successful token refresh | a new access token is returned |
+| UT-ME-001 | valid bearer token | the current user is returned |
+
+**Integration** - containers, real HTTP against Keycloak, tokens, actuator,
+tracing.
+
+| Code | Scenario | Expected |
+|---|---|---|
+| IT-KC-001 | registration against a real Keycloak container | the user appears in the realm |
+| IT-KC-002 | after registration | the `user_uid` attribute is found in Keycloak |
+| IT-KC-003 | `/login` against the real token endpoint | a real JWT comes back |
+| IT-OBS-001 | `/actuator/prometheus` | Prometheus metrics are readable |
+| IT-OBS-002 | after a request | a trace is visible in Tempo/Grafana |
+| IT-OBS-003 | log records | carry `traceId` and `spanId` |
+| IT-DB-001 | person-service migrations against PostgreSQL | Flyway succeeds |
+
+**Where these classes must live.** `individuals-api/build.gradle.kts` filters
+`test` to `com.dezxxx.individuals.unit.*` and `integrationTest` to
+`com.dezxxx.individuals.integration.*`. A test placed anywhere else runs in
+neither task and fails silently by never running at all.
 
 ### Done
 
@@ -339,6 +536,10 @@ Until Nexus is up, `mavenLocal()` covers it:
 - [ ] Postman collection
 - [ ] Business code: controller / service / gateway / keycloak / error
 - [ ] Unit tests, then Testcontainers integration tests
+- [ ] JaCoCo — acceptance criterion 11 asks for a coverage number and the
+      build cannot produce one yet
+- [ ] Publish `person-client` to Nexus — acceptance criterion 6; only
+      `publishToMavenLocal` has been exercised so far
 
 ### Working agreements
 
@@ -431,3 +632,111 @@ clean immediately, with no change to any build file.
 Revisit when IDEA ships support for Gradle 9.7. Moving back is one line in
 `gradle/wrapper/gradle-wrapper.properties` — nothing in the build depends on
 the version.
+
+---
+
+## 10. Configuration map
+
+The same four views exist as PlantUML in `docs/` - `component.puml`,
+`deployment.puml`, `registration-sequence.puml` and `layers.puml` - for the
+IDE plugin. The Mermaid below is the copy that renders on GitHub without one.
+When one changes, change the other.
+
+The files here work at two different times and mostly do not know about each
+other. What binds them is a handful of values that must agree - and those are
+exactly the places that break silently.
+
+### Build time - no containers exist yet
+
+```mermaid
+flowchart TB
+    SG["settings.gradle.kts<br/>which modules exist"]
+    GP["gradle.properties<br/>coordinates, toolchain, Nexus"]
+    LV["libs.versions.toml<br/>every version"]
+    PSY["person-service.yaml"]
+    IAY["individuals-api.yaml"]
+    PCJ["person-client.jar<br/>DTOs plus HttpExchange"]
+    APIJ["individuals-api.jar"]
+
+    SG --> APIJ
+    GP --> APIJ
+    LV --> APIJ
+    PSY -->|openApiGenerate| PCJ
+    IAY -->|openApiGenerate| APIJ
+    PCJ -->|Maven coordinates<br/>through mavenLocal or Nexus| APIJ
+```
+
+The OpenAPI specs live only here. At runtime nothing reads them - the code was
+already generated from them.
+
+### Run time - who reads what
+
+```mermaid
+flowchart TB
+    ENV[".env"]
+    DC["docker-compose.yml"]
+    RE["realm-export.json"]
+    PY["prometheus.yml"]
+    TY["tempo.yml"]
+    AY["application.yml"]
+    ADY["application-docker.yml"]
+    LB["logback-spring.xml"]
+
+    ENV -->|substitution| DC
+    DC -->|mount| RE
+    DC -->|mount| PY
+    DC -->|mount| TY
+    DC -->|environment block| APP["individuals-api process"]
+    AY --> APP
+    ADY -->|overrides addresses| APP
+    LB --> APP
+    RE -->|import-realm at startup| KC["Keycloak"]
+    PY --> PROM["Prometheus"]
+    TY --> TEMPO["Tempo"]
+```
+
+`.env` is substituted into the compose file itself. It does **not** reach the
+container - only the `environment:` block does. That is why individuals-api
+lists `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID` and `KEYCLOAK_CLIENT_SECRET`
+explicitly.
+
+### Run time - who talks to whom
+
+```mermaid
+flowchart LR
+    CL(["client"]) -->|8081| API["individuals-api"]
+    API -->|8080| KC["keycloak"]
+    API -.->|8082 - module 2| PS["person-service"]
+    KC -->|5432| KCDB[("keycloak-postgres")]
+    PSDB[("person-postgres")]
+    API -->|4318 OTLP push| TEMPO["tempo"]
+    PROM["prometheus"] -->|scrape 8081| API
+    GRAF["grafana"] --> PROM
+    GRAF --> TEMPO
+```
+
+Two opposite mechanics, and they are easy to confuse. **Prometheus pulls** -
+it walks to the application on a schedule, so the application's address lives
+in `prometheus.yml`. **The application pushes** traces, so Tempo's address
+lives in `application.yml`. One arrow points each way.
+
+### Values that must agree
+
+Every row is a place where a mismatch breaks something without raising an
+error anywhere.
+
+| Coupling | One side | Other side | What must match |
+|---|---|---|---|
+| metrics scrape | `prometheus.yml` target `individuals-api:8081` | compose service name plus `server.port` | name and port |
+| metrics path | `prometheus.yml` `metrics_path` | `application.yml` `exposure.include` | prometheus is exposed |
+| traces | `application-docker.yml` `tempo:4318/v1/traces` | `tempo.yml` OTLP http receiver | host, port, path |
+| Tempo storage | `tempo.yml` `/var/tempo/...` | compose `tempo-data:/var/tempo` | the path |
+| realm name | `.env` `KEYCLOAK_REALM` | `realm-export.json` `realm` | the value |
+| client id | `.env` `KEYCLOAK_CLIENT_ID` | `realm-export.json` `clientId` | the value |
+| client secret | `.env` `KEYCLOAK_CLIENT_SECRET` | `realm-export.json` `secret` | the value |
+| app port | `application.yml` `server.port` | compose `8081:8081` | the right-hand side |
+
+How this bites: change `server.port` to 8080 and forget `prometheus.yml`. The
+application starts, `/actuator/prometheus` answers, and Prometheus quietly
+scrapes a refused connection. No error in the application log - just an empty
+graph in Grafana.

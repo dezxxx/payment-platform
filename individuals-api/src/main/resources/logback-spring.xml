@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+    JSON logs to stdout, required by the module.
+
+    No third-party encoder is involved. Spring Boot ships structured logging
+    natively, so this file only wires up what Boot already provides:
+
+      defaults.xml                  log levels, charset, and the
+                                    CONSOLE_LOG_STRUCTURED_FORMAT property fed
+                                    from logging.structured.format.console
+      structured-console-appender   a ConsoleAppender whose encoder is
+                                    org.springframework.boot.logging.logback.StructuredLogEncoder
+
+    The format itself (ecs) is chosen in application.yml, not here, so it can
+    be overridden per profile without touching this file.
+-->
+
+<configuration>
+
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/structured-console-appender.xml"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <logger name="com.dezxxx.individuals" level="DEBUG"/>
+
+</configuration>

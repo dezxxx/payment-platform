@@ -1,0 +1,18 @@
+# Scrape configuration for the local stack.
+#
+# individuals-api is reached by its compose service name on the internal
+# network, so the host port mapping is irrelevant here - 8081 is the port the
+# application listens on inside its container.
+#
+# Actuator exposes nothing but health over HTTP by default; the application
+# must set management.endpoints.web.exposure.include to include prometheus,
+# or this job scrapes a 404.
+
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "individuals-api"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["individuals-api:8081"]

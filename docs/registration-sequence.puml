@@ -1,0 +1,67 @@
+@startuml registration
+title Registration - the core scenario
+
+autonumber
+skinparam shadowing false
+
+actor Client
+participant "AuthController" as Ctl
+participant "RegistrationService" as Svc
+participant "PersonServiceGateway" as PGw
+participant "person-service" as Per
+participant "KeycloakAdminGateway" as AGw
+participant "KeycloakOidcGateway" as OGw
+participant "Keycloak" as Kc
+
+Client -> Ctl : POST /api/v1/auth/registration
+activate Ctl
+Ctl -> Svc : register
+activate Svc
+
+Svc -> Svc : validate format and\npassword confirmation
+
+Svc -> PGw : create domain user
+activate PGw
+PGw -> Per : POST /api/v1/persons/registration
+Per --> PGw : user_uid
+PGw --> Svc : user_uid
+deactivate PGw
+
+group Domain user already exists past this line
+  Svc -> AGw : create account
+  activate AGw
+  AGw -> Kc : POST /admin/realms/REALM/users\ncredentials (temporary false)\nplus user_uid attribute
+  Kc --> AGw : keycloak user id
+  AGw --> Svc : keycloak user id
+  deactivate AGw
+
+  Svc -> OGw : log in
+  activate OGw
+  OGw -> Kc : POST /realms/REALM/protocol/openid-connect/token
+  Kc --> OGw : access, refresh, expiresIn
+  OGw --> Svc : tokens
+  deactivate OGw
+end
+
+Svc --> Ctl : TokenResponse
+deactivate Svc
+Ctl --> Client : 201 with tokens and user_uid
+deactivate Ctl
+
+note over Svc, Kc
+  The order is deliberate: the Keycloak account is
+  created only after the domain step succeeded, so
+  no account is ever left without a domain user.
+
+  One admin call, not three. Password and attribute
+  travel in the create body, so the account is either
+  created complete or not created at all.
+
+  The inverse is the open window. Any failure inside
+  the group leaves an orphaned domain user, and the
+  compensation policy applies - structured log, mark
+  the registration inconsistent, return an error,
+  hide nothing.
+end note
+
+@enduml
