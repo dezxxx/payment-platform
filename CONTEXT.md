@@ -60,6 +60,15 @@ installed at `C:\Users\Dez\.jdks\openjdk-25.0.1`.
 
 ## 3. Architectural rules
 
+0. **Reactive stack — Spring WebFlux, not Spring MVC.** Required by the
+   handout. Netty instead of Tomcat, `Mono`/`Flux` instead of plain return
+   types, `WebClient` instead of `RestClient`, `SecurityWebFilterChain` instead
+   of `SecurityFilterChain`. Nothing in the service may block the event loop:
+   no `.block()`, no blocking JDBC, no blocking HTTP client. Both OpenAPI
+   modules are generated with `reactive = true`, so the contracts themselves
+   are `Mono`-typed and a blocking implementation would not even compile
+   against them.
+
 1. **Contract first, always.** The OpenAPI spec is written before the code.
    Nothing is hand-written that a generator can produce.
    - `individuals-api/openapi/individuals-api.yaml` — server interfaces are
@@ -75,7 +84,8 @@ installed at `C:\Users\Dez\.jdks\openjdk-25.0.1`.
    coordinates. Modules are `include`d only so one wrapper builds them all.
 
 4. **Transport = Spring HTTP Service Clients + WebClient.** No Feign.
-   `person-client` is generated with `library = spring-http-interface`.
+   `person-client` is generated with `library = spring-http-interface`, and the
+   proxies are built with `WebClientAdapter` so every call returns a `Mono`.
 
 5. **Every build validates the contracts** — `openApiValidate` runs before
    `openApiGenerate`, and `check` depends on it. A broken contract fails the
@@ -406,6 +416,13 @@ Host ports, as fixed by the course handout. Values live in `.env`, never in
 
 `person-service` gets 8082 in module 2 - not from the handout, chosen because
 8081 is taken. The OpenAPI `servers` entries follow this table.
+
+**Nexus runs on 8083, not on its own default 8081.** The handout fixes 8081 for
+individuals-api, so Nexus is the one that has to move; the URLs live in
+`gradle.properties`. Until Nexus is up, that unreachable repository is also why
+IntelliJ reports `Sources were not downloaded for ...`: an ordinary build finds
+the jar in Maven Central and never reaches the third repository, but the IDE
+asks every repository for sources and reports the whole lookup as failed.
 
 ---
 

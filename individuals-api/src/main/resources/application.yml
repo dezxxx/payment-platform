@@ -10,6 +10,11 @@ spring:
     # Also becomes the ECS service.name in the structured logs - the ECS
     # formatter defaults to this property, so it is not repeated below.
     name: individuals-api
+  jackson:
+    # Jackson serialises nulls by default, which would put "details": null into
+    # every error response. The contract marks details optional, so an absent
+    # field is the correct wire form.
+    default-property-inclusion: non_null
   security:
     oauth2:
       resourceserver:
