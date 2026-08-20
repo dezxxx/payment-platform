@@ -13,7 +13,7 @@ participant "KeycloakAdminGateway" as AGw
 participant "KeycloakOidcGateway" as OGw
 participant "Keycloak" as Kc
 
-Client -> Ctl : POST /api/v1/auth/registration
+Client -> Ctl : POST /v1/auth/registration
 activate Ctl
 Ctl -> Svc : register
 activate Svc

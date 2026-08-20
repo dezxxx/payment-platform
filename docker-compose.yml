@@ -64,7 +64,10 @@ services:
 
   individuals-api:
     build:
-      context: ./individuals-api
+      # Root context: Gradle needs settings.gradle.kts, the wrapper, the
+      # version catalog and person-client, none of which live in the module.
+      context: .
+      dockerfile: individuals-api/Dockerfile
     depends_on:
       # service_started, not service_healthy: Keycloak needs a while to finish
       # importing the realm, so the application must tolerate it not answering
@@ -100,11 +103,41 @@ services:
       - "${TEMPO_PORT}:3200"
       - "${TEMPO_OTLP_HTTP_PORT}:4318"
 
+  loki:
+    image: ${LOKI_IMAGE}
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./infra/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    ports:
+      - "${LOKI_PORT}:3100"
+
+  alloy:
+    image: ${ALLOY_IMAGE}
+    # run means "start with this config"; the storage path is where Alloy keeps
+    # how far it has read each container log, so a restart does not replay
+    # everything from the beginning.
+    command:
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    depends_on:
+      - loki
+    # The Docker socket is root-owned, and the image runs as an unprivileged
+    # user that cannot read it. Acceptable for a local stack only.
+    user: root
+    volumes:
+      - ./infra/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Read-only: the agent only ever lists containers and reads their logs.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+
   grafana:
     image: ${GRAFANA_IMAGE}
     depends_on:
       - prometheus
       - tempo
+      - loki
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
@@ -119,4 +152,6 @@ volumes:
   keycloak-postgres-data:
   person-postgres-data:
   tempo-data:
+  loki-data:
+  alloy-data:
   grafana-data:

@@ -24,6 +24,8 @@ service listens on inside the compose network — that is the one used in
 | prometheus | 9090 | 9090 | http://localhost:9090 | metrics, scrapes `individuals-api:8081` |
 | tempo | 3200 | 3200 | http://localhost:3200 | trace storage, queried by Grafana |
 | tempo OTLP | 4318 | 4318 | — | where the app pushes traces |
+| loki | 3100 | 3100 | http://localhost:3100 | log store, queried through Grafana |
+| alloy | none | none | — | reads container logs, pushes them to Loki |
 | grafana | 3000 | 3000 | http://localhost:3000 | dashboards |
 
 Why 8083 for Nexus: Nexus normally defaults to 8081, but the handout fixes 8081
@@ -52,10 +54,10 @@ Base: `http://localhost:8081`
 
 | Method | Path | Auth | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/v1/auth/registration` | none | 201 tokens | 400 validation, 409 email taken, 503 dependency |
-| POST | `/api/v1/auth/login` | none | 200 tokens | 400 validation, 401 bad credentials, 503 |
-| POST | `/api/v1/auth/refresh-token` | none | 200 tokens | 400 validation, 401 expired/invalid refresh, 503 |
-| GET | `/api/v1/auth/me` | `Bearer <access>` | 200 user | 401 missing/invalid token |
+| POST | `/v1/auth/registration` | none | 201 tokens | 400 validation, 409 email taken, 503 dependency |
+| POST | `/v1/auth/login` | none | 200 tokens | 400 validation, 401 bad credentials, 503 |
+| POST | `/v1/auth/refresh-token` | none | 200 tokens | 400 validation, 401 expired/invalid refresh, 503 |
+| GET | `/v1/auth/me` | `Bearer <access>` | 200 user | 401 missing/invalid token |
 
 Infrastructure, all open:
 
@@ -119,7 +121,7 @@ need to see here.
 curl -i http://localhost:8081/actuator/health
 
 # no token -> must be 401 with OUR json body (timestamp, path, status, error, message, traceId)
-curl -i http://localhost:8081/api/v1/auth/me
+curl -i http://localhost:8081/v1/auth/me
 
 # keycloak is up and the realm imported
 curl -s http://localhost:8080/realms/payment-platform/.well-known/openid-configuration | head -c 300

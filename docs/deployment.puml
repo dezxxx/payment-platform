@@ -17,7 +17,7 @@ node "docker compose network" {
 
 node "person-service\n8082 - arrives in module 2" as PS
 
-Client --> API : POST /api/v1/auth/...
+Client --> API : POST /v1/auth/...
 API --> KC : Admin REST API\nand OIDC token endpoint
 API ..> PS : HTTP, not running yet
 KC --> KCDB : JDBC

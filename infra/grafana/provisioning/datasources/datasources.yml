@@ -1,0 +1,58 @@
+# Data sources, created by Grafana at startup.
+#
+# Provisioned rather than clicked: a dashboard refers to a data source by uid,
+# so the uids have to be fixed and identical on every machine. Anything added
+# by hand in the UI would get a random uid and the dashboards would come up
+# empty on the next laptop.
+#
+# Addresses are compose service names - Grafana talks to them on the internal
+# network, so the host port mappings in .env are irrelevant here.
+
+apiVersion: 1
+
+datasources:
+
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # From a span, jump to the log lines of the same request. The trace id
+      # is matched against the structured metadata the agent attached.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        filterByTraceID: true
+        customQuery: true
+        query: '{env="docker-compose"} | trace_id = "$${__span.traceId}"'
+      # From a span, jump to the metrics of the service that produced it.
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      # The other direction: a trace id inside a log line becomes a link that
+      # opens the trace in Tempo.
+      derivedFields:
+        - name: TraceID
+          matcherType: label
+          matcherRegex: trace_id
+          url: '$${__value.raw}'
+          datasourceUid: tempo

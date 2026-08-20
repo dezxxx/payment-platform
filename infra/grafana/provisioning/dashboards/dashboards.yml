@@ -1,0 +1,19 @@
+# Tells Grafana where the dashboard files are.
+#
+# The files themselves are mounted at /var/lib/grafana/dashboards by
+# docker-compose.yml. foldersFromFilesStructure keeps the folder layout of the
+# repository, so adding a subdirectory later creates a folder in the UI.
+
+apiVersion: 1
+
+providers:
+  - name: payment-platform
+    orgId: 1
+    type: file
+    disableDeletion: false
+    # Picks up edits to the JSON files without restarting Grafana.
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true

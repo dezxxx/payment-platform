@@ -22,12 +22,13 @@ grafanaImage                = "12.4.0"
 [libraries]
 # --- Spring Boot starters (versions managed by the Boot BOM) ---
 spring-boot-starter-webflux          = { module = "org.springframework.boot:spring-boot-starter-webflux" }
+# Boot 4 split the client out of the webflux starter: this is the reactive one.
+spring-boot-starter-webclient        = { module = "org.springframework.boot:spring-boot-starter-webclient" }
 spring-boot-starter-security         = { module = "org.springframework.boot:spring-boot-starter-security" }
 spring-boot-starter-oauth2-resource-server = { module = "org.springframework.boot:spring-boot-starter-oauth2-resource-server" }
 spring-boot-starter-validation       = { module = "org.springframework.boot:spring-boot-starter-validation" }
 spring-boot-starter-actuator         = { module = "org.springframework.boot:spring-boot-starter-actuator" }
 spring-boot-starter-opentelemetry    = { module = "org.springframework.boot:spring-boot-starter-opentelemetry" }
-spring-boot-starter-json             = { module = "org.springframework.boot:spring-boot-starter-json" }
 spring-web                           = { module = "org.springframework:spring-web" }
 spring-context                       = { module = "org.springframework:spring-context" }
 reactor-core                         = { module = "io.projectreactor:reactor-core" }
@@ -57,6 +58,8 @@ reactor-test                         = { module = "io.projectreactor:reactor-tes
 testcontainers-junit-jupiter         = { module = "org.testcontainers:testcontainers-junit-jupiter" }
 testcontainers-postgresql            = { module = "org.testcontainers:testcontainers-postgresql" }
 testcontainers-keycloak              = { module = "com.github.dasniko:testcontainers-keycloak", version.ref = "testcontainersKeycloak" }
+# Gradle 9 no longer puts the launcher on the test runtime classpath by itself.
+junit-platform-launcher              = { module = "org.junit.platform:junit-platform-launcher" }
 
 [plugins]
 spring-boot                 = { id = "org.springframework.boot",         version.ref = "springBoot" }

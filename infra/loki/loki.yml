@@ -1,0 +1,56 @@
+# Loki: central log store for the local stack.
+#
+# Single-binary mode with filesystem storage. Nothing here is production
+# shaped - no object store, no replication, no multi-tenancy - because the
+# whole point of this stack is to run on one laptop with one command.
+#
+# auth_enabled: false means every request is served as the single tenant
+# "fake". With it on, every push and query would have to carry an
+# X-Scope-OrgID header, which the agent and Grafana would then need to be
+# taught about for no benefit here.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  # Loki logs its own operations too; INFO would drown the interesting lines.
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    # v13 + tsdb is the current combination; older schemas still load but are
+    # slower and are being removed.
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # Structured metadata is how the agent attaches traceId to a line without
+  # turning it into a label - see infra/alloy/config.alloy for why that
+  # distinction matters.
+  allow_structured_metadata: true
+  retention_period: 24h
+  # A local run replays old container logs on restart; without this they are
+  # rejected as too old and the panel stays empty.
+  reject_old_samples: false
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem

@@ -26,16 +26,18 @@ tags:
 
 paths:
 
-  /api/v1/auth/registration:
+  /v1/auth/registration:
     post:
       tags: [auth]
       operationId: register
       summary: Register a new user
       description: |
-        Creates the domain user through person-service, then creates the
-        account in Keycloak, stores user_uid as a Keycloak user attribute and
-        logs the user in. The Keycloak account is created only after the
-        domain step succeeded.
+        Creates the account in Keycloak with the password and the user_uid
+        attribute in one call, then logs the new user in and returns the
+        tokens, so no separate login is needed.
+
+        Module 1 issues user_uid itself. From module 2 the identifier comes
+        from person-service, which creates the domain user first.
       security: []
       requestBody:
         required: true
@@ -85,7 +87,7 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
-  /api/v1/auth/login:
+  /v1/auth/login:
     post:
       tags: [auth]
       operationId: login
@@ -127,7 +129,7 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
-  /api/v1/auth/refresh-token:
+  /v1/auth/refresh-token:
     post:
       tags: [auth]
       operationId: refreshToken
@@ -168,7 +170,7 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
-  /api/v1/auth/me:
+  /v1/auth/me:
     get:
       tags: [auth]
       operationId: getCurrentUser
@@ -193,8 +195,11 @@ paths:
                     lastName: Ivanov
                     emailVerified: false
                     roles: [USER]
+                    registeredAt: "2026-08-19T12:34:56Z"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
         "503":
@@ -301,7 +306,7 @@ components:
       # All of these are always known for an authenticated user: the token
       # carries sub and the roles, and the domain columns behind firstName and
       # lastName are NOT NULL. Matches the payload the handout shows for /me.
-      required: [userUid, keycloakUserId, email, firstName, lastName, emailVerified, roles]
+      required: [userUid, keycloakUserId, email, firstName, lastName, emailVerified, roles, registeredAt]
       properties:
         userUid:
           type: string
@@ -335,6 +340,14 @@ components:
           items:
             type: string
           example: [USER]
+        registeredAt:
+          type: string
+          format: date-time
+          description: |
+            When the account was created in Keycloak. Not present in the access
+            token, which is why /me reads the profile through the Admin API
+            instead of answering from the token alone.
+          example: "2026-08-19T12:34:56Z"
 
     # Single error model shared by every service of the platform.
     ErrorResponse:
@@ -347,7 +360,7 @@ components:
           example: "2026-08-19T12:34:56Z"
         path:
           type: string
-          example: /api/v1/auth/registration
+          example: /v1/auth/registration
         status:
           type: integer
           format: int32
@@ -382,7 +395,7 @@ components:
             validationFailed:
               value:
                 timestamp: "2026-08-19T12:34:56Z"
-                path: /api/v1/auth/registration
+                path: /v1/auth/registration
                 status: 400
                 error: VALIDATION_ERROR
                 message: Password confirmation does not match
@@ -399,7 +412,7 @@ components:
             badCredentials:
               value:
                 timestamp: "2026-08-19T12:34:56Z"
-                path: /api/v1/auth/login
+                path: /v1/auth/login
                 status: 401
                 error: INVALID_CREDENTIALS
                 message: Email or password is incorrect
@@ -414,10 +427,27 @@ components:
             duplicate:
               value:
                 timestamp: "2026-08-19T12:34:56Z"
-                path: /api/v1/auth/registration
+                path: /v1/auth/registration
                 status: 409
                 error: USER_ALREADY_EXISTS
                 message: Email is already registered
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+    NotFound:
+      description: |
+        The token is valid, but the account it points at no longer exists in
+        Keycloak - deleted, or moved to another realm.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            missing:
+              value:
+                timestamp: "2026-08-19T12:34:56Z"
+                path: /v1/auth/me
+                status: 404
+                error: NOT_FOUND
+                message: Resource not found
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
     InternalServerError:
       description: Unexpected error
@@ -430,7 +460,7 @@ components:
               summary: Nothing leaks outwards but the trace id
               value:
                 timestamp: "2026-08-19T12:34:56Z"
-                path: /api/v1/auth/registration
+                path: /v1/auth/registration
                 status: 500
                 error: INTERNAL_ERROR
                 message: Unexpected error
@@ -445,7 +475,7 @@ components:
             keycloakDown:
               value:
                 timestamp: "2026-08-19T12:34:56Z"
-                path: /api/v1/auth/registration
+                path: /v1/auth/registration
                 status: 503
                 error: DEPENDENCY_UNAVAILABLE
                 message: Keycloak is not reachable

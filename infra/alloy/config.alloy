@@ -1,0 +1,98 @@
+// Grafana Alloy: reads the stdout of every container in this stack and ships
+// it to Loki.
+//
+// Why an agent at all: the application writes JSON to stdout and nothing else.
+// Docker keeps that in a local file which dies with the container. Something
+// has to read it and push it into Loki.
+//
+// Why not the Loki docker log driver: it is a Docker plugin, installed on the
+// host with a separate command. That would break "docker compose up brings the
+// whole stack up", which is an acceptance criterion of this module. Promtail
+// would have been the classic answer, but it reached end of life and Alloy
+// replaced it.
+
+// 1. Find the containers. The Docker socket is mounted read-only into this
+//    container by docker-compose.yml.
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "10s"
+}
+
+// 2. Turn Docker metadata into Loki labels.
+//
+//    Labels are the only thing Loki indexes, and every distinct combination of
+//    them creates a separate stream. That is why only a handful of low
+//    cardinality fields become labels here: container name, compose service,
+//    and a fixed environment marker. Anything with many possible values - a
+//    trace id, a user id, a request path - must never become a label.
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    // Docker reports names with a leading slash: /payment-platform-keycloak-1
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    target_label = "env"
+    replacement  = "docker-compose"
+  }
+}
+
+// 3. Read the log streams.
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.process.structured.receiver]
+}
+
+// 4. Parse what individuals-api writes.
+//
+//    Its lines are ECS JSON, so the level and the trace id can be lifted out
+//    of the body. Lines from Keycloak or Postgres are plain text: the json
+//    stage simply finds nothing and passes them through untouched.
+loki.process "structured" {
+  stage.json {
+    expressions = {
+      level    = "log.level",
+      logger   = "log.logger",
+      trace_id = "traceId",
+      span_id  = "spanId",
+    }
+  }
+
+  // Level has a handful of possible values, so it is safe as a label and
+  // makes {level="ERROR"} queries cheap.
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  // The trace id has one value per request. As a label it would create a
+  // stream per request and bring Loki to its knees; as structured metadata it
+  // stays queryable and attached to the line without being indexed.
+  stage.structured_metadata {
+    values = {
+      trace_id = "",
+      span_id  = "",
+      logger   = "",
+    }
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+// 5. Push.
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
