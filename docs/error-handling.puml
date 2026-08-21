@@ -1,0 +1,225 @@
+@startuml error-flow
+title Error handling - how a failure becomes a response body
+
+skinparam shadowing false
+skinparam ArrowFontSize 11
+
+actor Client
+
+box "Netty / WebFlux" #F7F7F7
+  participant "Security\nfilter chain" as Filters
+  participant "DispatcherHandler" as Dispatcher
+  participant "AuthController" as Ctl
+end box
+
+box "package error" #EEF6FF
+  participant "ApiAuthenticationEntryPoint\nApiAccessDeniedHandler" as SecHandlers
+  participant "SecurityErrorWriter" as Writer
+  participant "GlobalExceptionHandler\n@RestControllerAdvice" as Advice
+  participant "ErrorResponseFactory" as Factory
+end box
+
+participant "Tracer\n(micrometer)" as Tracer
+
+== Road B - rejected before any handler is chosen ==
+
+Client -> Filters : GET /v1/auth/me, no token
+activate Filters
+Filters -> SecHandlers : commence(exchange, AuthenticationException)
+activate SecHandlers
+SecHandlers -> Writer : write(exchange, INVALID_CREDENTIALS)
+activate Writer
+Writer -> Factory : create(code, message, [], path)
+activate Factory
+Factory -> Tracer : currentSpan()
+Tracer --> Factory : traceId (or "unavailable")
+Factory --> Writer : ErrorResponse
+deactivate Factory
+note right of Writer
+  No message converter runs in the
+  filter chain, so the body is
+  serialised by hand and written
+  into the response as a DataBuffer.
+end note
+Writer --> Client : 401 + JSON
+deactivate Writer
+deactivate SecHandlers
+deactivate Filters
+
+== Road A - the request reached a handler ==
+
+Client -> Filters : POST /v1/auth/login
+Filters -> Dispatcher : permitted
+activate Dispatcher
+Dispatcher -> Ctl : login(request)
+activate Ctl
+Ctl --> Dispatcher : throws ApiException(INVALID_CREDENTIALS)
+deactivate Ctl
+Dispatcher -> Advice : matching @ExceptionHandler
+activate Advice
+Advice -> Factory : create(code, message, details, path)
+activate Factory
+Factory -> Tracer : currentSpan()
+Tracer --> Factory : traceId
+Factory --> Advice : ErrorResponse
+deactivate Factory
+Advice -> Advice : log.error for 5xx,\nlog.warn for 4xx
+Advice --> Dispatcher : ResponseEntity<ErrorResponse>
+deactivate Advice
+Dispatcher --> Client : 401 + JSON (same shape)
+deactivate Dispatcher
+
+note over Factory
+  Both roads end here.
+  One builder = one body shape.
+end note
+
+@enduml
+
+
+@startuml error-classes
+title package error - what each class is for
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+enum ErrorCode {
+  VALIDATION_ERROR : 400
+  INVALID_CREDENTIALS : 401
+  ACCESS_DENIED : 403
+  NOT_FOUND : 404
+  METHOD_NOT_ALLOWED : 405
+  USER_ALREADY_EXISTS : 409
+  UNSUPPORTED_MEDIA_TYPE : 415
+  INTERNAL_ERROR : 500
+  DEPENDENCY_UNAVAILABLE : 503
+  --
+  - HttpStatus status
+  - String defaultMessage
+}
+note right of ErrorCode
+  Single source of truth.
+  The status line, the "status"
+  field and the "error" field of
+  the body all come from one
+  line here, so they cannot drift.
+end note
+
+class ApiException <<RuntimeException>> {
+  - ErrorCode errorCode
+  - List<String> details
+}
+note right of ApiException
+  One class for every failure we
+  raise ourselves. The case is
+  carried by the code, not by the
+  type - a subclass is only worth
+  adding when something needs to
+  catch that one case alone.
+end note
+
+class ErrorResponseFactory <<@Component>> {
+  + ErrorResponse create(code, message, details, path)
+  - String currentTraceId()
+}
+
+class GlobalExceptionHandler <<@RestControllerAdvice>> {
+  + handleApiException(ApiException)
+  + handleValidation(WebExchangeBindException)
+  + handleUnreadableInput(ServerWebInputException)
+  + handleResponseStatus(ResponseStatusException)
+  + handleAuthentication(AuthenticationException)
+  + handleAccessDenied(AccessDeniedException)
+  + handleUnexpected(Exception)
+}
+
+class SecurityErrorWriter <<@Component>> {
+  + Mono<Void> write(exchange, ErrorCode)
+}
+
+class ApiAuthenticationEntryPoint <<@Component>> {
+  + Mono<Void> commence(exchange, ex)
+}
+
+class ApiAccessDeniedHandler <<@Component>> {
+  + Mono<Void> handle(exchange, ex)
+}
+
+interface ServerAuthenticationEntryPoint <<spring-security>>
+interface ServerAccessDeniedHandler <<spring-security>>
+
+class ErrorResponse <<generated>> {
+  timestamp, path, status,
+  error, message, traceId, details
+}
+note bottom of ErrorResponse
+  Generated from individuals-api.yaml.
+  Nothing here defines the shape -
+  the contract does.
+end note
+
+ApiAuthenticationEntryPoint ..|> ServerAuthenticationEntryPoint
+ApiAccessDeniedHandler ..|> ServerAccessDeniedHandler
+
+ApiAuthenticationEntryPoint --> SecurityErrorWriter
+ApiAccessDeniedHandler --> SecurityErrorWriter
+SecurityErrorWriter --> ErrorResponseFactory
+GlobalExceptionHandler --> ErrorResponseFactory
+ErrorResponseFactory ..> ErrorResponse : builds
+ErrorResponseFactory ..> ErrorCode : reads status\nand message
+ApiException --> ErrorCode
+GlobalExceptionHandler ..> ApiException : unwraps
+
+@enduml
+
+
+@startuml error-fields
+title Where every field of the answer comes from
+
+skinparam shadowing false
+
+object "HTTP answer" as Answer {
+  status line = ErrorCode.getStatus()
+  Content-Type = converter / set by hand
+  --
+  timestamp = OffsetDateTime.now(UTC)
+  path      = exchange.getRequest().getPath()
+  status    = ErrorCode.getStatus().value()
+  error     = ErrorCode.name()
+  message   = argument, default from ErrorCode
+  traceId   = Tracer.currentSpan(), else "unavailable"
+  details   = ApiException / BindingResult, empty -> null
+}
+
+object "ErrorCode" as Code {
+  name()           -> error
+  getStatus()      -> status line AND status
+  getDefaultMessage() -> message
+}
+
+object "ErrorResponseFactory" as Factory {
+  fills 5 of the 7 body fields
+}
+
+object "caller" as Caller {
+  GlobalExceptionHandler
+  SecurityErrorWriter
+}
+
+Code --> Factory : read
+Caller --> Factory : message, details, path
+Factory --> Answer : builds
+
+note bottom of Code
+  "error" is the constant's own name.
+  Renaming a constant changes the public
+  contract and the compiler stays silent.
+end note
+
+note bottom of Factory
+  The status reaches the answer twice from
+  one source - the line and the field can
+  never disagree.
+end note
+
+@enduml

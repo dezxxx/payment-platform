@@ -1,0 +1,58 @@
+@startuml error-two-roads
+title The two roads - the one thing to remember about package error
+
+skinparam shadowing false
+skinparam rectangle {
+  BackgroundColor<<road>> #EEF6FF
+  BackgroundColor<<shared>> #FFF3D6
+  BackgroundColor<<stop>> #FFE3E3
+}
+skinparam ArrowFontSize 11
+
+rectangle "REQUEST" as Req
+
+rectangle "Security filter chain\n(SecurityWebFilterChain)" as Sec <<stop>>
+
+rectangle "DispatcherHandler\nrouting, body binding, @Valid,\ncontroller, service, gateway" as Disp
+
+rectangle "ROAD B\nApiAuthenticationEntryPoint  -> 401\nApiAccessDeniedHandler       -> 403" as RoadB <<road>>
+rectangle "SecurityErrorWriter\nserialises and writes bytes by hand" as Writer <<road>>
+
+rectangle "ROAD A\nGlobalExceptionHandler\n7 handlers -> respond()" as RoadA <<road>>
+
+rectangle "ErrorResponseFactory\nbuilds the body, adds traceId" as Factory <<shared>>
+
+rectangle "ErrorCode\nstatus + default message" as Code <<shared>>
+
+rectangle "one JSON shape\ntimestamp, path, status,\nerror, message, traceId, details" as Out
+
+Req --> Sec
+Sec --> RoadB : rejected\n(only ever 401 or 403)
+Sec --> Disp : permitted
+Disp --> RoadA : anything thrown\n400 405 404 415 409 500 503
+RoadB --> Writer
+Writer --> Factory
+RoadA --> Factory
+Code --> Factory : read
+Factory --> Out
+
+note right of Sec
+  The watershed. Everything is decided
+  by one question: did the filter chain
+  let the request through?
+end note
+
+note right of Writer
+  No message converter runs inside a
+  filter, so status, Content-Type,
+  serialisation and buffer release are
+  all done by hand.
+end note
+
+note bottom of Factory
+  Two roads, four callers, one builder.
+  Nothing else is allowed to assemble
+  an ErrorResponse.
+end note
+
+@enduml

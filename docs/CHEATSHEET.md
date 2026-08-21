@@ -72,7 +72,38 @@ Infrastructure, all open:
 Contract source of truth: `individuals-api/openapi/individuals-api.yaml`.
 Everything else (`AuthApi`, the six DTOs) is generated from it.
 
-## 4. Keycloak endpoints we call
+## 4. HTTP status codes used here
+
+Only the ones this service can answer with. Every one of them is a constant in
+`ErrorCode`, except 200/201 which are successes.
+
+| Code | Name | Means | Whose fault | Our constant |
+|---|---|---|---|---|
+| 200 | OK | the call worked | - | login, refresh-token, me |
+| 201 | Created | worked and made something new | - | registration |
+| 400 | Bad Request | the request itself is wrong - bad email, missing field, broken JSON | caller | `VALIDATION_ERROR` |
+| 401 | Unauthorized | "I do not know who you are" - no token, expired token, wrong password | caller | `INVALID_CREDENTIALS` |
+| 403 | Forbidden | "I know who you are and you may not" - valid token, missing role | caller | `ACCESS_DENIED` |
+| 404 | Not Found | no such path, or no such user | caller | `NOT_FOUND` |
+| 405 | Method Not Allowed | the path exists, the HTTP method does not | caller | `METHOD_NOT_ALLOWED` |
+| 409 | Conflict | it already exists - the email is taken | caller | `USER_ALREADY_EXISTS` |
+| 415 | Unsupported Media Type | wrong Content-Type, e.g. text/plain instead of application/json | caller | `UNSUPPORTED_MEDIA_TYPE` |
+| 500 | Internal Server Error | we broke - a bug, a misconfigured client secret | ours | `INTERNAL_ERROR` |
+| 503 | Service Unavailable | a dependency is down - Keycloak unreachable | ours | `DEPENDENCY_UNAVAILABLE` |
+
+The families, when a code is not in the table:
+
+- **2xx** worked
+- **3xx** go somewhere else (we never answer with these)
+- **4xx** the caller is wrong - the same request will fail again unchanged
+- **5xx** we are wrong - the same request might work later
+
+That distinction is the whole reason 401 is not 400 and 503 is not 500: it tells
+the caller whether retrying is pointless or worth it.
+
+The pair mixed up most often: **401 is "who are you?", 403 is "not for you"**.
+
+## 5. Keycloak endpoints we call
 
 `REALM` = `payment-platform`.
 
@@ -90,7 +121,7 @@ credentials" → our 401; `400 invalid_grant` "Account is not fully set up" →
 also 401, and it means a temporary password was set; `409` "User exists with
 same email" → our 409.
 
-## 5. Commands
+## 6. Commands
 
 ```bash
 # whole stack
@@ -139,7 +170,7 @@ $t = "PASTE.TOKEN.HERE".Split(".")[1]
 [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($t.PadRight($t.Length + (4 - $t.Length % 4) % 4, "=")))
 ```
 
-## 6. Same value in two files
+## 7. Same value in two files
 
 Change one side and the other silently breaks. Full table in `CONTEXT.md` §
 "Cross-file consistency"; the ones that bite most often:
