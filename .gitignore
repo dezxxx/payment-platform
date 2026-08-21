@@ -53,3 +53,6 @@ logs/
 
 # --- Working screenshots: shared with the assistant, never part of the repo ---
 screenShoots/
+
+# Personal study material, kept on disk but out of the repository.
+docs/quests/
