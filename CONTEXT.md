@@ -22,6 +22,58 @@ The root is deliberately named after the platform, not after one service:
 `transaction-service`, `payment-service`, `webhook-collector-service` and
 `notification-service` land here in later modules.
 
+
+### The whole platform, for later modules
+
+Recorded from the course description of the full system, so that later modules
+do not drift from it. Only the first two rows exist today.
+
+| Service | Type | Owns | Talks to |
+|---|---|---|---|
+| **Individuals API** | orchestrator | nothing, no database | Keycloak (Admin + Token API), every domain service |
+| **Keycloak** | external IAM | credentials, roles, JWT issuing and validation | - |
+| **Users Service** | domain | the business profile: name, country, address | called only through Individuals API |
+| **Wallets Service** | domain | wallets and balances, internal transfers | Kafka consumer |
+| **Payments Service** | domain | deposit, transfer and withdrawal transactions | Currency Service, Fake Payment Provider, Kafka |
+| **Currency Service** | utility | exchange rates from an external provider | called by Payments Service |
+| **Webhook Service** | integration | inbound webhooks from the provider | publishes to Kafka, processes nothing itself |
+| **Notification Service** | infrastructure | user notifications, plus a REST API to read them | Kafka consumer |
+| **Fake Payment Provider** | external stub | imitates a real payment gateway, answers by webhook | - |
+
+Behaviour the description fixes, and that later modules must not invent
+differently:
+
+- **Balances change only on Kafka events** (`transaction.completed`,
+  `transaction.failed`). Wallets Service never adjusts a balance from a REST
+  call.
+- **`/init` writes nothing to the database.** A payment transaction is
+  persisted only once `/confirm` succeeds.
+- **The webhook endpoint is protected by a shared secret**, checked on every
+  call.
+- **Webhook Service only publishes** `payment.status.updated`; the consumers
+  decide what it means.
+- Notification Service reacts to events such as `user.registered` and
+  `transaction.completed`.
+
+Two integration styles coexist on purpose: synchronous REST where an answer is
+needed now, Kafka where the work can finish later. Compensation exists because
+of the first style - see "Compensation policy" below.
+
+#### Naming: `person-service` or `users-service`
+
+The module 1 handout names the domain service `person-service`, and this
+repository follows it: the Gradle module, the contract, the generated
+`person-client` artifact, the `person` database schema and the
+`individuals.person-service.*` properties all use that name. The platform
+description above calls the same service **Users Service**.
+
+Treated as one service under two names until the course says otherwise. If a
+later module requires the second name, the rename touches: `settings.gradle.kts`,
+the module directory, `person-service/openapi/person-service.yaml`, the
+published artifact coordinates, `PersonsApi`, the Flyway schema, the compose
+service `person-postgres`, and `PersonServiceProperties`. It is a mechanical
+change, but it is not a small one, so it is not done speculatively.
+
 ---
 
 ## 2. Fixed technical decisions
@@ -83,9 +135,12 @@ installed at `C:\Users\Dez\.jdks\openjdk-25.0.1`.
    contracts travel as artifacts published to Nexus, addressed by Maven
    coordinates. Modules are `include`d only so one wrapper builds them all.
 
-4. **Transport = Spring HTTP Service Clients + WebClient.** No Feign.
-   `person-client` is generated with `library = spring-http-interface`, and the
-   proxies are built with `WebClientAdapter` so every call returns a `Mono`.
+4. **Transport = Spring HTTP Service Clients + WebClient.** No Feign, and no
+   `RestClient` either. `person-client` is generated with
+   `library = spring-http-interface`, and the proxies are built with
+   `WebClientAdapter` so every call returns a `Mono`. The handout names
+   `RestClient`; see the deviations table for why the adapter differs while the
+   style does not.
 
 5. **Every build validates the contracts** — `openApiValidate` runs before
    `openApiGenerate`, and `check` depends on it. A broken contract fails the
@@ -273,56 +328,85 @@ Two consequences for the gateway code:
 | Spring Boot 4.0.6 | 4.1.0 | 4.1.0 reached GA after the handout was written |
 | `proselyte` / `com.example` | `dezxxx` / `com.dezxxx` | handout placeholders |
 | Tempo traces under `/tmp/tempo/traces` | `/var/tempo`, with an explicit wal path | that is where docker-compose mounts the named volume; under `/tmp` the traces die with the container and the volume stays empty |
+| `RestClient` as the standard HTTP client (and `Feign/OpenAPI` on the platform diagram) | Spring HTTP Service Clients over `WebClientAdapter` | The **style** the handout mandates - annotated `@HttpExchange` interfaces behind generated proxies - is followed exactly; `person-client` is generated from the OpenAPI document with `library = spring-http-interface`. Only the adapter differs. `RestClient` is synchronous and `RestClientAdapter` cannot return `Mono` at all, so adopting it would mean regenerating the client with `reactive = false` and wrapping every call in `Mono.fromCallable(...).subscribeOn(boundedElastic())`. A bare call would park a Netty event loop thread that serves hundreds of connections. The same handout's C4 diagram labels this service **Spring Boot WebFlux**, and the two requirements pull against each other; the reactive adapter is the one that keeps WebFlux worth having |
 | postgres volume at `/var/lib/postgresql/data` | `/var/lib/postgresql` | PostgreSQL 18 moved the data directory one level down and refuses to start when the old path is mounted — the container exits with code 1 |
 
 ---
 
 ## 4. Registration flow (the core scenario)
 
-**Module 1 talks to Keycloak only.** The handout describes registration as two
-consecutive Keycloak calls - create the account, then take tokens for it - and
-says nothing about person-service, which does not exist yet. So the domain user
-is not created in this module and `user_uid` is issued here.
+Eight steps, in this order. The order **is** the design, not an implementation
+detail: person-service goes first because it issues the identity, and a refusal
+from it leaves nothing to undo anywhere.
 
 1. `individuals-api` accepts the registration request
 2. validates format and password confirmation
-3. generates `user_uid` as a fresh `UUID`
-4. obtains a service-account token (`client_credentials`)
-5. `POST /admin/realms/{realm}/users` — creates the account in a single call,
-   password and `user_uid` attribute in the same body
-6. logs in via `/realms/{realm}/protocol/openid-connect/token` (`password`)
-7. returns access token, refresh token, lifetime and `user_uid`
+3. `POST /api/v1/persons/registration` — person-service creates the domain user
+4. it answers with `user_uid`, the identifier the whole platform will use
+5. obtains a service-account token (`client_credentials`)
+6. `POST /admin/realms/{realm}/users` — creates the account, **without a
+   password**, carrying `user_uid` as a user attribute
+7. `PUT /admin/realms/{realm}/users/{id}/reset-password` — sets the password
+8. logs in via `/realms/{realm}/protocol/openid-connect/token` (`password`) and
+   returns access token, refresh token, lifetime and `user_uid`
 
-Only step 3 changes in module 2: instead of generating the identifier, the
-service asks person-service to create the domain user and returns its
-`user_uid`. `KeycloakAdminGateway` and `KeycloakOidcGateway` are untouched by
-that change - which is exactly why the gateway layer exists.
-
-Step 6 carries the password and the attribute in the same body, so the account
-is either created complete or not created at all:
+Step 6 body — note what is *not* in it:
 
 ```json
 {
-  "username": "user@example.com",
-  "email": "user@example.com",
-  "firstName": "...",
-  "lastName": "...",
+  "username": "user@dezxxx.com",
+  "email": "user@dezxxx.com",
+  "firstName": "Ivan",
+  "lastName": "Ivanov",
   "enabled": true,
-  "emailVerified": true,
-  "attributes": { "user_uid": ["<uuid generated by individuals-api>"] },
-  "credentials": [
-    { "type": "password", "value": "<password>", "temporary": false }
-  ]
+  "emailVerified": false,
+  "attributes": { "user_uid": ["6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33"] }
 }
 ```
 
-`temporary: false` is mandatory. A temporary password makes Keycloak attach the
-`UPDATE_PASSWORD` required action, and step 7 then fails with
-`400 invalid_grant: Account is not fully set up`.
+The account is created with **201** and an empty body; the new id exists only in
+the `Location` header, and parsing it out is `KeycloakAdminGateway`'s job.
 
-The separate `PUT /admin/realms/{realm}/users/{id}/reset-password` call is not
-used during registration. It stays available for a future change-password
-scenario, and it takes the same `temporary` flag.
+Step 7 body:
+
+```json
+{ "type": "password", "value": "Str0ngP@ssw0rd", "temporary": false }
+```
+
+`temporary: false` is mandatory. A temporary password makes Keycloak attach the
+`UPDATE_PASSWORD` required action, and step 8 then fails with
+`400 invalid_grant: Account is not fully set up` — after everything else looked
+successful.
+
+**Keycloak could accept the password inside step 6**, in a `credentials[]`
+array, saving one round trip and making account creation atomic. The handout
+names the `reset-password` endpoint explicitly, so the two-call form is what is
+implemented; the cost is the gap described below.
+
+### Where it can break, and what the client is told
+
+| Where | Client sees | Created so far |
+|---|---|---|
+| `@Valid` | **400** `VALIDATION_ERROR`, one `details[]` line per bad field | nothing |
+| person-service `409` | **409** `USER_ALREADY_EXISTS` | nothing |
+| person-service `5xx` | **503** `DEPENDENCY_UNAVAILABLE` | nothing |
+| person-service `400` | **500** `INTERNAL_ERROR` — their validation and ours disagree, which is our bug | nothing |
+| *— `user_uid` issued; from here every failure splits the two systems —* | | |
+| Keycloak create | **500** `REGISTRATION_INCONSISTENT` | domain user |
+| Keycloak reset-password | **500** `REGISTRATION_INCONSISTENT` | domain user; the incomplete account is deleted |
+| login | **503** `DEPENDENCY_UNAVAILABLE` | everything — **not** an inconsistency |
+
+The last row is the subtle one. If only the login failed, both systems hold the
+same user and the account works; we merely failed to hand tokens over, and the
+caller can log in normally.
+
+**Compensation.** A failure at step 7 leaves an account that can never be logged
+into while its address stays taken, so registering it again would answer **409**
+for good. `RegistrationService` deletes that account, which frees the address.
+The domain user is **not** rolled back — person-service exposes no delete — so
+the split is logged with the `user_uid` and reported as
+`REGISTRATION_INCONSISTENT`. That is module 1's accepted limit, and the handout
+allows it: logging plus an explicit error code.
 
 ```mermaid
 sequenceDiagram
@@ -330,30 +414,36 @@ sequenceDiagram
     actor Client
     participant Ctl as AuthController
     participant Svc as RegistrationService
+    participant PGw as PersonServiceGateway
     participant AGw as KeycloakAdminGateway
     participant OGw as KeycloakOidcGateway
+    participant Ps as person-service
     participant Kc as Keycloak
 
     Client->>Ctl: POST /v1/auth/registration
     Ctl->>Svc: register
     Note over Svc: format and password confirmation
-    Note over Svc: user_uid = UUID.randomUUID()
+    Svc->>PGw: create domain user
+    PGw->>Ps: POST /api/v1/persons/registration
+    Ps-->>PGw: 201 user_uid
+    PGw-->>Svc: user_uid
     Svc->>AGw: create account
-    AGw->>Kc: POST /admin/realms/REALM/users<br/>credentials plus user_uid attribute
-    Kc-->>AGw: keycloak user id
+    AGw->>OGw: service account token
+    OGw->>Kc: POST token client_credentials
+    Kc-->>OGw: access token
+    AGw->>Kc: POST /admin/realms/REALM/users<br/>user_uid attribute, no password
+    Kc-->>AGw: 201 Location header
     AGw-->>Svc: keycloak user id
+    Svc->>AGw: set password
+    AGw->>Kc: PUT /admin/realms/REALM/users/ID/reset-password
+    Kc-->>AGw: 204
     Svc->>OGw: log in
-    OGw->>Kc: POST /realms/REALM/protocol/openid-connect/token
+    OGw->>Kc: POST token grant_type=password
     Kc-->>OGw: access, refresh, expiresIn
     OGw-->>Svc: tokens
-    Svc-->>Ctl: TokenResponse
-    Ctl-->>Client: 201 tokens plus user_uid
+    Svc-->>Ctl: TokenResponse plus user_uid
+    Ctl-->>Client: 201
 ```
-
-**Compensation does not apply in module 1.** Nothing exists outside Keycloak
-yet, so a failure leaves nothing orphaned: either the account was created or it
-was not. The policy in section 3 becomes live in module 2, when the domain user
-is created first and the Keycloak steps can fail behind it.
 
 ---
 
@@ -398,9 +488,9 @@ token itself is bad or expired, `401`.
 The roles in `CurrentUserResponse` are read from the token's `realm_access`, not
 from a second Admin API call — they are already there and cost nothing.
 
-> Open point: the handout's `/me` description mentions the registration
-> timestamp, which `CurrentUserResponse` does not currently declare. Adding it
-> means touching the frozen contract, so it waits for a decision.
+`registeredAt` is declared in `CurrentUserResponse` and comes from Keycloak's
+`createdTimestamp`, which is epoch milliseconds - converted to UTC inside
+`KeycloakUserResponse`, so no layer above the gateway sees the raw number.
 
 ### Port map
 
@@ -547,16 +637,25 @@ neither task and fails silently by never running at all.
 - [x] `.env` + `.env.example` + `docker-compose.yml` — images pinned, ports per
       the handout table
 - [x] **First real `./gradlew build` — green.** See section 9.
+- [x] `application.yml` / `application-docker.yml` / `logback-spring.xml`
+- [x] `realm/realm-export.json` — realm, confidential client, service account,
+      `user_uid` mapper, `upConfig`, realm-management roles
+- [x] `individuals-api/Dockerfile` (never built yet)
+- [x] `infra/` — prometheus, tempo, loki, alloy, grafana provisioning
+- [x] `error/` — 7 classes, both roads (advice and security handlers)
+- [x] `config/` — security, HTTP clients, Keycloak and person-service properties
+- [x] `gateway/` — all three gateways required by the handout, plus the two
+      error translators and `GatewayErrors`
+- [x] `RegistrationService` — the eight-step scenario with compensation
 
 ### Next up, in this order
 
-- [ ] `application.yml` / `application-docker.yml` / `logback-spring.xml`
-- [ ] `realm/realm-export.json`
-- [ ] `individuals-api/Dockerfile`
-- [ ] `infra/` — prometheus, tempo, grafana provisioning
+- [ ] `validation` — the confirmPassword rule
+- [ ] `AuthController implements AuthApi`
+- [ ] `AuthenticationService` — login, refresh, /me
+- [ ] `AuthMetrics` — the eight meters listed under Observability
 - [ ] `README.md`
 - [ ] Postman collection
-- [ ] Business code: controller / service / gateway / keycloak / error
 - [ ] Unit tests, then Testcontainers integration tests
 - [ ] JaCoCo — acceptance criterion 11 asks for a coverage number and the
       build cannot produce one yet
@@ -569,6 +668,8 @@ neither task and fails silently by never running at all.
 - Commit author is always `Sergey Zatulsky <web7tudio@gmail.com>`.
 - Commit messages in English, `type: short description`.
 - Communication in Russian, code and comments in English.
+- `CONTEXT.md` and `CONTEXT.ru.md` are edited together; English is the source
+  of truth if the two ever disagree.
 ---
 
 ## 9. First build run — what it cost

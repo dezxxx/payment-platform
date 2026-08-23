@@ -29,7 +29,7 @@ rectangle "one JSON shape\ntimestamp, path, status,\nerror, message, traceId, de
 Req --> Sec
 Sec --> RoadB : rejected\n(only ever 401 or 403)
 Sec --> Disp : permitted
-Disp --> RoadA : anything thrown\n400 405 404 415 409 500 503
+Disp --> RoadA : anything thrown\n400 404 405 409 415 500 503
 RoadB --> Writer
 Writer --> Factory
 RoadA --> Factory
