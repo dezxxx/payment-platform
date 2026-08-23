@@ -1,0 +1,279 @@
+@startuml admin-registration
+title Registration - the six steps of the handout scenario
+
+autonumber
+skinparam shadowing false
+
+participant "AuthController" as Ctl
+participant "RegistrationService" as Svc
+participant "PersonsApi\n(generated client)" as Person
+participant "KeycloakAdminGateway" as Admin
+participant "KeycloakOidcGateway" as Oidc
+participant "person-service" as Ps
+participant "Keycloak" as Kc
+
+Ctl -> Svc : register(RegistrationRequest)
+activate Svc
+
+== 1. the domain user is created first ==
+
+Svc -> Person : registerPerson(email, firstName, lastName)
+activate Person
+Person -> Ps : POST /api/v1/persons/registration\n{ "email", "firstName", "lastName" }
+Ps --> Person : 201 { "userUid": "6f1d2a4e-..." }
+Person --> Svc : userUid
+deactivate Person
+
+note right of Svc
+  The password never travels here.
+  person-service owns the profile,
+  Keycloak owns the credentials.
+
+  This step comes first on purpose:
+  if it fails, no Keycloak account
+  was created, so nothing is left
+  half-made.
+end note
+
+== 2. this service authenticates as itself ==
+
+Svc -> Admin : createUser(email, firstName, lastName, userUid)
+activate Admin
+
+Admin -> Oidc : serviceAccountToken()
+activate Oidc
+Oidc -> Kc : POST /realms/{realm}/protocol/openid-connect/token\nform: grant_type=client_credentials\n      client_id, client_secret
+Kc --> Oidc : 200 { access_token, ... }
+Oidc --> Admin : admin access token
+deactivate Oidc
+
+== 3. the account, without a password yet ==
+
+Admin -> Kc : POST /admin/realms/{realm}/users\nAuthorization: Bearer <admin token>
+activate Kc
+note right of Kc
+  {
+    "username": "user@dezxxx.com",
+    "email":    "user@dezxxx.com",
+    "firstName": "Ivan",
+    "lastName":  "Ivanov",
+    "enabled": true,
+    "emailVerified": false,
+    "attributes": { "user_uid": ["6f1d2a4e-..."] }
+  }
+
+  No credentials here - the handout
+  sets the password separately.
+  user_uid rides along as a custom
+  attribute (step 8 of the scenario).
+end note
+Kc --> Admin : 201 Created\nLocation: .../users/0b7a5f2c-19d4-...\n(no body at all)
+deactivate Kc
+
+note right of Admin
+  The new id arrives only in the
+  Location header. Parsing it out
+  is this gateway's job.
+end note
+
+Admin --> Svc : keycloakUserId
+deactivate Admin
+
+== 4. the password ==
+
+Svc -> Admin : setPassword(keycloakUserId, password)
+activate Admin
+Admin -> Oidc : serviceAccountToken()
+Oidc --> Admin : admin access token
+Admin -> Kc : PUT /admin/realms/{realm}/users/{id}/reset-password\n{ "type": "password",\n  "value": "Str0ngP@ssw0rd",\n  "temporary": false }
+Kc --> Admin : 204 No Content
+Admin --> Svc : done
+deactivate Admin
+
+note over Admin, Kc
+  temporary MUST be false. Left at Keycloak's
+  default the account is created successfully
+  and the very next login fails with
+  400 (Bad Request) / invalid_grant
+  "Account is not fully set up".
+end note
+
+== 5. an ordinary login, nothing special ==
+
+Svc -> Oidc : login(email, password)
+activate Oidc
+Oidc -> Kc : POST /realms/{realm}/protocol/openid-connect/token\nform: grant_type=password
+Kc --> Oidc : 200 { access_token, refresh_token, expires_in, token_type }
+Oidc --> Svc : TokenResponse
+deactivate Oidc
+
+== 6. the answer ==
+
+Svc -> Svc : response.userUid(userUid)
+Svc --> Ctl : 201 { accessToken, refreshToken,\n     expiresIn, tokenType, userUid }
+deactivate Svc
+
+@enduml
+
+
+@startuml admin-rollback
+title What happens when step 4 fails
+
+skinparam shadowing false
+
+start
+
+:person-service created the domain user;
+:Keycloak created the account
+(no password yet);
+
+if (PUT reset-password succeeded?) then (yes)
+  :login and answer the client;
+  stop
+else (no)
+  note right
+    The account exists but can never
+    be logged into, and the address is
+    already taken: every later attempt
+    to register it answers
+    409 (Conflict) - forever.
+  end note
+  :DELETE /admin/realms/{realm}/users/{id};
+  note right
+    Compensating action. The address is
+    free again, the caller can simply
+    try once more.
+
+    The domain user in person-service is
+    NOT rolled back - its contract has no
+    delete operation. Recorded as a known
+    gap in CONTEXT.md.
+  end note
+  :answer the client with the original failure;
+  stop
+endif
+
+@enduml
+
+
+@startuml admin-me
+title GET /v1/auth/me - why the Admin gateway is needed here too
+
+skinparam shadowing false
+
+rectangle "Access token (already verified)" as Tok {
+  card "sub            -> keycloakUserId" as c1
+  card "email          -> email" as c2
+  card "given_name     -> firstName" as c3
+  card "family_name    -> lastName" as c4
+  card "email_verified -> emailVerified" as c5
+  card "realm_access.roles -> roles" as c6
+  card "user_uid       -> userUid" as c7
+}
+
+rectangle "Admin API\nGET /admin/realms/{realm}/users/{sub}" as Adm {
+  card "createdTimestamp -> registeredAt" as c8
+}
+
+rectangle "CurrentUserResponse\n8 required fields" as Out
+
+Tok --> Out : seven fields, no network call
+Adm --> Out : the eighth one
+
+note bottom of Tok
+  user_uid is in the token because the realm
+  declares a protocol mapper for it. Without
+  that mapper this field would need a second
+  admin call.
+end note
+
+note bottom of Adm
+  registeredAt exists nowhere in the token,
+  so /me costs one admin read. The alternative
+  would be storing it on our side, and this
+  service owns no database.
+end note
+
+@enduml
+
+
+@startuml admin-classes
+title Where the Admin gateway sits
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+package service {
+  class RegistrationService
+  class AuthenticationService
+}
+
+package "gateway.keycloak" {
+  class KeycloakAdminGateway <<@Component>> {
+    + Mono<String> createUser(email, firstName,\n                         lastName, userUid)
+    + Mono<Void> setPassword(id, password)
+    + Mono<Void> deleteUser(id)
+    + Mono<KeycloakUserResponse> findById(id)
+  }
+  class KeycloakOidcGateway <<@Component>> {
+    + Mono<TokenResponse> login(email, password)
+    + Mono<TokenResponse> refresh(token)
+    + Mono<String> serviceAccountToken()
+  }
+  class KeycloakUserRequest <<record>> {
+    username, email, firstName, lastName,
+    enabled, emailVerified, attributes
+  }
+  class KeycloakUserResponse <<record>> {
+    id, email, firstName, lastName,
+    emailVerified, attributes,
+    createdTimestamp
+  }
+  class KeycloakCredential <<record>> {
+    type, value, temporary
+  }
+  class KeycloakErrorTranslator <<static>> {
+    + Mono<Throwable> translate(response)
+  }
+}
+
+package config {
+  class KeycloakProperties <<record>> {
+    tokenUri()
+    usersUri()
+  }
+  class HttpClientsConfig {
+    keycloakWebClient
+    personsApi
+  }
+}
+
+RegistrationService --> "com.dezxxx.person.client.api.PersonsApi" : step 1, user_uid
+RegistrationService --> KeycloakAdminGateway
+RegistrationService --> KeycloakOidcGateway
+AuthenticationService --> KeycloakOidcGateway
+AuthenticationService --> KeycloakAdminGateway : /me reads registeredAt
+
+KeycloakAdminGateway --> KeycloakOidcGateway : needs a service token
+KeycloakAdminGateway ..> KeycloakUserRequest : body of POST /users
+KeycloakAdminGateway ..> KeycloakCredential : body of PUT /reset-password
+KeycloakAdminGateway ..> KeycloakUserResponse : receives
+KeycloakAdminGateway ..> KeycloakErrorTranslator : shared with the OIDC gateway
+KeycloakAdminGateway --> KeycloakProperties : usersUri()
+HttpClientsConfig --> KeycloakAdminGateway : keycloakWebClient
+
+note right of KeycloakCredential
+  Not part of KeycloakUserRequest any more.
+  The handout sets the password through its
+  own endpoint, so this record travels alone
+  as the body of that call.
+end note
+
+note right of KeycloakErrorTranslator
+  Already written. Both gateways translate
+  Keycloak failures through the same table,
+  so 409 means "email taken" no matter which
+  call produced it.
+end note
+
+@enduml

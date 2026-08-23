@@ -15,6 +15,11 @@ import reactor.core.publisher.Mono;
  * <p>Both Keycloak gateways need exactly this, so it lives on its own: final
  * class, private constructor, static methods, no state.
  *
+ * <p>It stays in the parent package rather than in {@code admin} or
+ * {@code oidc} on purpose. Those two are separate processes and neither owns
+ * the translation; putting it inside one of them would make the other depend
+ * on a package it has no business knowing.
+ *
  * <p>The translation is the whole point of a gateway. Keycloak's status codes
  * do not mean what our contract means:
  *

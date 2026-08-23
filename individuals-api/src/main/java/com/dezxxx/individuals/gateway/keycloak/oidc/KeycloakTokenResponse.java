@@ -1,4 +1,4 @@
-package com.dezxxx.individuals.gateway.keycloak;
+package com.dezxxx.individuals.gateway.keycloak.oidc;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 

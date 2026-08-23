@@ -1,9 +1,9 @@
-package com.dezxxx.individuals.gateway.keycloak;
+package com.dezxxx.individuals.gateway.keycloak.oidc;
 
 import com.dezxxx.individuals.api.model.TokenResponse;
 import com.dezxxx.individuals.config.KeycloakProperties;
-import com.dezxxx.individuals.error.ApiException;
-import com.dezxxx.individuals.error.ErrorCode;
+import com.dezxxx.individuals.gateway.GatewayErrors;
+import com.dezxxx.individuals.gateway.keycloak.KeycloakErrorTranslator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
@@ -30,6 +30,8 @@ import reactor.core.publisher.Mono;
 @Slf4j
 @Component
 public class KeycloakOidcGateway {
+
+    private static final String KEYCLOAK = "Keycloak";
 
     private static final String GRANT_TYPE = "grant_type";
 
@@ -97,11 +99,8 @@ public class KeycloakOidcGateway {
                 .bodyToMono(KeycloakTokenResponse.class)
                 // Connection refused, DNS failure, timeout: Keycloak never
                 // answered, so this is a dependency problem, not a caller
-                // mistake. ApiException is already ours and passes through.
-                .onErrorMap(ex -> !(ex instanceof ApiException), ex -> {
-                    log.error("Keycloak is unreachable at {}", properties.baseUrl(), ex);
-                    return new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
-                });
+                // mistake. Shared with the Admin gateway, which needs the same.
+                .transform(GatewayErrors.transportFailures(KEYCLOAK, properties.baseUrl()));
     }
 
     /** The three fields every grant needs: which grant, and who is asking. */

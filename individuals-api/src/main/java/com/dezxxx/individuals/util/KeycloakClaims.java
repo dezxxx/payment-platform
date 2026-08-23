@@ -2,6 +2,8 @@ package com.dezxxx.individuals.util;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 /**
@@ -25,8 +27,32 @@ public final class KeycloakClaims {
 
     private static final String ROLES = "roles";
 
+    /** Written by the realm's protocol mapper - see {@code realm-export.json}. */
+    private static final String USER_UID = "user_uid";
+
     private KeycloakClaims() {
         throw new UnsupportedOperationException("Utility class");
+    }
+
+    /**
+     * The platform identifier carried by the token.
+     *
+     * <p>Absent when the realm's {@code user_uid} mapper is missing or the
+     * account predates it, and unparseable if something wrote a non-UUID into
+     * the attribute. Both are configuration faults rather than caller mistakes,
+     * so they answer empty and let the caller decide - a 500 raised from a claim
+     * reader would say nothing useful.
+     */
+    public static Optional<UUID> userUid(Jwt jwt) {
+        String raw = jwt.getClaimAsString(USER_UID);
+        if (raw == null || raw.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(UUID.fromString(raw));
+        } catch (IllegalArgumentException ex) {
+            return Optional.empty();
+        }
     }
 
     /**

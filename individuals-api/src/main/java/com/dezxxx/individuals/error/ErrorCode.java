@@ -47,6 +47,24 @@ public enum ErrorCode {
 
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error"),
 
+    /**
+     * Registration wrote to person-service and then failed in Keycloak, so the
+     * two systems now disagree about whether this person exists.
+     *
+     * <p>Deliberately not {@code INTERNAL_ERROR}. Registration writes to two
+     * systems with no transaction spanning them, and a half-finished one must
+     * be findable: this code is what a log query, an alert and a metric filter
+     * on. Folding it into the generic 500 would hide exactly the failure that
+     * needs a human.
+     *
+     * <p>The message says "contact support" rather than describing the split.
+     * The caller cannot repair it - the address is now taken in one system and
+     * unknown in the other - and naming the internal state would leak our
+     * topology.
+     */
+    REGISTRATION_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR,
+            "Registration did not complete, please contact support"),
+
     DEPENDENCY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Dependency is not reachable");
 
     private final HttpStatus status;

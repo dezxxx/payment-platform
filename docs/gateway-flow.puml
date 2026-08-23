@@ -1,0 +1,339 @@
+@startuml user-journey
+title The whole story - one person, from the first request to /me
+
+skinparam shadowing false
+autonumber
+
+actor "User" as U
+participant "AuthController" as Ctl
+participant "AuthenticationService" as Auth
+participant "RegistrationService" as Reg
+box "gateway" #F7F7F7
+  participant "PersonServiceGateway" as PG
+  participant "KeycloakOidcGateway" as OG
+  participant "KeycloakAdminGateway" as AG
+end box
+participant "person-service" as PS
+participant "Keycloak" as KC
+
+== He tries to log in, but he has no account yet ==
+
+U -> Ctl : POST /v1/auth/login\n{ "email": "ivan@dezxxx.com",\n  "password": "Str0ngP@ssw0rd" }
+Ctl -> Auth : login(request)
+Auth -> OG : login(email, password)
+OG -> KC : POST /realms/{realm}/protocol/openid-connect/token\nform: grant_type=password
+KC --> OG : 400 { "error": "invalid_grant",\n       "error_description": "Invalid user credentials" }
+
+note right of OG
+  Keycloak says 400. Our contract says 401.
+  KeycloakErrorTranslator re-reads it:
+  invalid_grant -> INVALID_CREDENTIALS.
+end note
+
+OG --> Auth : ApiException(INVALID_CREDENTIALS)
+Auth --> Ctl : (error travels up the chain)
+Ctl --> U : 401 Unauthorized\n{ "error": "INVALID_CREDENTIALS",\n  "message": "Email or password is incorrect" }
+
+note over U
+  Deliberately vague. "No such email" and
+  "wrong password" answer identically, so
+  nobody can discover which addresses exist.
+end note
+
+== So he registers. These are the fields we need ==
+
+U -> Ctl : POST /v1/auth/registration\n{ "email", "password", "confirmPassword",\n  "firstName", "lastName" }
+
+note right of Ctl
+  @Valid runs before any of this:
+  email format, password 8..72,
+  firstName/lastName not blank,
+  confirmPassword equals password.
+  A failure here never reaches the service -
+  400 VALIDATION_ERROR with a details[] line
+  per offending field.
+end note
+
+Ctl -> Reg : register(request)
+activate Reg
+
+Reg -> PG : createPerson(email, firstName, lastName)
+PG -> PS : POST /api/v1/persons/registration
+PS --> PG : 201 { "userUid": "6f1d2a4e-..." }
+PG --> Reg : UUID
+note right of PG
+  No password is sent here.
+  person-service owns the profile,
+  Keycloak owns the credentials.
+end note
+
+Reg -> AG : createUser(email, firstName, lastName, userUid)
+AG -> OG : serviceAccountToken()
+OG -> KC : POST /token  grant_type=client_credentials
+KC --> OG : 200 { access_token }
+OG --> AG : admin token
+AG -> KC : POST /admin/realms/{realm}/users\nBearer <admin token>
+KC --> AG : 201 Created\nLocation: .../users/0b7a5f2c-...
+AG --> Reg : keycloakUserId
+
+Reg -> AG : setPassword(keycloakUserId, password)
+AG -> KC : PUT /admin/realms/{realm}/users/{id}/reset-password\n{ "type":"password", "value":"...", "temporary": false }
+KC --> AG : 204 No Content
+AG --> Reg : done
+
+Reg -> OG : login(email, password)
+OG -> KC : POST /token  grant_type=password
+KC --> OG : 200 { access_token, refresh_token,\n       expires_in, token_type }
+OG --> Reg : TokenResponse
+Reg -> Reg : tokens.userUid(userUid)
+Reg --> Ctl : TokenResponse
+deactivate Reg
+
+Ctl --> U : 201 Created\n{ accessToken, refreshToken,\n  expiresIn, tokenType, userUid }
+
+== Now he asks who he is ==
+
+U -> Ctl : GET /v1/auth/me\nAuthorization: Bearer <accessToken>
+
+note right of Ctl
+  The security filter chain verified the
+  signature before the controller was reached.
+  Seven of the eight fields are already inside
+  the token - no network call for them.
+end note
+
+Ctl -> Auth : currentUser(jwt)
+Auth -> AG : findById(sub)
+AG -> KC : GET /admin/realms/{realm}/users/{sub}
+KC --> AG : 200 { ..., "createdTimestamp": 1755600000000 }
+AG --> Auth : KeycloakUserResponse
+Auth --> Ctl : CurrentUserResponse
+Ctl --> U : 200 { userUid, keycloakUserId, email,\n     firstName, lastName, emailVerified,\n     roles, registeredAt }
+
+@enduml
+
+
+@startuml gateway-structure
+title The gateway layer - what knows what
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+package "service (orchestration only)" #FDFDF0 {
+  class RegistrationService
+  class AuthenticationService
+}
+
+package gateway {
+
+  class GatewayErrors <<utility>> {
+    + transportFailures(dependency, baseUrl)
+  }
+  note right of GatewayErrors
+    Shared by EVERY gateway.
+    "Nobody answered at all" ->
+    503 DEPENDENCY_UNAVAILABLE.
+  end note
+
+  package "gateway.person" {
+    class PersonServiceGateway <<@Component>> {
+      + Mono<UUID> createPerson(email, firstName, lastName)
+    }
+    class PersonErrorTranslator <<utility>>
+  }
+
+  package "gateway.keycloak" {
+
+    class KeycloakErrorTranslator <<utility>> {
+      + Mono<Throwable> translate(response)
+    }
+    class KeycloakErrorResponse <<record>>
+    note bottom of KeycloakErrorResponse
+      Two shapes in one record:
+      { error, error_description }  (OIDC)
+      { errorMessage }              (Admin)
+    end note
+
+    package "gateway.keycloak.oidc" {
+      class KeycloakOidcGateway <<@Component>> {
+        + Mono<TokenResponse> login(email, password)
+        + Mono<TokenResponse> refresh(token)
+        + Mono<String> serviceAccountToken()
+      }
+      class KeycloakTokenResponse <<record>>
+    }
+
+    package "gateway.keycloak.admin" {
+      class KeycloakAdminGateway <<@Component>> {
+        + Mono<String> createUser(email, firstName,\n                         lastName, userUid)
+        + Mono<Void> setPassword(id, password)
+        + Mono<Void> deleteUser(id)
+        + Mono<KeycloakUserResponse> findById(id)
+      }
+      class KeycloakUserRequest <<record>>
+      class KeycloakUserResponse <<record>>
+      class KeycloakCredential <<record>>
+    }
+  }
+}
+
+RegistrationService --> PersonServiceGateway
+RegistrationService --> KeycloakAdminGateway
+RegistrationService --> KeycloakOidcGateway
+AuthenticationService --> KeycloakOidcGateway
+AuthenticationService --> KeycloakAdminGateway
+
+KeycloakAdminGateway --> KeycloakOidcGateway : needs a service token
+
+PersonServiceGateway ..> PersonErrorTranslator
+PersonServiceGateway ..> GatewayErrors
+KeycloakOidcGateway ..> KeycloakErrorTranslator
+KeycloakOidcGateway ..> GatewayErrors
+KeycloakAdminGateway ..> KeycloakErrorTranslator
+KeycloakAdminGateway ..> GatewayErrors
+KeycloakErrorTranslator ..> KeycloakErrorResponse
+
+legend bottom
+  The layering rule, one line:
+  **shared code lives at the level that covers everyone who uses it.**
+  GatewayErrors            -> all gateways
+  KeycloakErrorTranslator  -> admin + oidc
+  the records              -> one process each
+endlegend
+
+@enduml
+
+
+@startuml gateway-translation
+title What a gateway is FOR - the same failure, told twice
+
+skinparam shadowing false
+
+rectangle "What the dependency said" #FFF0F0 {
+  card "Keycloak: 400\ninvalid_grant\n\"Invalid user credentials\"" as k1
+  card "Keycloak: 401\ninvalid_client" as k2
+  card "Keycloak: 409\n\"User exists with same email\"" as k3
+  card "Keycloak: 400\n(anything unforeseen)" as k4
+  card "Keycloak / person-service: 5xx" as k5
+  card "nothing at all\n(refused, DNS, timeout)" as k6
+  card "person-service: 400" as p1
+}
+
+rectangle "What the client is told" #F0FFF0 {
+  card "**401** INVALID_CREDENTIALS\n\"Email or password is incorrect\"" as o1
+  card "**500** INTERNAL_ERROR\n\"Unexpected error\"" as o2
+  card "**409** USER_ALREADY_EXISTS\n\"Email is already registered\"" as o3
+  card "**503** DEPENDENCY_UNAVAILABLE\n\"Dependency is not reachable\"" as o4
+}
+
+k1 --> o1
+k2 --> o2 : our own client_secret is wrong -\nthe caller did nothing
+k3 --> o3
+k4 --> o2 : WE built that request,\nso a 4xx is OUR bug
+p1 --> o2 : their validation and ours\ndisagree - our bug again
+k5 --> o4
+k6 --> o4
+
+note bottom
+  Two rules worth remembering:
+
+  1. A 4xx from a dependency is usually **not** the caller's fault.
+     The caller never sent that request - we did.
+
+  2. The dependency's own wording never reaches the client. It is
+     logged instead. "Account is not fully set up" describes our
+     internals, and "User exists with same email" lets an attacker
+     enumerate registered addresses.
+end note
+
+@enduml
+
+
+@startuml gateway-failures
+title Registration - where it can break and what the client gets
+
+skinparam shadowing false
+
+start
+
+:POST /v1/auth/registration;
+
+if (@Valid passed?) then (no)
+  #FFE0E0:**400** VALIDATION_ERROR
+  details[] names each bad field;
+  note right: Nothing was created anywhere.
+  stop
+else (yes)
+endif
+
+:person-service\nPOST /persons/registration;
+
+if (created?) then (no)
+  #FFE0E0:409 -> **409** USER_ALREADY_EXISTS
+  5xx -> **503** DEPENDENCY_UNAVAILABLE
+  400 -> **500** INTERNAL_ERROR;
+  note right
+    Still nothing created.
+    The caller may simply try again.
+  end note
+  stop
+else (yes)
+endif
+
+:user_uid issued;
+note right #FFFFCC
+  From here on, ANY failure leaves
+  person-service and Keycloak
+  disagreeing about this person.
+end note
+
+:Keycloak\nPOST /admin/.../users;
+
+if (created?) then (no)
+  #FFCCCC:**500** REGISTRATION_INCONSISTENT;
+  note right
+    Domain user exists, account does not.
+    Nothing to roll back in Keycloak.
+    person-service has no delete - the split
+    is logged with the user_uid and left for
+    a human. Module 1's accepted limit.
+  end note
+  stop
+else (yes)
+endif
+
+:Keycloak\nPUT /reset-password;
+
+if (password set?) then (no)
+  #FFCCCC:DELETE /admin/.../users/{id};
+  note right
+    Compensating action. Without it the
+    account can never be logged into
+    (400 "Account is not fully set up")
+    while its address stays taken, so
+    registering again answers 409 forever.
+  end note
+  #FFCCCC:**500** REGISTRATION_INCONSISTENT;
+  stop
+else (yes)
+endif
+
+:Keycloak\nPOST /token grant_type=password;
+
+if (logged in?) then (no)
+  #FFE0E0:**503** DEPENDENCY_UNAVAILABLE;
+  note right
+    NOT an inconsistency. Both systems
+    hold the same user; we merely failed
+    to hand over tokens. The caller can
+    log in normally.
+  end note
+  stop
+else (yes)
+endif
+
+#CCFFCC:**201** accessToken, refreshToken,
+expiresIn, tokenType, user_uid;
+stop
+
+@enduml
