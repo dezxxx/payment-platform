@@ -7,6 +7,9 @@ import com.dezxxx.individuals.gateway.GatewayErrors;
 import com.dezxxx.individuals.gateway.keycloak.KeycloakErrorTranslator;
 import com.dezxxx.individuals.gateway.keycloak.oidc.KeycloakOidcGateway;
 import java.net.URI;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -106,14 +109,22 @@ public class KeycloakAdminGateway {
                 .then());
     }
 
-    /** Reads a profile. Needed by {@code /me} for the registration date alone. */
-    public Mono<KeycloakUserResponse> findById(String keycloakUserId) {
+    /**
+     * When the account was created.
+     *
+     * <p>The whole reason {@code /me} touches the Admin API: this is the one
+     * field of the response that no claim carries. The caller is given a time,
+     * not a payload - what else Keycloak sends back is nobody's business above
+     * this class.
+     */
+    public Mono<OffsetDateTime> findRegisteredAt(String keycloakUserId) {
         return withAdminToken(token -> keycloakWebClient.get()
                 .uri(properties.usersUri() + BY_ID, keycloakUserId)
                 .headers(headers -> headers.setBearerAuth(token))
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, KeycloakErrorTranslator::translate)
-                .bodyToMono(KeycloakUserResponse.class));
+                .bodyToMono(KeycloakUserRepresentation.class)
+                .map(user -> toRegisteredAt(user, keycloakUserId)));
     }
 
     /** Fetches a service-account token and runs the call with it. */
@@ -142,5 +153,24 @@ public class KeycloakAdminGateway {
             throw new ApiException(ErrorCode.INTERNAL_ERROR);
         }
         return id;
+    }
+
+    /**
+     * Turns Keycloak's counter into a moment.
+     *
+     * <p>UTC, not the machine's zone: the number carries none, and guessing one
+     * would make the same account look differently registered depending on
+     * where the service runs.
+     *
+     * <p>The field is absent only if Keycloak stops sending it, and
+     * {@code registeredAt} is required by our contract - so an empty answer is
+     * not an option and the caller is told <b>500 (Internal Server Error)</b>.
+     */
+    private static OffsetDateTime toRegisteredAt(KeycloakUserRepresentation user, String keycloakUserId) {
+        if (user.createdTimestamp() == null) {
+            log.error("Keycloak account {} came back without a creation timestamp", keycloakUserId);
+            throw new ApiException(ErrorCode.INTERNAL_ERROR);
+        }
+        return Instant.ofEpochMilli(user.createdTimestamp()).atOffset(ZoneOffset.UTC);
     }
 }

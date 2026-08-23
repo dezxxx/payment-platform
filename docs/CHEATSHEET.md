@@ -5,6 +5,9 @@ so nothing here has to be looked up in the course handout or in `CONTEXT.md`
 again. Values come from `.env` (copy of `.env.example`); this file only records
 what they are and what they are for.
 
+Russian mirror: [`CHEATSHEET.ru.md`](CHEATSHEET.ru.md). The classes are a
+different sheet: [`CLASSES.md`](CLASSES.md).
+
 ---
 
 ## 1. Ports
@@ -112,8 +115,10 @@ The pair mixed up most often: **401 is "who are you?", 403 is "not for you"**.
 | service-account token | `POST /realms/REALM/protocol/openid-connect/token` — `grant_type=client_credentials` |
 | user login | `POST /realms/REALM/protocol/openid-connect/token` — `grant_type=password` |
 | refresh | `POST /realms/REALM/protocol/openid-connect/token` — `grant_type=refresh_token` |
-| create user | `POST /admin/realms/REALM/users` — body carries `credentials` and `user_uid` |
-| read user | `GET /admin/realms/REALM/users/{id}` |
+| create user | `POST /admin/realms/REALM/users` — body carries `user_uid`, **no password**; answers 201 with an empty body, the new id is only in the `Location` header |
+| set the password | `PUT /admin/realms/REALM/users/{id}/reset-password` — `temporary: false`, or the next login fails with 400 `invalid_grant` |
+| delete user | `DELETE /admin/realms/REALM/users/{id}` — compensation only, when the password could not be set |
+| read user | `GET /admin/realms/REALM/users/{id}` — we read one field, `createdTimestamp` |
 | JWKS / issuer | `GET /realms/REALM/.well-known/openid-configuration` |
 
 How Keycloak's errors map to ours: `400 invalid_grant` "Invalid user

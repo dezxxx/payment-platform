@@ -455,9 +455,12 @@ Keycloak обычно ротирует и refresh-токен, так что об
 вызовом Admin API — они уже там и стоят ноль.
 
 `registeredAt` объявлен в `CurrentUserResponse` и берётся из Keycloak-овского
-`createdTimestamp`, который приходит в миллисекундах от эпохи — переводится в
-UTC внутри `KeycloakUserResponse`, так что ни один слой выше шлюза не видит
-голое число.
+`createdTimestamp`, который приходит в миллисекундах от эпохи. Перевод в UTC
+делает `KeycloakAdminGateway`, его метод называется `findRegisteredAt` и
+возвращает `Mono<OffsetDateTime>` — ни один слой выше шлюза не видит голое
+число и не держит в руках payload Keycloak. Запись, в которую разбирается
+ответ, — `KeycloakUserRepresentation`: package-private, одно поле, имя взято у
+самого Keycloak, чтобы его можно было найти в их документации.
 
 ### Карта портов
 
@@ -501,7 +504,9 @@ payment-platform/
 ├── infra/                     провижининг prometheus, tempo, grafana
 ├── postman/
 ├── docs/                      диаграммы PlantUML (компоненты, деплой,
-│                              последовательность регистрации, слои)
+│                              последовательность регистрации, слои) и
+│                              CHEATSHEET.md — порты, пароли, команды
+│                              CLASSES.md — по строке на класс
 ├── person-client/             сгенерированные DTO + HTTP-клиенты -> Nexus
 ├── individuals-api/           оркестратор
 └── person-service/            только контракт + миграции Flyway (модуль 2)
@@ -614,15 +619,22 @@ payment-platform/
 - [x] `gateway/` — все три шлюза, которых требует задание, плюс два переводчика
       ошибок и `GatewayErrors`
 - [x] `RegistrationService` — сценарий из восьми шагов с компенсацией
+- [x] `AuthenticationService` — login, refresh, `/me`
+- [x] `README.md` — первая версия: что это, четыре эндпоинта, как запустить и
+      честная таблица состояния
+- [x] `docs/CHEATSHEET.ru.md` — у эксплуатационной шпаргалки наконец появился
+      русский двойник
+- [x] `docs/CLASSES.md` + `docs/CLASSES.ru.md` — каждый класс, его
+      единственная работа и правило, по которому выбирается пакет для нового
 
 ### Дальше, в этом порядке
 
 - [ ] `validation` — правило confirmPassword
-- [ ] `AuthController implements AuthApi`
-- [ ] `AuthenticationService` — login, refresh, /me
+- [ ] `AuthController implements AuthApi` — пока его нет, четыре эндпоинта
+      объявлены в контракте, но их никто не обслуживает
 - [ ] `AuthMetrics` — восемь метрик из раздела «Наблюдаемость»
-- [ ] `README.md`
 - [ ] Коллекция Postman
+- [ ] `README.md` — дозаполнить таблицу состояния, когда эндпоинты заработают
 - [ ] Unit-тесты, затем интеграционные на Testcontainers
 - [ ] JaCoCo — критерий приёмки 11 требует числа покрытия, а сборка его пока не
       умеет

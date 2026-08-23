@@ -208,32 +208,48 @@ package service {
   class AuthenticationService
 }
 
-package "gateway.keycloak" {
-  class KeycloakAdminGateway <<@Component>> {
-    + Mono<String> createUser(email, firstName,\n                         lastName, userUid)
-    + Mono<Void> setPassword(id, password)
-    + Mono<Void> deleteUser(id)
-    + Mono<KeycloakUserResponse> findById(id)
+package gateway {
+  class GatewayErrors <<static>> {
+    + transportFailures(dependency, baseUrl)
   }
-  class KeycloakOidcGateway <<@Component>> {
-    + Mono<TokenResponse> login(email, password)
-    + Mono<TokenResponse> refresh(token)
-    + Mono<String> serviceAccountToken()
+
+  package "gateway.person" {
+    class PersonServiceGateway <<@Component>> {
+      + Mono<UUID> createPerson(email,\n                       firstName, lastName)
+    }
   }
-  class KeycloakUserRequest <<record>> {
-    username, email, firstName, lastName,
-    enabled, emailVerified, attributes
-  }
-  class KeycloakUserResponse <<record>> {
-    id, email, firstName, lastName,
-    emailVerified, attributes,
-    createdTimestamp
-  }
-  class KeycloakCredential <<record>> {
-    type, value, temporary
-  }
-  class KeycloakErrorTranslator <<static>> {
-    + Mono<Throwable> translate(response)
+
+  package "gateway.keycloak" {
+    class KeycloakErrorTranslator <<static>> {
+      + Mono<Throwable> translate(response)
+    }
+
+    package "gateway.keycloak.oidc" {
+      class KeycloakOidcGateway <<@Component>> {
+        + Mono<TokenResponse> login(email, password)
+        + Mono<TokenResponse> refresh(token)
+        + Mono<String> serviceAccountToken()
+      }
+    }
+
+    package "gateway.keycloak.admin" {
+      class KeycloakAdminGateway <<@Component>> {
+        + Mono<String> createUser(email, firstName,\n                         lastName, userUid)
+        + Mono<Void> setPassword(id, password)
+        + Mono<Void> deleteUser(id)
+        + Mono<OffsetDateTime> findRegisteredAt(id)
+      }
+      class KeycloakUserRequest <<record>> {
+        username, email, firstName, lastName,
+        enabled, emailVerified, attributes
+      }
+      class KeycloakUserRepresentation <<record>> {
+        ~ createdTimestamp
+      }
+      class KeycloakCredential <<record>> {
+        type, value, temporary
+      }
+    }
   }
 }
 
@@ -248,7 +264,7 @@ package config {
   }
 }
 
-RegistrationService --> "com.dezxxx.person.client.api.PersonsApi" : step 1, user_uid
+RegistrationService --> PersonServiceGateway : step 1, user_uid
 RegistrationService --> KeycloakAdminGateway
 RegistrationService --> KeycloakOidcGateway
 AuthenticationService --> KeycloakOidcGateway
@@ -257,8 +273,9 @@ AuthenticationService --> KeycloakAdminGateway : /me reads registeredAt
 KeycloakAdminGateway --> KeycloakOidcGateway : needs a service token
 KeycloakAdminGateway ..> KeycloakUserRequest : body of POST /users
 KeycloakAdminGateway ..> KeycloakCredential : body of PUT /reset-password
-KeycloakAdminGateway ..> KeycloakUserResponse : receives
+KeycloakAdminGateway ..> KeycloakUserRepresentation : parses, then hands\nout a time instead
 KeycloakAdminGateway ..> KeycloakErrorTranslator : shared with the OIDC gateway
+KeycloakAdminGateway ..> GatewayErrors : shared with every gateway
 KeycloakAdminGateway --> KeycloakProperties : usersUri()
 HttpClientsConfig --> KeycloakAdminGateway : keycloakWebClient
 
@@ -274,6 +291,19 @@ note right of KeycloakErrorTranslator
   Keycloak failures through the same table,
   so 409 means "email taken" no matter which
   call produced it.
+end note
+
+note as N1
+  Why the nesting: shared code sits at the
+  level that covers everyone who uses it.
+
+  GatewayErrors        - every gateway
+  KeycloakErrorTranslator - both Keycloak APIs
+  the records          - one call each
+
+  So the depth of a package is not a filing
+  habit, it says how far the knowledge inside
+  it reaches.
 end note
 
 @enduml

@@ -5,9 +5,9 @@ import com.dezxxx.individuals.api.model.TokenResponse;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.admin.KeycloakAdminGateway;
-import com.dezxxx.individuals.gateway.keycloak.admin.KeycloakUserResponse;
 import com.dezxxx.individuals.gateway.keycloak.oidc.KeycloakOidcGateway;
 import com.dezxxx.individuals.util.KeycloakClaims;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -70,11 +70,11 @@ public class AuthenticationService {
      */
     public Mono<CurrentUserResponse> currentUser(Jwt jwt) {
         String keycloakUserId = jwt.getSubject();
-        return keycloakAdminGateway.findById(keycloakUserId)
-                .map(profile -> toCurrentUser(jwt, keycloakUserId, profile));
+        return keycloakAdminGateway.findRegisteredAt(keycloakUserId)
+                .map(registeredAt -> toCurrentUser(jwt, keycloakUserId, registeredAt));
     }
 
-    private CurrentUserResponse toCurrentUser(Jwt jwt, String keycloakUserId, KeycloakUserResponse profile) {
+    private CurrentUserResponse toCurrentUser(Jwt jwt, String keycloakUserId, OffsetDateTime registeredAt) {
         return new CurrentUserResponse()
                 .userUid(userUidOf(jwt))
                 .keycloakUserId(keycloakUserId)
@@ -83,7 +83,7 @@ public class AuthenticationService {
                 .lastName(jwt.getClaimAsString(FAMILY_NAME))
                 .emailVerified(jwt.getClaimAsBoolean(EMAIL_VERIFIED))
                 .roles(KeycloakClaims.realmRoles(jwt))
-                .registeredAt(profile.registeredAt());
+                .registeredAt(registeredAt);
     }
 
     /**

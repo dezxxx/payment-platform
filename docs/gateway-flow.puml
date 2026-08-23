@@ -103,10 +103,10 @@ note right of Ctl
 end note
 
 Ctl -> Auth : currentUser(jwt)
-Auth -> AG : findById(sub)
+Auth -> AG : findRegisteredAt(sub)
 AG -> KC : GET /admin/realms/{realm}/users/{sub}
 KC --> AG : 200 { ..., "createdTimestamp": 1755600000000 }
-AG --> Auth : KeycloakUserResponse
+AG --> Auth : OffsetDateTime (UTC)
 Auth --> Ctl : CurrentUserResponse
 Ctl --> U : 200 { userUid, keycloakUserId, email,\n     firstName, lastName, emailVerified,\n     roles, registeredAt }
 
@@ -168,10 +168,10 @@ package gateway {
         + Mono<String> createUser(email, firstName,\n                         lastName, userUid)
         + Mono<Void> setPassword(id, password)
         + Mono<Void> deleteUser(id)
-        + Mono<KeycloakUserResponse> findById(id)
+        + Mono<OffsetDateTime> findRegisteredAt(id)
       }
       class KeycloakUserRequest <<record>>
-      class KeycloakUserResponse <<record>>
+      class KeycloakUserRepresentation <<record>>
       class KeycloakCredential <<record>>
     }
   }

@@ -489,8 +489,13 @@ The roles in `CurrentUserResponse` are read from the token's `realm_access`, not
 from a second Admin API call — they are already there and cost nothing.
 
 `registeredAt` is declared in `CurrentUserResponse` and comes from Keycloak's
-`createdTimestamp`, which is epoch milliseconds - converted to UTC inside
-`KeycloakUserResponse`, so no layer above the gateway sees the raw number.
+`createdTimestamp`, which is epoch milliseconds. `KeycloakAdminGateway` converts
+it to UTC and its method is `findRegisteredAt`, returning `Mono<OffsetDateTime>`
+— no layer above the gateway sees the raw number, and none of them holds a
+Keycloak payload either. The record it is parsed into,
+`KeycloakUserRepresentation`, is package-private and carries that one field;
+it is named after Keycloak's own model so the name can be looked up in their
+reference.
 
 ### Port map
 
@@ -534,7 +539,9 @@ payment-platform/
 ├── infra/                     prometheus, tempo, grafana provisioning
 ├── postman/
 ├── docs/                      PlantUML diagrams (component, deployment,
-│                              registration sequence, layers)
+│                              registration sequence, layers) and
+│                              CHEATSHEET.md - ports, credentials, commands
+│                              CLASSES.md - one line per class
 ├── person-client/             generated DTOs + HTTP clients -> Nexus
 ├── individuals-api/           the orchestrator
 └── person-service/            contract + Flyway migrations only (module 2)
@@ -647,15 +654,21 @@ neither task and fails silently by never running at all.
 - [x] `gateway/` — all three gateways required by the handout, plus the two
       error translators and `GatewayErrors`
 - [x] `RegistrationService` — the eight-step scenario with compensation
+- [x] `AuthenticationService` — login, refresh, `/me`
+- [x] `README.md` — first version: what it is, the four endpoints, how to run
+      it, and an honest status table
+- [x] `docs/CHEATSHEET.ru.md` — the operations sheet finally has its mirror
+- [x] `docs/CLASSES.md` + `docs/CLASSES.ru.md` — every class, its one
+      job, and the rule that decides which package a new class goes into
 
 ### Next up, in this order
 
 - [ ] `validation` — the confirmPassword rule
-- [ ] `AuthController implements AuthApi`
-- [ ] `AuthenticationService` — login, refresh, /me
+- [ ] `AuthController implements AuthApi` — until it exists, the four
+      endpoints are declared in the contract but nothing serves them
 - [ ] `AuthMetrics` — the eight meters listed under Observability
-- [ ] `README.md`
 - [ ] Postman collection
+- [ ] `README.md` — fill in the status table once the endpoints are served
 - [ ] Unit tests, then Testcontainers integration tests
 - [ ] JaCoCo — acceptance criterion 11 asks for a coverage number and the
       build cannot produce one yet
