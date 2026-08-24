@@ -1,8 +1,14 @@
 # Tempo: receives OTLP traces over HTTP and stores them on local disk.
 #
-# The OTLP HTTP receiver listens on its default 4318, which is what
+# The OTLP HTTP receiver listens on 4318, which is what
 # management.opentelemetry.tracing.export.otlp.endpoint points at
 # (http://tempo:4318/v1/traces).
+#
+# The endpoint is written out rather than left to the default. Tempo embeds the
+# OpenTelemetry receiver, and since collector 0.104 an omitted endpoint means
+# localhost, not 0.0.0.0 - inside a container that accepts nothing from outside
+# it, so every other service gets "connection refused" while Tempo itself looks
+# perfectly healthy on 3200.
 #
 # Storage paths sit under /var/tempo rather than /tmp, because that is the
 # path docker-compose.yml mounts the named volume on. Left at /tmp the traces
@@ -17,6 +23,7 @@ distributor:
     otlp:
       protocols:
         http:
+          endpoint: 0.0.0.0:4318
 
 storage:
   trace:

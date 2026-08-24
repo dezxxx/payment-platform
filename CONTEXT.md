@@ -18,6 +18,13 @@ orchestrates user registration and authentication. It stores nothing itself.
 | Keycloak | the account, tokens, roles, auth attributes |
 | `individuals-api` | nothing — it only coordinates the two above |
 
+**Where a value is stored is not who owns the truth about it.** The same first
+name sits in person-service and in the Keycloak account, but only one of them
+is the source: the account holds a copy, written once at registration, and
+nobody keeps it in step afterwards. Reading a domain field out of Keycloak
+because it happens to be there is the easiest way to lose this boundary — see
+`/me` in section 5 for where module 1 does exactly that, and why.
+
 The root is deliberately named after the platform, not after one service:
 `transaction-service`, `payment-service`, `webhook-collector-service` and
 `notification-service` land here in later modules.
@@ -146,17 +153,45 @@ installed at `C:\Users\Dez\.jdks\openjdk-25.0.1`.
    `openApiGenerate`, and `check` depends on it. A broken contract fails the
    build, not the runtime.
 
+6. **Request rules are declared in the contract, not written by hand.** The
+   build sets `useBeanValidation = true`, so `@NotNull`, `@Size`, `@Email` and
+   the rest are generated straight out of the schema keywords and nobody
+   maintains them. OpenAPI has no keyword for "this field equals that one", and
+   the confirmation rule is the only place where that matters: it is written as
+   a class-level constraint in `validation` and attached to the generated model
+   through `x-class-extra-annotation` on the schema. The rule therefore still
+   lives in the contract — only its body is in Java — and it is applied by the
+   same `@Valid` as everything else, with no call a controller must remember to
+   make. Nothing above validates a request a second time.
+
+   **The language of a validation message is left to the machine.** The
+   generated constraints answer from Hibernate Validator's own bundles, chosen
+   by the JVM default locale, so this service replies in Russian on a Russian
+   Windows and in English inside a container — and `must match password`, being
+   ours and hard-coded, stays English either way, so one `details` array can
+   carry both. Deliberate for module 1: there is one deployment, a local
+   machine, and its owner sets its rules. Pinning the language later is a bean
+   — a message interpolator fixed to one locale, or one reading the request's
+   `Accept-Language` if real localisation is ever wanted — and no other code
+   moves.
+
 ### individuals-api layers
 
 Mandatory chain, one direction only:
 
 ```
-controller -> service -> gateway -> external system
+rest -> service -> gateway -> external system
 ```
+
+The first package is `rest`, not `controller`: this service speaks REST and
+nothing else — no view layer, no server-rendered page, no message consumer — so
+the package is named after the protocol it serves rather than after the Spring
+stereotype inside it. `api` was not available, that name belongs to the
+generated code.
 
 | Layer | Holds | Never does |
 |---|---|---|
-| `controller` | accepts and returns DTOs, implements the generated `AuthApi` | business logic; direct calls to Keycloak or person-service |
+| `rest` | accepts and returns DTOs, implements the generated `AuthApi` | business logic; direct calls to Keycloak or person-service |
 | `service` | orchestration of the registration and login scenarios | HTTP, JSON, Keycloak or person-client types |
 | `gateway` | every outbound call, one gateway per external system | domain decisions |
 | `validation`, `error`, `config`, `metrics` | validation rules, error mapping, security wiring, meters | anything belonging to another layer |
@@ -488,6 +523,18 @@ token itself is bad or expired, `401`.
 The roles in `CurrentUserResponse` are read from the token's `realm_access`, not
 from a second Admin API call — they are already there and cost nothing.
 
+**`firstName` and `lastName` are answered from the account, and that is a debt
+of module 1, not the architecture.** They are domain fields; person-service
+owns the truth about them. individuals-api writes a copy into Keycloak at
+registration only so the claims exist, and after that nothing keeps the copy in
+step — a name changed in the domain profile will not show up here until the
+account is updated too. Module 1 has no read side to ask: `person-service` is
+migrations and a frozen contract, with no operation to fetch a profile. When
+module 2 opens one, `/me` should take the profile from person-service and keep
+only `sub`, `roles` and `email_verified` from the token — those are genuinely
+facts about the account. The contract says as much on both fields, so a client
+is not misled in the meantime.
+
 `registeredAt` is declared in `CurrentUserResponse` and comes from Keycloak's
 `createdTimestamp`, which is epoch milliseconds. `KeycloakAdminGateway` converts
 it to UTC and its method is `findRegisteredAt`, returning `Mono<OffsetDateTime>`
@@ -660,15 +707,60 @@ neither task and fails silently by never running at all.
 - [x] `docs/CHEATSHEET.ru.md` — the operations sheet finally has its mirror
 - [x] `docs/CLASSES.md` + `docs/CLASSES.ru.md` — every class, its one
       job, and the rule that decides which package a new class goes into
+- [x] `validation/` — `PasswordsMatch` and its validator, attached to the
+      generated model from the contract; three tests, run through a real
+      `Validator` so a rule that stops reaching the class cannot pass silently
+- [x] `testRuntimeOnly(libs.junit.platform.launcher)` — the catalog entry had
+      been there unused, and without it the test JVM refused to start at all,
+      so no test in this module had ever run
+- [x] `rest/AuthController implements AuthApi` — the four endpoints are served.
+      **First live run of the API**, against a Keycloak in Docker: health
+      **200**; `/me` without a token **401** in the contract's error shape; a
+      mismatched confirmation **400** carrying
+      `confirmPassword: must match password`; a well-formed registration
+      **503**, having reached person-service, which is not running; an unknown
+      login **401**, translated from Keycloak's `invalid_grant`
+- [x] `RegistrationServiceTest` — six cases, given/when/then. Found a real
+      defect on the first run: `then(login(...))` evaluates its argument while
+      the chain is assembled, so the gateway was called before the password
+      was set and even on registrations that failed. Harmless only because the
+      gateway builds a lazy `WebClient` chain; fixed with `Mono.defer`
+- [x] `metrics/AuthMetrics` — all eight meters, verified live in Prometheus
+- [x] **`docker compose up` brings up the whole stack.** Nine services, and
+      three defects surfaced in the process - see below
+
+### What the first full compose run cost
+
+The Dockerfile, `infra/tempo/tempo.yml` and the OTLP metrics registry had never
+been exercised. All three were broken:
+
+1. **The image did not build at all.** `publishToMavenLocal` and `bootJar` were
+   asked for in one Gradle invocation; Gradle resolved individuals-api's
+   compile classpath before the publish had written anything, fell through to
+   the Nexus that does not exist inside the container, and died. Split into two
+   invocations. Note for later: the Nexus URL is `localhost:8083`, which inside
+   a container means the container itself - it will need the compose service
+   name when Nexus arrives.
+2. **Tempo accepted no traces.** The app was exporting to the right address and
+   getting "connection refused" while Tempo answered `ready` on 3200. Tempo
+   embeds the OpenTelemetry receiver, and since collector 0.104 an omitted
+   `endpoint` binds to localhost rather than 0.0.0.0 - so the receiver was
+   listening only to itself. Written out explicitly.
+3. **A failed metrics push every minute.** The OpenTelemetry starter brings an
+   OTLP meter registry along with the tracing it is there for, and it pushed to
+   a receiver that does not exist - a stack trace a minute, forever. Prometheus
+   collects ours by scraping, so the second copy is off:
+   `management.otlp.metrics.export.enabled: false`.
+
+Verified afterwards, end to end: Prometheus scrapes all eight meters and
+returns the same numbers the app reports; Loki holds our JSON logs with
+`traceId` and `spanId` promoted to labels; Tempo answers searches for
+`service.name=individuals-api` with traces carrying the security filter chain's
+spans.
 
 ### Next up, in this order
 
-- [ ] `validation` — the confirmPassword rule
-- [ ] `AuthController implements AuthApi` — until it exists, the four
-      endpoints are declared in the contract but nothing serves them
-- [ ] `AuthMetrics` — the eight meters listed under Observability
 - [ ] Postman collection
-- [ ] `README.md` — fill in the status table once the endpoints are served
 - [ ] Unit tests, then Testcontainers integration tests
 - [ ] JaCoCo — acceptance criterion 11 asks for a coverage number and the
       build cannot produce one yet

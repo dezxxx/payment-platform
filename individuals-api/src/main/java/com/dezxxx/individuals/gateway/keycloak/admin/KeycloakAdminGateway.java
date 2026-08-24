@@ -6,6 +6,7 @@ import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.GatewayErrors;
 import com.dezxxx.individuals.gateway.keycloak.KeycloakErrorTranslator;
 import com.dezxxx.individuals.gateway.keycloak.oidc.KeycloakOidcGateway;
+import com.dezxxx.individuals.metrics.AuthMetrics;
 import java.net.URI;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -47,13 +48,17 @@ public class KeycloakAdminGateway {
 
     private final KeycloakProperties properties;
 
+    private final AuthMetrics metrics;
+
     /** Written out because {@code @Qualifier} is not copied onto a Lombok constructor. */
     public KeycloakAdminGateway(@Qualifier("keycloakWebClient") WebClient keycloakWebClient,
                                 KeycloakOidcGateway oidcGateway,
-                                KeycloakProperties properties) {
+                                KeycloakProperties properties,
+                                AuthMetrics metrics) {
         this.keycloakWebClient = keycloakWebClient;
         this.oidcGateway = oidcGateway;
         this.properties = properties;
+        this.metrics = metrics;
     }
 
     /**
@@ -127,10 +132,17 @@ public class KeycloakAdminGateway {
                 .map(user -> toRegisteredAt(user, keycloakUserId)));
     }
 
-    /** Fetches a service-account token and runs the call with it. */
+    /**
+     * Fetches a service-account token and runs the call with it.
+     *
+     * <p>Only the Admin request itself is timed here. The token fetch is a
+     * second, separate call to Keycloak and the OIDC gateway already times it -
+     * so an admin operation records two samples, which is exactly how many
+     * round trips it costs.
+     */
     private <T> Mono<T> withAdminToken(Function<String, Mono<T>> call) {
         return oidcGateway.serviceAccountToken()
-                .flatMap(call)
+                .flatMap(token -> metrics.timeKeycloak(call.apply(token)))
                 .transform(GatewayErrors.transportFailures(KEYCLOAK, properties.baseUrl()));
     }
 

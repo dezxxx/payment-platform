@@ -125,9 +125,9 @@ Module 1 is not finished. What is honest as of today:
 
 | | |
 |---|---|
-| ✅ Working | Contract, Gradle build, Keycloak realm, all three gateways, `RegistrationService` with compensation, `AuthenticationService`, the whole error layer |
-| 🚧 Missing | `AuthController` — **the endpoints above are not served yet**; the `confirmPassword` validation; the metrics |
-| ❓ Unverified | The Dockerfile has never been built; Loki has never received a log line from `individuals-api`; Nexus is not in the compose file |
-| 🧪 Tests | One unit test. Integration tests on Testcontainers and the JaCoCo threshold are still ahead |
+| ✅ Working | Contract, Gradle build, Keycloak realm, all three gateways, `RegistrationService` with compensation, `AuthenticationService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — and all eight meters |
+| 🐳 Compose | `docker compose up` brings up nine services and the app runs inside Docker. Prometheus scrapes our meters, Loki holds our logs with their `traceId`, Tempo answers with our traces |
+| 🚧 Missing | `person-service` itself is module 2 — migrations only — so registration reaches it and stops there with **503**. Nexus is not in the compose file, and `person-client` is still resolved from the local Maven repository |
+| 🧪 Tests | Fifteen unit tests, green. Integration tests on Testcontainers and the JaCoCo threshold are still ahead |
 
 The ordered to-do list lives in §8 of `CONTEXT.md` and is kept current.

@@ -3,7 +3,7 @@
 One line per class: what it is and the single job it owns. Open it next to the
 IDE. Depth lives in `CONTEXT.md`; the javadoc on each class explains *why*.
 
-26 classes in `main`, plus the OpenAPI-generated `AuthApi` and the generated
+30 classes in `main`, plus the OpenAPI-generated `AuthApi` and the generated
 `person-client`, neither of which is written by hand.
 
 Russian mirror: [`CLASSES.ru.md`](CLASSES.ru.md). Ports, credentials and
@@ -14,7 +14,7 @@ commands live in [`CHEATSHEET.md`](CHEATSHEET.md) — a different sheet.
 ## The map, in one breath
 
 ```
-Controller (not written yet)
+rest/          the four endpoints, and nothing else
     ↓
 service/       what happens, and what to do when it breaks
     ↓
@@ -25,6 +25,8 @@ Keycloak                        person-service
 
 - `config/` — what the application is assembled from.
 - `error/` — what any failure looks like on the wire.
+- `validation/` — the one request rule the contract cannot express itself.
+- `metrics/` — every meter name, in one file.
 - `util/` — knowledge about someone else's format, in one place.
 
 ---
@@ -34,6 +36,16 @@ Keycloak                        person-service
 | Class | Kind | Its one job |
 |---|---|---|
 | `IndividualsApiApplication` | `@SpringBootApplication` | Starts the app. Owns no data: it orchestrates person-service and Keycloak. |
+
+## `rest` — the four endpoints
+
+| Class | Kind | Its one job |
+|---|---|---|
+| `AuthController` | `@RestController implements AuthApi` | Unwraps the request, hands it to a service, wraps the answer in its status — **201 (Created)** for registration, **200 (OK)** for the rest. Declares no path of its own: methods, paths and `@Valid` are all inherited from the generated interface, so a change in the contract breaks this class at compile time. |
+
+> Named `rest`, not `controller`: the service speaks REST and nothing else —
+> no views, no consumers — so the package says which protocol it serves.
+> `api` was taken by the generated code.
 
 ## `config` — what the app is assembled from
 
@@ -86,6 +98,48 @@ the nesting means.
 | `RegistrationService` | `@Service` | The eight-step scenario: person-service → `user_uid` → Keycloak account → password → login. Owns the **compensation**: if the password fails, the half-made account is deleted. |
 | `AuthenticationService` | `@Service` | Everything after registration: `login`, `refresh`, `/me`. Writes nothing. |
 
+## `validation` — the rule the contract cannot express
+
+| Class | Kind | Its one job |
+|---|---|---|
+| `PasswordsMatch` | `@interface`, `@Target(TYPE)` | Says `password` and `confirmPassword` must be the same string. On the type, not a field, because the check needs both values at once. |
+| `PasswordsMatchValidator` | `ConstraintValidator` | Performs it. Stays silent when a value is missing — `@NotNull` already said that — and re-hangs the failure on `confirmPassword` so the client is told *which* field is wrong. |
+
+> Everything else on `RegistrationRequest` is generated from the contract:
+> `@NotNull`, `@Size`, `@Email`, all of it, because the build sets
+> `useBeanValidation = true`. OpenAPI simply has no keyword for "this field
+> equals that one", so this rule is the whole remainder.
+>
+> The annotation is not written on the class by hand — the class is generated.
+> The schema carries `x-class-extra-annotation` and the generator stamps the
+> line on verbatim, which is why it is fully qualified there: the generator
+> adds no import for it. The rule therefore stays in the contract and is
+> applied by the same `@Valid` that runs everything else.
+>
+> Nothing registers the validator. `@Constraint(validatedBy = …)` names it and
+> Hibernate Validator asks Spring's factory for an instance — no `@Component`,
+> no `@Bean`, and dependencies would still be injected if it ever grew any.
+
+## `metrics` — the eight meters
+
+| Class | Kind | Its one job |
+|---|---|---|
+| `AuthMetrics` | `@Component` | Registers every meter this service publishes and is the only place their names are typed. Six counters for the auth flow, two timers for outbound calls. |
+
+> A metric name is a contract, like an `ErrorCode`: a Grafana panel and an
+> alert rule are written against the string, so renaming it empties a dashboard
+> in silence. One file owns all eight.
+>
+> Dotted names, **not** the `_total` suffix the handout's table shows —
+> Prometheus appends that itself when it scrapes. Verified live:
+> `auth.registration` arrives as `auth_registration_total`.
+>
+> The timers wrap a `Mono` inside `defer`, so the stopwatch starts on
+> subscription rather than on assembly, and stop on `doFinally`, so a call that
+> failed still counts — leaving failures out would flatten the timer exactly
+> when something is wrong. **Facade** over `MeterRegistry`; the timing wrapper
+> is a **Decorator**.
+
 ## `util`
 
 | Class | Kind | Its one job |
@@ -103,6 +157,8 @@ the nesting means.
 | "their 409 means our X" | a translator in `gateway` | the translation *is* the gateway |
 | an order of steps, a rollback | `service` | services orchestrate, gateways obey |
 | a new failure the client sees | a constant in `ErrorCode` | status + code + message on one line |
+| a request rule the contract can express | `openapi/individuals-api.yaml` | the generator writes the annotation, nobody maintains it |
+| a request rule it cannot | `validation` + `x-class-extra-annotation` | the rule still lives in the contract, only its body is in Java |
 | reading someone's format | `util`, or the gateway that owns it | keep the foreign format in one class |
 
 Rules that decide the package:
@@ -117,10 +173,8 @@ Rules that decide the package:
 
 ---
 
-## Not written yet
+## Nothing left unwritten
 
-| Missing | Will own |
-|---|---|
-| `validation` | the `confirmPassword` rule; no validation in a controller or a service |
-| `AuthController implements AuthApi` | the four endpoints, and nothing else |
-| `AuthMetrics` | the eight meters listed under Observability in `CONTEXT.md` |
+Every class module 1 asks for exists. What is left is not classes: integration
+tests on Testcontainers, a coverage number, a Postman collection, and
+`person-client` published to Nexus rather than to a local Maven repository.

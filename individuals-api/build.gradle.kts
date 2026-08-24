@@ -119,6 +119,9 @@ dependencies {
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.keycloak)
+    // Gradle 9 no longer puts the JUnit Platform launcher on the test runtime
+    // classpath by itself, and without it the test JVM cannot start at all.
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
 
 // Unit tests and integration tests are separated by package, so each can be

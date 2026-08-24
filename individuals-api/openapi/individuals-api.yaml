@@ -32,12 +32,16 @@ paths:
       operationId: register
       summary: Register a new user
       description: |
-        Creates the account in Keycloak with the password and the user_uid
-        attribute in one call, then logs the new user in and returns the
-        tokens, so no separate login is needed.
+        The order is fixed. person-service creates the domain user and issues
+        its user_uid - the domain identifier is issued by the domain service,
+        never here. The Keycloak account is created next, carrying that
+        user_uid as an attribute; its password is set by a second Admin call,
+        because the create call does not accept one. The new user is then
+        logged in, so no separate login is needed.
 
-        Module 1 issues user_uid itself. From module 2 the identifier comes
-        from person-service, which creates the domain user first.
+        The two systems share no transaction. An account created without a
+        password is deleted again; a domain user that outlives a failed
+        Keycloak account cannot be, and is reported as REGISTRATION_INCONSISTENT.
       security: []
       requestBody:
         required: true
@@ -218,6 +222,14 @@ components:
     RegistrationRequest:
       type: object
       required: [email, password, confirmPassword, firstName, lastName]
+      # OpenAPI has no way to say "this field equals that one", so the
+      # confirmation rule is the single constraint of this schema that the
+      # keywords below cannot express. The extension stamps our class-level
+      # constraint onto the generated model, which keeps the rule in the
+      # contract rather than in a controller someone has to remember to call.
+      # Fully qualified on purpose: the generator copies the line verbatim and
+      # adds no import for it.
+      x-class-extra-annotation: "@com.dezxxx.individuals.validation.PasswordsMatch"
       properties:
         email:
           type: string
@@ -324,13 +336,19 @@ components:
           type: string
           format: email
           example: user@dezxxx.com
+        # person-service owns the domain profile; the account carries a copy
+        # written at registration, and this answer is built from that copy
+        # because module 1 has no read side to ask. So the two names can lag
+        # behind a profile edited elsewhere, and the copy is not the truth.
         firstName:
           type: string
           maxLength: 64
+          description: As recorded on the account. May lag the domain profile.
           example: Ivan
         lastName:
           type: string
           maxLength: 64
+          description: As recorded on the account. May lag the domain profile.
           example: Ivanov
         emailVerified:
           type: boolean

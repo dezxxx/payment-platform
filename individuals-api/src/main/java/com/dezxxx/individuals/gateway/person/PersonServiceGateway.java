@@ -4,6 +4,7 @@ import com.dezxxx.individuals.config.PersonServiceProperties;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.GatewayErrors;
+import com.dezxxx.individuals.metrics.AuthMetrics;
 import com.dezxxx.person.client.api.PersonsApi;
 import com.dezxxx.person.client.model.PersonRegistrationRequest;
 import com.dezxxx.person.client.model.PersonRegistrationResponse;
@@ -34,13 +35,15 @@ public class PersonServiceGateway {
 
     private final PersonServiceProperties properties;
 
+    private final AuthMetrics metrics;
+
     /**
      * Creates the domain user and returns the identifier the whole platform
      * uses for them. No password is sent - credentials belong to Keycloak.
      */
     public Mono<UUID> createPerson(String email, String firstName, String lastName) {
         PersonRegistrationRequest body = new PersonRegistrationRequest(email, firstName, lastName);
-        return call(() -> personsApi.registerPerson(Mono.just(body)))
+        return metrics.timePersonService(call(() -> personsApi.registerPerson(Mono.just(body))))
                 .map(PersonServiceGateway::userUidOf)
                 .onErrorMap(WebClientResponseException.class, PersonErrorTranslator::translate)
                 .transform(GatewayErrors.transportFailures(PERSON_SERVICE, properties.baseUrl()));

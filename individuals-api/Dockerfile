@@ -16,10 +16,17 @@ WORKDIR /workspace
 COPY . .
 
 # The wrapper loses its executable bit on a Windows checkout.
-RUN chmod +x ./gradlew \
-    && ./gradlew --no-daemon --no-configuration-cache \
-        :person-client:publishToMavenLocal \
-        :individuals-api:bootJar
+RUN chmod +x ./gradlew
+
+# Two invocations, not one. Asked for in a single build, Gradle resolves
+# individuals-api's compile classpath against a local Maven repository that
+# publishToMavenLocal has not written to yet, and the build dies looking for
+# person-client in a Nexus that does not exist inside this container. Splitting
+# them lets the first build finish and leave the artifact behind before the
+# second one goes looking for it.
+RUN ./gradlew --no-daemon --no-configuration-cache :person-client:publishToMavenLocal
+
+RUN ./gradlew --no-daemon --no-configuration-cache :individuals-api:bootJar
 
 # ---------------------------------------------------------------------------
 

@@ -7,6 +7,7 @@ import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.admin.KeycloakAdminGateway;
 import com.dezxxx.individuals.gateway.keycloak.oidc.KeycloakOidcGateway;
 import com.dezxxx.individuals.gateway.person.PersonServiceGateway;
+import com.dezxxx.individuals.metrics.AuthMetrics;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,13 +35,27 @@ public class RegistrationService {
 
     private final KeycloakOidcGateway keycloakOidcGateway;
 
+    private final AuthMetrics metrics;
+
     /** The request is already valid - {@code @Valid} ran on the controller. */
     public Mono<TokenResponse> register(RegistrationRequest request) {
         return personServiceGateway
                 .createPerson(request.getEmail(), request.getFirstName(), request.getLastName())
+                // Deferred, because then() takes a Mono that is already built:
+                // without it login() is called while the chain is assembled -
+                // before the account exists, and even when it never will.
                 .flatMap(userUid -> createAccount(request, userUid)
-                        .then(login(request, userUid)))
-                .doOnSuccess(tokens -> log.info("Registered {}", tokens.getUserUid()));
+                        .then(Mono.defer(() -> login(request, userUid))))
+                // On subscription, not on assembly: the attempt begins when
+                // someone actually asks for it. Failures are counted whatever
+                // the reason - a dependency that was down is still a
+                // registration that did not happen.
+                .doFirst(metrics::registrationStarted)
+                .doOnError(cause -> metrics.registrationFailed())
+                .doOnSuccess(tokens -> {
+                    metrics.registrationSucceeded();
+                    log.info("Registered {}", tokens.getUserUid());
+                });
     }
 
     /**

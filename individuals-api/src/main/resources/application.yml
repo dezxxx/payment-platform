@@ -52,6 +52,17 @@ management:
     sampling:
       # Everything is sampled. Fine for a local stack, never for production.
       probability: 1.0
+  otlp:
+    metrics:
+      export:
+        # Turned off deliberately. The OpenTelemetry starter brings an OTLP
+        # meter registry along with the tracing it is here for, and that
+        # registry pushes metrics on its own - to nowhere, since Prometheus
+        # collects ours by scraping /actuator/prometheus instead. Left on it
+        # logs a failed push, stack trace and all, once a minute forever.
+        # Traces still leave over OTLP; only this second copy of the metrics
+        # stops.
+        enabled: false
   opentelemetry:
     tracing:
       export:

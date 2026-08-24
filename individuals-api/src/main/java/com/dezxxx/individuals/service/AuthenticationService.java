@@ -6,6 +6,7 @@ import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.admin.KeycloakAdminGateway;
 import com.dezxxx.individuals.gateway.keycloak.oidc.KeycloakOidcGateway;
+import com.dezxxx.individuals.metrics.AuthMetrics;
 import com.dezxxx.individuals.util.KeycloakClaims;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -40,6 +41,8 @@ public class AuthenticationService {
 
     private final KeycloakAdminGateway keycloakAdminGateway;
 
+    private final AuthMetrics metrics;
+
     /**
      * Decodes the access token we just received back from Keycloak.
      *
@@ -52,12 +55,20 @@ public class AuthenticationService {
     public Mono<TokenResponse> login(String email, String password) {
         return keycloakOidcGateway.login(email, password)
                 .flatMap(this::withUserUid)
+                .doFirst(metrics::loginStarted)
+                .doOnError(cause -> metrics.loginFailed())
                 .doOnSuccess(tokens -> log.info("Logged in {}", tokens.getUserUid()));
     }
 
+    /**
+     * Only attempts are counted. A refusal here is an expired or already-used
+     * refresh token, which is the normal end of a session rather than a
+     * failure worth a meter of its own.
+     */
     public Mono<TokenResponse> refresh(String refreshToken) {
         return keycloakOidcGateway.refresh(refreshToken)
-                .flatMap(this::withUserUid);
+                .flatMap(this::withUserUid)
+                .doFirst(metrics::refreshStarted);
     }
 
     /**
