@@ -13,6 +13,14 @@ plugins {
     alias(libs.plugins.spring.boot)
     alias(libs.plugins.spring.dependency.management)
     alias(libs.plugins.openapi.generator)
+    // Acceptance criterion 11 asks for a coverage number on the key services.
+    // Applied to this module only: person-client is generated and person-service
+    // ships no code, so a number for either would mean nothing.
+    jacoco
+}
+
+jacoco {
+    toolVersion = libs.versions.jacoco.get()
 }
 
 val contract = layout.projectDirectory.file("openapi/individuals-api.yaml")
@@ -156,6 +164,60 @@ val integrationTest = tasks.register<Test>("integrationTest") {
 }
 
 tasks.check { dependsOn(integrationTest) }
+
+/**
+ * Generated code is left out of the coverage number.
+ *
+ * `com.dezxxx.individuals.api` is written by the OpenAPI generator - models
+ * with getters, setters and equals. Counting them would move the percentage a
+ * long way while saying nothing about whether anything we wrote is tested, and
+ * nobody would ever write a test for a generated setter.
+ */
+val coveredClasses = { classes: FileCollection ->
+    files(classes.files.map { fileTree(it) { exclude("com/dezxxx/individuals/api/**") } })
+}
+
+tasks.named<JacocoReport>("jacocoTestReport") {
+    // Both suites, not just the unit one: a gateway is exercised only by the
+    // integration tests, and a report that ignored them would understate the
+    // code by exactly the part that talks to the outside world.
+    dependsOn(tasks.test, integrationTest)
+    executionData(fileTree(layout.buildDirectory).include("jacoco/*.exec"))
+    classDirectories.setFrom(coveredClasses(classDirectories))
+
+    reports {
+        html.required.set(true)
+        xml.required.set(true)
+    }
+}
+
+/**
+ * Acceptance criterion 11: the main scenario, at 80% or better, on the key
+ * services. The rule names that package and no other on purpose - a repository
+ * wide average would hide a bare `RegistrationService` behind a well covered
+ * `config`, which is the opposite of what the criterion is for.
+ *
+ * Measured at 100% when the rule was added, so the threshold is a floor that
+ * catches a regression, not a target still being chased.
+ */
+tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
+    dependsOn(tasks.named("jacocoTestReport"))
+    executionData(fileTree(layout.buildDirectory).include("jacoco/*.exec"))
+    classDirectories.setFrom(coveredClasses(classDirectories))
+
+    violationRules {
+        rule {
+            element = "PACKAGE"
+            includes = listOf("com.dezxxx.individuals.service")
+            limit {
+                counter = "LINE"
+                minimum = "0.80".toBigDecimal()
+            }
+        }
+    }
+}
+
+tasks.check { dependsOn(tasks.named("jacocoTestCoverageVerification")) }
 
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
     archiveFileName.set("individuals-api.jar")

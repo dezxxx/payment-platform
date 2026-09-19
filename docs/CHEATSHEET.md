@@ -21,7 +21,7 @@ service listens on inside the compose network — that is the one used in
 | keycloak | 8080 | 8080 | http://localhost:8080 | auth server, admin console |
 | individuals-api | 8081 | 8081 | http://localhost:8081 | our service |
 | person-service | 8082 | 8082 | — | module 2, not running yet |
-| nexus | 8083 | 8083 | http://localhost:8083 | private Maven repo, not running yet |
+| nexus | 8083 | 8081 | http://localhost:8083 | the platform’s private Maven repository |
 | keycloak-postgres | 5433 | 5432 | — | Keycloak's database |
 | person-postgres | 5434 | 5432 | — | person-service database (migrations only) |
 | prometheus | 9090 | 9090 | http://localhost:9090 | metrics, scrapes `individuals-api:8081` |
@@ -44,6 +44,7 @@ All of these are local-only defaults from `.env.example`. Real values live in
 |---|---|---|
 | Keycloak admin console (master realm) | `admin` | `admin` |
 | Grafana | `admin` | `admin` |
+| Nexus | `admin` | `admin123` |
 | keycloak-postgres | `keycloak` | `keycloak` (db `keycloak`) |
 | person-postgres | `person` | `person` (db `person`) |
 | Keycloak client `individuals-api` | client secret | `KEYCLOAK_CLIENT_SECRET` |
@@ -152,11 +153,27 @@ docker compose up -d keycloak
 
 # one class
 ./gradlew :individuals-api:integrationTest --tests '*KeycloakRegistrationIT*'
+
+# coverage - acceptance criterion 11
+./gradlew :individuals-api:jacocoTestReport   # open build/reports/jacoco/test/html/index.html
+./gradlew :individuals-api:jacocoTestCoverageVerification   # 80% floor on the service package
+
+# Nexus: publish the client other modules resolve
+NEXUS_USERNAME=admin NEXUS_PASSWORD=admin123 ./gradlew :person-client:publish
+
+# the same in PowerShell, where variables are set differently
+$env:NEXUS_USERNAME="admin"; $env:NEXUS_PASSWORD="admin123"; ./gradlew :person-client:publish
 ```
 
-The integration suite starts Keycloak in about 50 seconds from cold. With the
-whole `docker compose` stack running alongside it, the machine runs short and
-that start goes past three minutes - stop the stack for the run
+The first start of Nexus is not instant, and **until the End User License
+Agreement is accepted it answers 403 to any request for repository content**.
+Accept it in the browser at http://localhost:8083 (`admin` / `admin123`) or
+over REST. The state lives in the `nexus-data` volume and survives both
+`docker compose down` and an image version change.
+
+The integration suite starts a Keycloak of its own, and a cold start is not
+quick - it imports the whole realm. With `docker compose` running alongside it
+the start may not fit inside the timeout at all, so stop the stack for the run
 (`docker compose stop`).
 
 Smoke checks. **In PowerShell always write `curl.exe`, never `curl`** — bare

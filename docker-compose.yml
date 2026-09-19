@@ -148,9 +148,37 @@ services:
     ports:
       - "${GRAFANA_PORT}:3000"
 
+  # The platform's artifact repository, not a module 1 detail: every service of
+  # the course publishes its generated client here and resolves everyone else's
+  # by coordinates. That is what lets modules stay independent instead of
+  # depending on each other through project(":...").
+  #
+  # Nothing in this file consumes Nexus at run time - the Gradle build on the
+  # host does, at http://localhost:${NEXUS_PORT}. The container's own port stays
+  # 8081 internally; only the published one moves, because individuals-api owns
+  # 8081 on the host.
+  #
+  # The three repositories the build expects - maven-releases, maven-snapshots
+  # and the maven-public group - exist in a fresh Nexus, so there is nothing to
+  # create by hand.
+  nexus:
+    image: ${NEXUS_IMAGE}
+    environment:
+      # Known admin password on first start instead of a random one written to
+      # a file inside the container. Local development only.
+      NEXUS_SECURITY_RANDOMPASSWORD: "false"
+      # Nexus asks for 2.7 GB by default, which is more than this stack has to
+      # spare next to Keycloak and two databases.
+      INSTALL4J_ADD_VM_PARAMS: "-Xms1200m -Xmx1200m -XX:MaxDirectMemorySize=2g -Djava.util.prefs.userRoot=/nexus-data/javaprefs"
+    volumes:
+      - nexus-data:/nexus-data
+    ports:
+      - "${NEXUS_PORT}:8081"
+
 volumes:
   keycloak-postgres-data:
   person-postgres-data:
+  nexus-data:
   tempo-data:
   loki-data:
   alloy-data:

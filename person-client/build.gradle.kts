@@ -135,6 +135,13 @@ publishing {
                     username = user
                     password = pass
                 }
+                // Sent on the first request instead of waiting to be asked.
+                // Nexus answers an unauthenticated read with 403 rather than
+                // 401, and Gradle only retries with credentials after a 401 -
+                // so without this the publish fails on its very first GET of
+                // maven-metadata.xml, with a message that looks like a
+                // permissions problem rather than a handshake one.
+                authentication { create<BasicAuthentication>("basic") }
             }
         }
     }

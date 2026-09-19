@@ -9,6 +9,9 @@ openapiGenerator            = "7.14.0"
 lombok                      = "1.18.46"
 springdocOpenapi            = "3.1.0"
 testcontainersKeycloak      = "4.3.1"
+# The Gradle plugin is built in; only the agent version is ours to pick, and it
+# has to know the class file format the toolchain emits - Java 25 is 69.
+jacoco                      = "0.8.14"
 swaggerAnnotations          = "2.2.42"
 jacksonDatabindNullable     = "0.2.6"
 

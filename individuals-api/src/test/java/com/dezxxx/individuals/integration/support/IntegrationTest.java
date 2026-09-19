@@ -57,10 +57,11 @@ public abstract class IntegrationTest {
      * stronger statement: it answers once the import has finished, so a test
      * can never race the realm into existence.
      *
-     * <p>Five minutes because a cold start with a full realm import took around
-     * fifty seconds on an idle machine and comfortably over three minutes on
-     * the same machine with the compose stack also running - and a CI agent is
-     * the loaded case, not the idle one.
+     * <p>Five minutes, which is far more than a cold start needs on an idle
+     * machine. The limit is not sized for the good case: a realm import on a
+     * machine that is also running the compose stack, or a CI agent sharing a
+     * host, is a different order of slow, and a timeout that only fits the
+     * good case fails as flakiness rather than as a clear error.
      */
     protected static final KeycloakContainer KEYCLOAK = new KeycloakContainer(KEYCLOAK_IMAGE)
             .withRealmImportFile(REALM_EXPORT)

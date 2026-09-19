@@ -22,7 +22,7 @@
 | keycloak | 8080 | 8080 | http://localhost:8080 | сервер аутентификации, админ-консоль |
 | individuals-api | 8081 | 8081 | http://localhost:8081 | наш сервис |
 | person-service | 8082 | 8082 | — | модуль 2, ещё не запускается |
-| nexus | 8083 | 8083 | http://localhost:8083 | приватный Maven-репозиторий, ещё не поднят |
+| nexus | 8083 | 8081 | http://localhost:8083 | приватный Maven-репозиторий платформы |
 | keycloak-postgres | 5433 | 5432 | — | база Keycloak |
 | person-postgres | 5434 | 5432 | — | база person-service (пока только миграции) |
 | prometheus | 9090 | 9090 | http://localhost:9090 | метрики, скребёт `individuals-api:8081` |
@@ -45,6 +45,7 @@
 |---|---|---|
 | админ-консоль Keycloak (realm master) | `admin` | `admin` |
 | Grafana | `admin` | `admin` |
+| Nexus | `admin` | `admin123` |
 | keycloak-postgres | `keycloak` | `keycloak` (база `keycloak`) |
 | person-postgres | `person` | `person` (база `person`) |
 | клиент Keycloak `individuals-api` | client secret | `KEYCLOAK_CLIENT_SECRET` |
@@ -153,11 +154,28 @@ docker compose up -d keycloak
 
 # один класс
 ./gradlew :individuals-api:integrationTest --tests '*KeycloakRegistrationIT*'
+
+# покрытие - критерий приёмки 11
+./gradlew :individuals-api:jacocoTestReport   # отчёт, открыть build/reports/jacoco/test/html/index.html
+./gradlew :individuals-api:jacocoTestCoverageVerification   # порог 80% на пакете service
+
+# Nexus: публикация клиента, который потом резолвят другие модули
+NEXUS_USERNAME=admin NEXUS_PASSWORD=admin123 ./gradlew :person-client:publish
+
+# то же самое в PowerShell - там переменные задаются иначе
+$env:NEXUS_USERNAME="admin"; $env:NEXUS_PASSWORD="admin123"; ./gradlew :person-client:publish
 ```
 
-Интеграционные поднимают Keycloak примерно 50 секунд на холодную. Если рядом
-работает весь `docker compose`, машине не хватает ресурсов и старт уходит за
-три минуты — на время прогона стек лучше гасить (`docker compose stop`).
+Первый запуск Nexus не мгновенный, и **пока не принято лицензионное соглашение,
+он отдаёт 403 на любое обращение к содержимому репозиториев**. Принять можно в
+браузере на http://localhost:8083 (логин `admin` / `admin123`) или через REST.
+Состояние лежит в томе `nexus-data` и переживает и `docker compose down`, и
+смену версии образа.
+
+Интеграционные поднимают собственный Keycloak, и на холодную это небыстро —
+импортируется весь realm. Если параллельно работает `docker compose`, старт
+может и не уложиться в таймаут: на время прогона стек проще погасить
+(`docker compose stop`).
 
 Проверки на дым. **В PowerShell всегда писать `curl.exe`, никогда `curl`** —
 голый `curl` там алиас для `Invoke-WebRequest`, у которого нет флага `-i` и

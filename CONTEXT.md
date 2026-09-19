@@ -7,7 +7,6 @@ Project context for humans and LLMs. Read this first before touching anything.
 ## 1. What this repository is
 
 `payment-platform` — monorepo of the payment platform.
-Location on disk: `D:\IDEA_projects\payment-platform`.
 
 Module 1 delivers **individuals-api**: the external entry layer that
 orchestrates user registration and authentication. It stores nothing itself.
@@ -101,9 +100,8 @@ These are settled. Do not change them without an explicit decision.
 | Keycloak image | 26.7.2 | `.env` |
 | Testcontainers | 2.0.5, inherited from the Boot BOM | artifact ids differ from 1.x — see section 9 |
 
-`JAVA_HOME` on this machine points at JDK 21. That is fine and must not be
-"fixed" — the Gradle toolchain provisions JDK 25 on its own. JDK 25 is
-installed at `C:\Users\Dez\.jdks\openjdk-25.0.1`.
+The Gradle toolchain provisions JDK 25 itself, so whatever `JAVA_HOME` points
+at is irrelevant to the build and must not be "fixed" to make it work.
 
 ### Version policy
 
@@ -631,7 +629,33 @@ handout's, verbatim in meaning.
 | 12 | README.md and CONTEXT.md are written |
 
 Criterion 11 needs a coverage tool, and the build has none yet - JaCoCo is on
-the list below.
+the list below. **JaCoCo is not named by the handout**; the 80% figure is, and
+JaCoCo is simply what measures it.
+
+### The student's own checklist
+
+Twelve checks the handout hands over separately from the criteria above. They
+overlap, but not completely: several of these are about *where a thing lives*
+rather than whether it works, which no test can fail for us.
+
+| # | Check | Where it stands |
+|---|---|---|
+| 1 | OpenAPI describes every external method and every error | ✅ all four operations, shared `ErrorResponse`, examples on each |
+| 2 | no DTO written by hand over a contract that already describes it | ✅ `useBeanValidation` + generated models only; `git grep` finds no hand-written model |
+| 3 | individuals-api stores no domain data of the user | ✅ no database at all - see §1, and the `/me` debt in §5 |
+| 4 | person-service is named as the source of domain truth | ✅ §1, first table |
+| 5 | `user_uid` runs end to end and is never replaced by `sub` | ✅ enforced by IT-KC-002, which compares against the value person-service issued |
+| 6 | every outbound call is inside a gateway | ✅ `gateway/` is the only package holding a foreign payload |
+| 7 | metrics reachable through `/actuator/prometheus` | ✅ IT-OBS-001 |
+| 8 | traces leave over OTLP to Tempo | ✅ IT-OBS-002 asserts the push; Tempo's own indexing verified by hand on the live stack |
+| 9 | logs are JSON and carry correlation | ✅ ECS to stdout, `traceId` and `spanId` on every record - IT-OBS-003 |
+| 10 | at least one integration test against Keycloak | ✅ three |
+| 11 | person-service migrations are attached and runnable | ✅ IT-DB-001 runs them on a real PostgreSQL |
+| 12 | `person-client` is published to Nexus | ❌ only `publishToMavenLocal`; same gap as criterion 6 |
+
+Eleven of twelve. The one that is open is the one open acceptance criterion
+too, plus criterion 11's coverage number - everything else the handout asks
+for is done and proven rather than asserted.
 
 ### Mandatory test cases
 
@@ -776,6 +800,39 @@ neither task and fails silently by never running at all.
 - [x] `spring-boot-testcontainers` removed. Declared and never used:
       `@ServiceConnection` has nothing to attach to here, since Keycloak comes
       from a third party and the application opens no datasource of its own
+- [x] **JaCoCo, and criterion 11 answered with a number: the key services are
+      at 100%.** Generated code is excluded - `com.dezxxx.individuals.api` is
+      models with getters, and counting them would move the percentage a long
+      way while saying nothing. Both suites feed the report, because a gateway
+      is exercised only by the integration tests. The 80% rule is scoped to
+      `com.dezxxx.individuals.service` on purpose: a repository-wide average
+      would hide a bare `RegistrationService` behind a well covered `config`.
+      What the report showed beyond the criterion: `gateway.keycloak` is at
+      **0%** - its error translator only runs when Keycloak answers with a
+      failure, and no test of ours makes it do that
+- [x] **Nexus is in compose, and `person-client` really comes from it.**
+      Publishing was proven by removing the artifact from `~/.m2` and from
+      Gradle's cache and rebuilding with `--refresh-dependencies`: the build
+      passed, and the only place left to get `com.dezxxx:person-client` from
+      was Nexus. Closes criterion 6 and the last line of the student checklist.
+      Three things had to be sorted out on the way:
+      1. **Nexus answers an unauthenticated read with 403, not 401**, and
+         Gradle only retries with credentials after a 401. Fixed with
+         `authentication { create<BasicAuthentication>("basic") }` in both
+         places - the publish repository and the resolve repository.
+      2. **Community Edition refuses to serve repository content until its
+         EULA is accepted**, answering 403 with an explanatory body. Accepted
+         once, in the browser; the state lives in the `nexus-data` volume.
+      3. The container's own port stays 8081 internally and is published on
+         8083, because the handout gives 8081 to individuals-api.
+      Upgrading the image from 3.87.1 to 3.96.1 kept the volume, the EULA and
+      the published artifact - so the repository survives a version change, not
+      only a restart.
+
+The Dockerfile still uses `publishToMavenLocal` rather than Nexus, and that is
+deliberate: `docker build` has no route to `localhost:8083`, which inside the
+builder means the builder itself. The image stays self-contained, and Nexus is
+what the build on the host resolves through.
 
 ### Still misleading: a 401 that says the password is wrong
 
@@ -818,15 +875,17 @@ spans.
 
 ### Next up, in this order
 
-- [ ] Postman collection
-- [ ] JaCoCo — acceptance criterion 11 asks for a coverage number and the
-      build cannot produce one yet
-- [ ] Publish `person-client` to Nexus — acceptance criterion 6; only
-      `publishToMavenLocal` has been exercised so far. Nexus is not in
-      `docker-compose.yml` either, and its URL `localhost:8083` means the
-      container itself from inside one - it will need the compose service name
+**Every acceptance criterion is met.** What is left is not required by the
+handout:
+
+- [ ] Postman collection — in no criterion and on no checklist, but it was on
+      this list before the criteria were read closely. Keep or drop is a
+      decision, not a task
 - [ ] A separate `ErrorCode` for "no valid token", so a typo in a URL stops
       answering *"Email or password is incorrect"* — see above
+- [ ] A test for `KeycloakErrorTranslator`, which JaCoCo reports at 0%. Not a
+      criterion either, but it is the one piece of our own code that nothing
+      has ever executed
 
 ### Working agreements
 
@@ -872,7 +931,7 @@ Two more things the run settled:
   Service Clients, no Feign, as rule 4 requires.
 - `individuals-api` generates `AuthApi` as an interface only.
 - All three specs pass `openApiValidate`.
-- `clean build` takes ~6 s and produces `individuals-api.jar`.
+- `clean build` runs from clean and produces `individuals-api.jar`.
 
 ### Known noise, not defects
 
@@ -903,20 +962,8 @@ produces the per-script model, so every `build.gradle.kts` shows as fully
 unresolved in the editor — down to `mapOf` and `to` from the Kotlin standard
 library — while `./gradlew build` stays green.
 
-The fingerprint that identified it: the **Java** module model synced correctly
-(JDK 25 detected, Spring imports resolved, zero errors in `.java` files) while
-**every** `.kts` was red. A build defect cannot break the Kotlin stdlib in one
-file type only.
-
-Ruled out along the way, both wrong:
-
-- the build scripts themselves — `./gradlew projects` succeeds, which requires
-  Gradle to compile every build script first;
-- `org.gradle.configuration-cache` — disabling it changed nothing, and the IDE
-  log showed the script definitions loading fine. It is back on.
-
-Confirmed by dropping the wrapper to 9.5.1 and re-syncing: the editor went
-clean immediately, with no change to any build file.
+The build files are not at fault and were not changed: dropping the wrapper to
+9.5.1 and re-syncing cleared the editor on its own.
 
 Revisit when IDEA ships support for Gradle 9.7. Moving back is one line in
 `gradle/wrapper/gradle-wrapper.properties` — nothing in the build depends on
