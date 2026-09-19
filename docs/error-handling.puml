@@ -23,7 +23,7 @@ participant "Tracer\n(micrometer)" as Tracer
 
 == Road B - rejected before any handler is chosen ==
 
-Client -> Filters : GET /v1/auth/me, no token
+Client -> Filters : GET /api/v1/auth/me, no token
 activate Filters
 Filters -> SecHandlers : commence(exchange, AuthenticationException)
 activate SecHandlers
@@ -48,7 +48,7 @@ deactivate Filters
 
 == Road A - the request reached a handler ==
 
-Client -> Filters : POST /v1/auth/login
+Client -> Filters : POST /api/v1/auth/login
 Filters -> Dispatcher : permitted
 activate Dispatcher
 Dispatcher -> Ctl : login(request)

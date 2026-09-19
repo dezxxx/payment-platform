@@ -42,10 +42,10 @@ the Java interface is generated from it.
 
 | Method | Path | Auth | Answers |
 |---|---|---|---|
-| `POST` | `/v1/auth/registration` | — | **201 (Created)** with a token pair |
-| `POST` | `/v1/auth/login` | — | **200 (OK)** with a token pair |
-| `POST` | `/v1/auth/refresh-token` | — | **200 (OK)** with a fresh token pair |
-| `GET`  | `/v1/auth/me` | `Bearer` | **200 (OK)** with the current user |
+| `POST` | `/api/v1/auth/registration` | — | **201 (Created)** with a token pair |
+| `POST` | `/api/v1/auth/login` | — | **200 (OK)** with a token pair |
+| `POST` | `/api/v1/auth/refresh-token` | — | **200 (OK)** with a fresh token pair |
+| `GET`  | `/api/v1/auth/me` | `Bearer` | **200 (OK)** with the current user |
 
 Every failure answers in one shape, built from a single `ErrorCode` constant
 that carries the code, the HTTP status and the message together.

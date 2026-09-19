@@ -33,9 +33,9 @@ public class SecurityConfig {
      * endpoint added under the same prefix later on.
      */
     private static final String[] PUBLIC_ENDPOINTS = {
-            "/v1/auth/registration",
-            "/v1/auth/login",
-            "/v1/auth/refresh-token"
+            "/api/v1/auth/registration",
+            "/api/v1/auth/login",
+            "/api/v1/auth/refresh-token"
     };
 
     /**

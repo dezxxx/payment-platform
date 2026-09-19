@@ -26,7 +26,7 @@ tags:
 
 paths:
 
-  /v1/auth/registration:
+  /api/v1/auth/registration:
     post:
       tags: [auth]
       operationId: register
@@ -91,7 +91,7 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
-  /v1/auth/login:
+  /api/v1/auth/login:
     post:
       tags: [auth]
       operationId: login
@@ -133,7 +133,7 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
-  /v1/auth/refresh-token:
+  /api/v1/auth/refresh-token:
     post:
       tags: [auth]
       operationId: refreshToken
@@ -174,7 +174,7 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
-  /v1/auth/me:
+  /api/v1/auth/me:
     get:
       tags: [auth]
       operationId: getCurrentUser
@@ -378,7 +378,7 @@ components:
           example: "2026-08-19T12:34:56Z"
         path:
           type: string
-          example: /v1/auth/registration
+          example: /api/v1/auth/registration
         status:
           type: integer
           format: int32
@@ -413,7 +413,7 @@ components:
             validationFailed:
               value:
                 timestamp: "2026-08-19T12:34:56Z"
-                path: /v1/auth/registration
+                path: /api/v1/auth/registration
                 status: 400
                 error: VALIDATION_ERROR
                 message: Password confirmation does not match
@@ -430,7 +430,7 @@ components:
             badCredentials:
               value:
                 timestamp: "2026-08-19T12:34:56Z"
-                path: /v1/auth/login
+                path: /api/v1/auth/login
                 status: 401
                 error: INVALID_CREDENTIALS
                 message: Email or password is incorrect
@@ -445,7 +445,7 @@ components:
             duplicate:
               value:
                 timestamp: "2026-08-19T12:34:56Z"
-                path: /v1/auth/registration
+                path: /api/v1/auth/registration
                 status: 409
                 error: USER_ALREADY_EXISTS
                 message: Email is already registered
@@ -462,7 +462,7 @@ components:
             missing:
               value:
                 timestamp: "2026-08-19T12:34:56Z"
-                path: /v1/auth/me
+                path: /api/v1/auth/me
                 status: 404
                 error: NOT_FOUND
                 message: Resource not found
@@ -478,7 +478,7 @@ components:
               summary: Nothing leaks outwards but the trace id
               value:
                 timestamp: "2026-08-19T12:34:56Z"
-                path: /v1/auth/registration
+                path: /api/v1/auth/registration
                 status: 500
                 error: INTERNAL_ERROR
                 message: Unexpected error
@@ -493,7 +493,7 @@ components:
             keycloakDown:
               value:
                 timestamp: "2026-08-19T12:34:56Z"
-                path: /v1/auth/registration
+                path: /api/v1/auth/registration
                 status: 503
                 error: DEPENDENCY_UNAVAILABLE
                 message: Keycloak is not reachable

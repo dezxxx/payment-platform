@@ -157,7 +157,7 @@ endif
 
 
 @startuml admin-me
-title GET /v1/auth/me - why the Admin gateway is needed here too
+title GET /api/v1/auth/me - why the Admin gateway is needed here too
 
 skinparam shadowing false
 

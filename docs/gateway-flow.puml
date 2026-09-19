@@ -18,7 +18,7 @@ participant "Keycloak" as KC
 
 == He tries to log in, but he has no account yet ==
 
-U -> Ctl : POST /v1/auth/login\n{ "email": "ivan@dezxxx.com",\n  "password": "Str0ngP@ssw0rd" }
+U -> Ctl : POST /api/v1/auth/login\n{ "email": "ivan@dezxxx.com",\n  "password": "Str0ngP@ssw0rd" }
 Ctl -> Auth : login(request)
 Auth -> OG : login(email, password)
 OG -> KC : POST /realms/{realm}/protocol/openid-connect/token\nform: grant_type=password
@@ -42,7 +42,7 @@ end note
 
 == So he registers. These are the fields we need ==
 
-U -> Ctl : POST /v1/auth/registration\n{ "email", "password", "confirmPassword",\n  "firstName", "lastName" }
+U -> Ctl : POST /api/v1/auth/registration\n{ "email", "password", "confirmPassword",\n  "firstName", "lastName" }
 
 note right of Ctl
   @Valid runs before any of this:
@@ -93,7 +93,7 @@ Ctl --> U : 201 Created\n{ accessToken, refreshToken,\n  expiresIn, tokenType, u
 
 == Now he asks who he is ==
 
-U -> Ctl : GET /v1/auth/me\nAuthorization: Bearer <accessToken>
+U -> Ctl : GET /api/v1/auth/me\nAuthorization: Bearer <accessToken>
 
 note right of Ctl
   The security filter chain verified the
@@ -256,7 +256,7 @@ skinparam shadowing false
 
 start
 
-:POST /v1/auth/registration;
+:POST /api/v1/auth/registration;
 
 if (@Valid passed?) then (no)
   #FFE0E0:**400** VALIDATION_ERROR
