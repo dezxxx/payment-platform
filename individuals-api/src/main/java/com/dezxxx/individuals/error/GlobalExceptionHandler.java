@@ -1,6 +1,7 @@
 package com.dezxxx.individuals.error;
 
 import com.dezxxx.individuals.api.model.ErrorResponse;
+import com.dezxxx.individuals.logging.RequestLog;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -118,6 +119,10 @@ public class GlobalExceptionHandler {
         HttpStatus status = code.getStatus();
         String path = exchange.getRequest().getPath().value();
         ErrorResponse body = errorResponseFactory.create(code, message, details, path);
+
+        // Recorded before the line below, so this record and every later one
+        // carry the business code as a field rather than only inside the text.
+        RequestLog.errorCode(code.name());
 
         if (status.is5xxServerError()) {
             log.error("{} {} -> {} {}", exchange.getRequest().getMethod(), path, status.value(), code, ex);

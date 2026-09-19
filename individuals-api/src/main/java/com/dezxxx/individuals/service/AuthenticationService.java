@@ -6,6 +6,7 @@ import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.admin.KeycloakAdminGateway;
 import com.dezxxx.individuals.gateway.keycloak.oidc.KeycloakOidcGateway;
+import com.dezxxx.individuals.logging.RequestLog;
 import com.dezxxx.individuals.metrics.AuthMetrics;
 import com.dezxxx.individuals.util.KeycloakClaims;
 import java.time.OffsetDateTime;
@@ -126,9 +127,14 @@ public class AuthenticationService {
      * required field left empty.
      */
     private UUID userUidOf(Jwt jwt) {
-        return KeycloakClaims.userUid(jwt).orElseThrow(() -> {
+        UUID userUid = KeycloakClaims.userUid(jwt).orElseThrow(() -> {
             log.error("Access token of {} carries no usable user_uid claim", jwt.getSubject());
             return new ApiException(ErrorCode.INTERNAL_ERROR);
         });
+        // The one point every authenticated path passes through - login,
+        // refresh and /me all read the claim here - so the log records of all
+        // three name the user from here on.
+        RequestLog.userUid(userUid);
+        return userUid;
     }
 }

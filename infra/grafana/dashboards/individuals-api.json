@@ -73,6 +73,195 @@
       ]
     },
     {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Registration outcome",
+      "description": "The three counters of the registration flow. Attempts counts requests that reached RegistrationService, so a body rejected by @Valid with 400 (Bad Request) never appears here - this panel is the health of the orchestration, not the quality of the input. Attempts standing above success plus failure means registrations are hanging: started, and finished as neither.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(auth_registration_total[5m])",
+          "legendFormat": "attempts"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(auth_registration_success_total[5m])",
+          "legendFormat": "succeeded"
+        },
+        {
+          "refId": "C",
+          "expr": "rate(auth_registration_failure_total[5m])",
+          "legendFormat": "failed"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Logins and refreshes",
+      "description": "Refusals are deliberately not split into a wrong password and a Keycloak that is down: the distinction already lives in the error code and the logs, and a meter carrying it would invite an alert that fires on users mistyping. Refresh has no failure counter at all - an expired refresh token is the normal end of a session, not an incident.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(auth_login_total[5m])",
+          "legendFormat": "login attempts"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(auth_login_failure_total[5m])",
+          "legendFormat": "login failures"
+        },
+        {
+          "refId": "C",
+          "expr": "rate(auth_refresh_total[5m])",
+          "legendFormat": "token refreshes"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Outbound calls: is it us, or is it them?",
+      "description": "Average duration of one call - summed time divided by call count. The single question it answers: when an endpoint gets slow, did we get slow or did a dependency? Both timers stop on doFinally, so a call that failed still counts; leaving failures out would flatten these lines exactly when something is wrong.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(external_keycloak_requests_seconds_sum[5m]) / rate(external_keycloak_requests_seconds_count[5m])",
+          "legendFormat": "keycloak"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(external_person_service_requests_seconds_sum[5m]) / rate(external_person_service_requests_seconds_count[5m])",
+          "legendFormat": "person-service"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Since the application started",
+      "description": "Raw counter values rather than a rate. After a handful of manual calls a five-minute rate has averaged the burst down to almost nothing, and these read straight. They reset to zero on restart, which is why the panels above ask for a rate instead.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "auth_registration_total",
+          "legendFormat": "registrations",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "expr": "auth_registration_success_total",
+          "legendFormat": "succeeded",
+          "instant": true
+        },
+        {
+          "refId": "C",
+          "expr": "auth_registration_failure_total",
+          "legendFormat": "failed",
+          "instant": true
+        },
+        {
+          "refId": "D",
+          "expr": "auth_login_total",
+          "legendFormat": "logins",
+          "instant": true
+        },
+        {
+          "refId": "E",
+          "expr": "auth_login_failure_total",
+          "legendFormat": "login failures",
+          "instant": true
+        },
+        {
+          "refId": "F",
+          "expr": "auth_refresh_total",
+          "legendFormat": "refreshes",
+          "instant": true
+        }
+      ]
+    },
+    {
       "id": 3,
       "type": "logs",
       "title": "Errors and warnings",
@@ -85,7 +274,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 8
+        "y": 24
       },
       "options": {
         "showTime": true,
@@ -111,7 +300,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 33
       },
       "options": {
         "showTime": true,

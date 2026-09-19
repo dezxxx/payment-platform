@@ -15,6 +15,15 @@ spring:
     # every error response. The contract marks details optional, so an absent
     # field is the correct wire form.
     default-property-inclusion: non_null
+  reactor:
+    # What carries traceId and spanId into every log record. A reactive chain
+    # hops threads on every external call, and MDC is thread-local, so without
+    # this the trace context is whatever the last thread happened to hold -
+    # usually nothing. ReactorAutoConfiguration installs Reactor's propagation
+    # hook only when this is exactly "auto", so it is set rather than left to a
+    # default: an integration test proved the log records come out without a
+    # trace id when it is not.
+    context-propagation: auto
   security:
     oauth2:
       resourceserver:
@@ -72,7 +81,9 @@ management:
 logging:
   structured:
     format:
-      # JSON to stdout. traceId and spanId are added by Boot itself once
-      # tracing is on; the request path, method, status, business error code
-      # and user_uid are put into MDC by the application.
+      # JSON to stdout, in Elastic Common Schema. service.name comes from
+      # spring.application.name and traceId/spanId from Boot's own tracing;
+      # the path, method, status, business error code and user_uid are put
+      # into the MDC by RequestLogFilter, which is also what makes them
+      # survive a thread hop - see com.dezxxx.individuals.logging.
       console: ecs

@@ -3,7 +3,7 @@
 One line per class: what it is and the single job it owns. Open it next to the
 IDE. Depth lives in `CONTEXT.md`; the javadoc on each class explains *why*.
 
-30 classes in `main`, plus the OpenAPI-generated `AuthApi` and the generated
+32 classes in `main`, plus the OpenAPI-generated `AuthApi` and the generated
 `person-client`, neither of which is written by hand.
 
 Russian mirror: [`CLASSES.ru.md`](CLASSES.ru.md). Ports, credentials and
@@ -27,6 +27,7 @@ Keycloak                        person-service
 - `error/` — what any failure looks like on the wire.
 - `validation/` — the one request rule the contract cannot express itself.
 - `metrics/` — every meter name, in one file.
+- `logging/` — what every log record has to carry.
 - `util/` — knowledge about someone else's format, in one place.
 
 ---
@@ -139,6 +140,25 @@ the nesting means.
 > failed still counts — leaving failures out would flatten the timer exactly
 > when something is wrong. **Facade** over `MeterRegistry`; the timing wrapper
 > is a **Decorator**.
+
+## `logging` — what every record has to carry
+
+| Class | Kind | Its one job |
+|---|---|---|
+| `RequestLog` | `final`, one per request | Holds the fields the module requires on every record - method, path, status, business error code, `user_uid` - and moves them between the Reactor Context and the MDC. Mutable, because three of the five are not facts yet when the request arrives. |
+| `RequestLogFilter` | `@Component`, `WebFilter` | Opens one `RequestLog` per exchange and closes it with a single summary line. Its constructor registers the bridge that makes the fields survive a thread hop. Ordered first, so a request rejected with **401 (Unauthorized)** is described like any other. |
+
+> The MDC (Mapped Diagnostic Context) is thread-local, and a reactive chain
+> does not stay on one thread - it hops on every outbound call. What crosses
+> that boundary is the Reactor Context, so the fields live there and are copied
+> back into the MDC on each signal. `spring.reactor.context-propagation: auto`
+> in application.yml is what switches that copying on: an integration test
+> proved the records come out with no trace id when it is left at its default.
+>
+> The status and the error code exist only at the end of a request, so the
+> closing summary is the record that carries all of them at once. That line is
+> what an operator reads first, and its `traceId` leads back to everything that
+> produced it.
 
 ## `util`
 

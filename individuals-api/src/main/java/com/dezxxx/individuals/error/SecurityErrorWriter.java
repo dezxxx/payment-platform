@@ -1,6 +1,7 @@
 package com.dezxxx.individuals.error;
 
 import com.dezxxx.individuals.api.model.ErrorResponse;
+import com.dezxxx.individuals.logging.RequestLog;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -56,6 +57,10 @@ public class SecurityErrorWriter {
         }
 
         DataBuffer buffer = response.bufferFactory().wrap(bytes);
+        // The other road to an error answer, and it has to record the business
+        // code just as GlobalExceptionHandler does - a rejection from the
+        // filter chain never reaches an advice.
+        RequestLog.errorCode(code.name());
         log.warn("{} {} -> {} {}", exchange.getRequest().getMethod(), path, code.getStatus().value(), code);
         // A buffer that is never written has to be released by hand, or the
         // pooled memory behind it leaks.

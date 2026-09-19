@@ -7,6 +7,7 @@ import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.admin.KeycloakAdminGateway;
 import com.dezxxx.individuals.gateway.keycloak.oidc.KeycloakOidcGateway;
 import com.dezxxx.individuals.gateway.person.PersonServiceGateway;
+import com.dezxxx.individuals.logging.RequestLog;
 import com.dezxxx.individuals.metrics.AuthMetrics;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +55,10 @@ public class RegistrationService {
                 .doOnError(cause -> metrics.registrationFailed())
                 .doOnSuccess(tokens -> {
                     metrics.registrationSucceeded();
+                    // Registration never decodes the token, so the identifier
+                    // does not pass through AuthenticationService - it is
+                    // recorded here instead, and the line below carries it.
+                    RequestLog.userUid(tokens.getUserUid());
                     log.info("Registered {}", tokens.getUserUid());
                 });
     }
