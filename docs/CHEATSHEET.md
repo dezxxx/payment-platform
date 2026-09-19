@@ -57,10 +57,10 @@ Base: `http://localhost:8081`
 
 | Method | Path | Auth | Success | Errors |
 |---|---|---|---|---|
-| POST | `/v1/auth/registration` | none | 201 tokens | 400 validation, 409 email taken, 503 dependency |
-| POST | `/v1/auth/login` | none | 200 tokens | 400 validation, 401 bad credentials, 503 |
-| POST | `/v1/auth/refresh-token` | none | 200 tokens | 400 validation, 401 expired/invalid refresh, 503 |
-| GET | `/v1/auth/me` | `Bearer <access>` | 200 user | 401 missing/invalid token |
+| POST | `/api/v1/auth/registration` | none | 201 tokens | 400 validation, 409 email taken, 503 dependency |
+| POST | `/api/v1/auth/login` | none | 200 tokens | 400 validation, 401 bad credentials, 503 |
+| POST | `/api/v1/auth/refresh-token` | none | 200 tokens | 400 validation, 401 expired/invalid refresh, 503 |
+| GET | `/api/v1/auth/me` | `Bearer <access>` | 200 user | 401 missing/invalid token |
 
 Infrastructure, all open:
 
@@ -92,7 +92,7 @@ Only the ones this service can answer with. Every one of them is a constant in
 | 409 | Conflict | it already exists - the email is taken | caller | `USER_ALREADY_EXISTS` |
 | 415 | Unsupported Media Type | wrong Content-Type, e.g. text/plain instead of application/json | caller | `UNSUPPORTED_MEDIA_TYPE` |
 | 500 | Internal Server Error | we broke - a bug, a misconfigured client secret | ours | `INTERNAL_ERROR` |
-| 503 | Service Unavailable | a dependency is down - Keycloak unreachable | ours | `DEPENDENCY_UNAVAILABLE` |
+| 503 | Service Unavailable | a dependency is down - Keycloak unreachable | ours | `DEPENDENCY_UNAVAILABLE`, `REGISTRATION_INCONSISTENT` |
 
 The families, when a code is not in the table:
 
@@ -144,8 +144,20 @@ docker compose up -d keycloak
 
 # build and test
 ./gradlew :individuals-api:compileJava
-./gradlew build
+./gradlew build                              # everything, integration included
+
+# the two suites separately - split by package, not by name
+./gradlew :individuals-api:test              # unit only, seconds, no Docker
+./gradlew :individuals-api:integrationTest   # Keycloak and PostgreSQL in containers, minutes
+
+# one class
+./gradlew :individuals-api:integrationTest --tests '*KeycloakRegistrationIT*'
 ```
+
+The integration suite starts Keycloak in about 50 seconds from cold. With the
+whole `docker compose` stack running alongside it, the machine runs short and
+that start goes past three minutes - stop the stack for the run
+(`docker compose stop`).
 
 Smoke checks. **In PowerShell always write `curl.exe`, never `curl`** — bare
 `curl` is an alias for `Invoke-WebRequest`, which has no `-i` flag and throws an
@@ -157,7 +169,7 @@ need to see here.
 curl -i http://localhost:8081/actuator/health
 
 # no token -> must be 401 with OUR json body (timestamp, path, status, error, message, traceId)
-curl -i http://localhost:8081/v1/auth/me
+curl -i http://localhost:8081/api/v1/auth/me
 
 # keycloak is up and the realm imported
 curl -s http://localhost:8080/realms/payment-platform/.well-known/openid-configuration | head -c 300
@@ -187,3 +199,87 @@ Change one side and the other silently breaks. Full table in `CONTEXT.md` §
 | client id | `.env` `KEYCLOAK_CLIENT_ID` | `realm-export.json` `clientId` |
 | client secret | `.env` `KEYCLOAK_CLIENT_SECRET` | `realm-export.json` `secret` |
 | tempo endpoint | `application-docker.yml` `tempo:4318/v1/traces` | `tempo.yml` OTLP receiver |
+
+---
+
+## 8. Acronyms
+
+Every one of these appears somewhere in this project's code, logs or configs.
+
+| Acronym | In full | What it is here |
+|---|---|---|
+| **MDC** | Mapped Diagnostic Context | A key-value map bound to a thread. Logback merges it into every log record - that is where `traceId` and `spanId` come from. Enabled by `spring.reactor.context-propagation: auto` |
+| **OTLP** | OpenTelemetry Protocol | How traces are pushed to Tempo. Port 4318, path `/v1/traces`. **Not** OLTP, which is something else entirely |
+| **OTel** | OpenTelemetry | The standard and libraries for traces and metrics |
+| **OIDC** | OpenID Connect | The authentication layer over OAuth 2.0. Keycloak's standard side - `KeycloakOidcGateway` |
+| **JWT** | JSON Web Token | Three dot-separated parts: header, payload, signature |
+| **JWKS** | JSON Web Key Set | The realm's public keys. `ReactiveJwtDecoder` checks a JWT's signature against them |
+| **ECS** | Elastic Common Schema | The JSON log format in use - hence `@timestamp`, `log.level`, `service.name` |
+| **PromQL** | Prometheus Query Language | `rate(auth_login_total[5m])` |
+| **UT / IT** | Unit Test / Integration Test | The handout's test case codes: `UT-REG-001`, `IT-KC-001` |
+| **JDBC** | Java Database Connectivity | Java's standard database API; how Flyway reaches PostgreSQL |
+| **BOM** | Bill Of Materials | The version list Spring Boot manages so modules do not |
+| **DTO** | Data Transfer Object | An object carrying data between layers |
+| **DDL** | Data Definition Language | The part of SQL that creates tables - our Flyway migrations |
+| **CI** | Continuous Integration | Building and testing on a server rather than your machine |
+
+---
+
+## 9. Test case codes
+
+The handout names every required test with a three-part code. The same code
+opens the test's `@DisplayName`, so Gradle's report and the IDE show it next to
+the result - matching one against the handout takes no guessing.
+
+```
+IT  -  KC  -  001
+│      │      └── sequence number within the group
+│      └───────── area: what is under test
+└──────────────── kind of test
+```
+
+**Kind:**
+
+| | In full | What it means |
+|---|---|---|
+| **UT** | Unit Test | One class in isolation, dependencies mocked. Fast, no containers. Package `com.dezxxx.individuals.unit` |
+| **IT** | Integration Test | Several parts together, real HTTP and real containers. Slow. Package `com.dezxxx.individuals.integration` |
+
+The package decides which Gradle task runs it: `test` filters on `unit.*`,
+`integrationTest` on `integration.*`. A test outside both runs in neither, and
+says nothing about it.
+
+**Area:**
+
+| | In full | Class |
+|---|---|---|
+| **REG** | Registration | `RegistrationServiceTest`, `PasswordsMatchValidatorTest` |
+| **LOG** | Login | `AuthenticationServiceTest` |
+| **REF** | Refresh | `AuthenticationServiceTest` |
+| **ME** | the `/me` endpoint | `AuthenticationServiceTest` |
+| **KC** | Keycloak | `KeycloakRegistrationIT` |
+| **OBS** | Observability | `ObservabilityIT` |
+| **DB** | Database | `PersonSchemaMigrationIT` |
+
+**All fifteen codes:**
+
+| Code | Reads as | Scenario |
+|---|---|---|
+| UT-REG-001 | unit, registration, #1 | valid request: person-service first, then Keycloak, then tokens |
+| UT-REG-002 | unit, registration, #2 | password and confirmation differ: 400, Keycloak never called |
+| UT-REG-003 | unit, registration, #3 | person-service reports an email conflict: 409, Keycloak never called |
+| UT-REG-004 | unit, registration, #4 | domain user created, Keycloak unreachable: 502/503, partial failure recorded |
+| UT-LOG-001 | unit, login, #1 | successful login: access and refresh tokens returned |
+| UT-LOG-002 | unit, login, #2 | wrong password: 401 |
+| UT-REF-001 | unit, refresh, #1 | successful refresh: a new access token is returned |
+| UT-ME-001 | unit, `/me`, #1 | valid bearer token: the current user is returned |
+| IT-KC-001 | integration, Keycloak, #1 | registration against a real container: the user appears in the realm |
+| IT-KC-002 | integration, Keycloak, #2 | after registration: the `user_uid` attribute is found in Keycloak |
+| IT-KC-003 | integration, Keycloak, #3 | `/login` against the real token endpoint: a real JWT comes back |
+| IT-OBS-001 | integration, observability, #1 | `/actuator/prometheus` is readable |
+| IT-OBS-002 | integration, observability, #2 | after a request, a trace is visible in Tempo/Grafana |
+| IT-OBS-003 | integration, observability, #3 | log records carry `traceId` and `spanId` |
+| IT-DB-001 | integration, database, #1 | person-service migrations against PostgreSQL: Flyway succeeds |
+
+Which of these are written is tracked in `CONTEXT.md` §8. This is the decoder
+only.

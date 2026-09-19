@@ -58,7 +58,7 @@ itself is never committed.
 ```bash
 cp .env.example .env
 # KEYCLOAK_CLIENT_SECRET must match the value in
-# individuals-api/realm/realm-export.json
+# individuals-api/src/main/resources/realm/realm-export.json
 ```
 
 **2. Build.** `person-client` must exist as an artifact before
@@ -69,6 +69,10 @@ covers that:
 ./gradlew :person-client:publishToMavenLocal
 ./gradlew build
 ```
+
+`build` runs the integration tests too, so **Docker has to be running** — they
+start a Keycloak and a PostgreSQL of their own. For the fast loop use
+`./gradlew :individuals-api:test`, which is unit tests only and needs nothing.
 
 **3. Start the stack.** Images are pinned in `.env`, so the stack is
 reproducible and an upgrade is one deliberate edit in one file.
@@ -115,7 +119,7 @@ it breaks, and nothing above a gateway ever holds a foreign payload.
 |---|---|
 | [`CONTEXT.md`](CONTEXT.md) | The working document: decisions, rules, the registration flow, progress. The long read. |
 | [`CONTEXT.ru.md`](CONTEXT.ru.md) | Russian mirror. English wins if the two disagree. |
-| [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) | Every port, credential, endpoint, status code and command on one page. Russian mirror: [`CHEATSHEET.ru.md`](docs/CHEATSHEET.ru.md). |
+| [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) | Every port, credential, endpoint, status code and command on one page — plus what every acronym stands for and how a test code like `IT-KC-001` decomposes. Russian mirror: [`CHEATSHEET.ru.md`](docs/CHEATSHEET.ru.md). |
 | [`docs/CLASSES.md`](docs/CLASSES.md) | One line per class: what it is and its single job. Open it next to the IDE. |
 | [`docs/*.puml`](docs) | Sequence and class diagrams — registration, rollback, `/me`, the gateway layer. |
 
@@ -125,9 +129,9 @@ Module 1 is not finished. What is honest as of today:
 
 | | |
 |---|---|
-| ✅ Working | Contract, Gradle build, Keycloak realm, all three gateways, `RegistrationService` with compensation, `AuthenticationService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — and all eight meters |
-| 🐳 Compose | `docker compose up` brings up nine services and the app runs inside Docker. Prometheus scrapes our meters, Loki holds our logs with their `traceId`, Tempo answers with our traces |
-| 🚧 Missing | `person-service` itself is module 2 — migrations only — so registration reaches it and stops there with **503**. Nexus is not in the compose file, and `person-client` is still resolved from the local Maven repository |
-| 🧪 Tests | Fifteen unit tests, green. Integration tests on Testcontainers and the JaCoCo threshold are still ahead |
+| ✅ Working | Contract, Gradle build, Keycloak realm, all three gateways, `RegistrationService` with compensation, `AuthenticationService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — all eight meters, and JSON logs carrying every field the module requires |
+| 🐳 Compose | `docker compose up` brings up nine services and the app runs inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
+| 🧪 Tests | **33 tests, green: 22 unit and 11 integration.** Every test case the handout lists is covered, and each carries its code — `UT-REG-001`, `IT-KC-001` — in its display name. Integration runs against a real Keycloak and a real PostgreSQL in containers |
+| 🚧 Missing | `person-service` itself is module 2 — migrations only — so registration reaches it and stops there with **503**. Nexus is not in the compose file, and `person-client` is still resolved from the local Maven repository. A coverage number (JaCoCo) and a Postman collection are still ahead |
 
 The ordered to-do list lives in §8 of `CONTEXT.md` and is kept current.

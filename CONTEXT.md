@@ -427,8 +427,8 @@ implemented; the cost is the gap described below.
 | person-service `5xx` | **503** `DEPENDENCY_UNAVAILABLE` | nothing |
 | person-service `400` | **500** `INTERNAL_ERROR` — their validation and ours disagree, which is our bug | nothing |
 | *— `user_uid` issued; from here every failure splits the two systems —* | | |
-| Keycloak create | **500** `REGISTRATION_INCONSISTENT` | domain user |
-| Keycloak reset-password | **500** `REGISTRATION_INCONSISTENT` | domain user; the incomplete account is deleted |
+| Keycloak create | **503** `REGISTRATION_INCONSISTENT` | domain user |
+| Keycloak reset-password | **503** `REGISTRATION_INCONSISTENT` | domain user; the incomplete account is deleted |
 | login | **503** `DEPENDENCY_UNAVAILABLE` | everything — **not** an inconsistency |
 
 The last row is the subtle one. If only the login failed, both systems hold the
@@ -455,7 +455,7 @@ sequenceDiagram
     participant Ps as person-service
     participant Kc as Keycloak
 
-    Client->>Ctl: POST /v1/auth/registration
+    Client->>Ctl: POST /api/v1/auth/registration
     Ctl->>Svc: register
     Note over Svc: format and password confirmation
     Svc->>PGw: create domain user
@@ -486,10 +486,10 @@ sequenceDiagram
 
 | Method | Path | Auth |
 |---|---|---|
-| POST | `/v1/auth/registration` | none |
-| POST | `/v1/auth/login` | none |
-| POST | `/v1/auth/refresh-token` | none |
-| GET | `/v1/auth/me` | Bearer |
+| POST | `/api/v1/auth/registration` | none |
+| POST | `/api/v1/auth/login` | none |
+| POST | `/api/v1/auth/refresh-token` | none |
+| GET | `/api/v1/auth/me` | Bearer |
 
 ### What each endpoint does
 
@@ -728,6 +728,64 @@ neither task and fails silently by never running at all.
 - [x] `metrics/AuthMetrics` — all eight meters, verified live in Prometheus
 - [x] **`docker compose up` brings up the whole stack.** Nine services, and
       three defects surfaced in the process - see below
+- [x] Four Grafana panels for our own meters. The provisioned dashboard drew
+      only Spring's built-in `http_server_requests_*` and knew nothing about
+      `AuthMetrics` - the meters existed and no panel looked at them, which is
+      the failure mode the "a metric name is a contract" rule warns about
+- [x] **The public prefix is `/api/v1/auth/...`, not `/v1/auth/...`.** The
+      handout's own endpoint table omits the prefix while its curl examples and
+      its `@HttpExchange("/api/v1/persons")` example both carry it; two
+      independent places against one, and `person-service.yaml` was already on
+      `/api/v1/persons`, so the repository had been contradicting itself.
+      Caught by a counter: `/api/v1/auth/login` answered **401** exactly like
+      the real path, because an unknown path is not in `permitAll` and the
+      security entry point translates any filter rejection into
+      `INVALID_CREDENTIALS`. The bodies were identical - only
+      `auth_login_total` showed that one of the two never reached the service
+- [x] `integrationTest` no longer fails the build. Gradle fails a `Test` task
+      whose filter matches nothing, and `check` depends on it, so
+      `./gradlew build` had been red since the JUnit launcher was wired in -
+      the task had simply never been reached before that
+- [x] **`logging/` - the fields the module requires on every record.** Three of
+      the eight were there; the path, method, status, business error code and
+      `user_uid` lived only inside the text of one message, and only on records
+      written by `GlobalExceptionHandler`. `RequestLog` now travels in the
+      Reactor Context and is copied into the MDC on every signal, because the
+      MDC is thread-local and a reactive chain hops threads on each outbound
+      call. That copy only happens when `spring.reactor.context-propagation` is
+      exactly `auto`, which had never been set - an integration test proved the
+      records come out with no trace id on the default. Set in
+      `application.yml`, where production needs it too. A comment in that file
+      had claimed the application already did all of this; it did not, and
+      there was no MDC call anywhere in `main`
+- [x] **Every test case the handout requires - all fifteen codes, 22 unit and
+      11 integration, green.** `AuthenticationServiceTest` closes UT-LOG-001,
+      UT-LOG-002, UT-REF-001 and UT-ME-001; `KeycloakRegistrationIT`,
+      `ObservabilityIT` and `PersonSchemaMigrationIT` close the seven IT codes.
+      person-service is stubbed on reactor-netty, since module 1 does not
+      contain it, and Tempo is stubbed too - whether Tempo indexes what it is
+      given is Tempo's promise, ours ends at the socket. Each code opens the
+      `@DisplayName`, so a Gradle report matches the handout without guessing
+- [x] **`REGISTRATION_INCONSISTENT` answers 503, not 500.** UT-REG-004 fixes
+      502 or 503 for "domain user created, Keycloak unreachable". The case for
+      500 was that the split is ours rather than the dependency's, and that 503
+      invites a retry now guaranteed to answer **409 (Conflict)**; the
+      acceptance criteria win, and both sides are recorded on the constant. The
+      test asserts the status rather than only the code - the mismatch had
+      survived precisely because nothing did
+- [x] `spring-boot-testcontainers` removed. Declared and never used:
+      `@ServiceConnection` has nothing to attach to here, since Keycloak comes
+      from a third party and the application opens no datasource of its own
+
+### Still misleading: a 401 that says the password is wrong
+
+`ApiAuthenticationEntryPoint` maps every filter-chain rejection to
+`INVALID_CREDENTIALS`, so a typo in a URL answers *"Email or password is
+incorrect"* on a request that carried no password at all. Correct as a status -
+**401 (Unauthorized)** is what a resource server owes an unauthenticated
+caller - and wrong as a message. Worth a separate `ErrorCode` for "no valid
+token", keeping `INVALID_CREDENTIALS` for the login flow that genuinely
+compared a password.
 
 ### What the first full compose run cost
 
@@ -761,11 +819,14 @@ spans.
 ### Next up, in this order
 
 - [ ] Postman collection
-- [ ] Unit tests, then Testcontainers integration tests
 - [ ] JaCoCo — acceptance criterion 11 asks for a coverage number and the
       build cannot produce one yet
 - [ ] Publish `person-client` to Nexus — acceptance criterion 6; only
-      `publishToMavenLocal` has been exercised so far
+      `publishToMavenLocal` has been exercised so far. Nexus is not in
+      `docker-compose.yml` either, and its URL `localhost:8083` means the
+      container itself from inside one - it will need the compose service name
+- [ ] A separate `ErrorCode` for "no valid token", so a typo in a URL stops
+      answering *"Email or password is incorrect"* — see above
 
 ### Working agreements
 

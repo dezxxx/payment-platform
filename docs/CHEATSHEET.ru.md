@@ -58,10 +58,10 @@ account включён, direct access grants включён, standard flow вы�
 
 | Метод | Путь | Авторизация | Успех | Ошибки |
 |---|---|---|---|---|
-| POST | `/v1/auth/registration` | нет | 201 токены | 400 валидация, 409 почта занята, 503 зависимость |
-| POST | `/v1/auth/login` | нет | 200 токены | 400 валидация, 401 неверные данные, 503 |
-| POST | `/v1/auth/refresh-token` | нет | 200 токены | 400 валидация, 401 refresh истёк или битый, 503 |
-| GET | `/v1/auth/me` | `Bearer <access>` | 200 пользователь | 401 токена нет или он невалиден |
+| POST | `/api/v1/auth/registration` | нет | 201 токены | 400 валидация, 409 почта занята, 503 зависимость |
+| POST | `/api/v1/auth/login` | нет | 200 токены | 400 валидация, 401 неверные данные, 503 |
+| POST | `/api/v1/auth/refresh-token` | нет | 200 токены | 400 валидация, 401 refresh истёк или битый, 503 |
+| GET | `/api/v1/auth/me` | `Bearer <access>` | 200 пользователь | 401 токена нет или он невалиден |
 
 Инфраструктурные, все открытые:
 
@@ -93,7 +93,7 @@ account включён, direct access grants включён, standard flow вы�
 | 409 | Conflict | уже существует — почта занята | вызывающего | `USER_ALREADY_EXISTS` |
 | 415 | Unsupported Media Type | не тот Content-Type, например `text/plain` вместо `application/json` | вызывающего | `UNSUPPORTED_MEDIA_TYPE` |
 | 500 | Internal Server Error | сломались мы — баг, неверный client secret | наша | `INTERNAL_ERROR` |
-| 503 | Service Unavailable | лежит зависимость — Keycloak недоступен | наша | `DEPENDENCY_UNAVAILABLE` |
+| 503 | Service Unavailable | лежит зависимость — Keycloak недоступен | наша | `DEPENDENCY_UNAVAILABLE`, `REGISTRATION_INCONSISTENT` |
 
 Семейства, если кода нет в таблице:
 
@@ -145,8 +145,19 @@ docker compose up -d keycloak
 
 # собрать и протестировать
 ./gradlew :individuals-api:compileJava
-./gradlew build
+./gradlew build                              # всё, включая интеграционные
+
+# тесты по отдельности - они разведены по пакетам, а не по именам
+./gradlew :individuals-api:test              # только unit, секунды, без Docker
+./gradlew :individuals-api:integrationTest   # Keycloak и PostgreSQL в контейнерах, минуты
+
+# один класс
+./gradlew :individuals-api:integrationTest --tests '*KeycloakRegistrationIT*'
 ```
+
+Интеграционные поднимают Keycloak примерно 50 секунд на холодную. Если рядом
+работает весь `docker compose`, машине не хватает ресурсов и старт уходит за
+три минуты — на время прогона стек лучше гасить (`docker compose stop`).
 
 Проверки на дым. **В PowerShell всегда писать `curl.exe`, никогда `curl`** —
 голый `curl` там алиас для `Invoke-WebRequest`, у которого нет флага `-i` и
@@ -158,7 +169,7 @@ docker compose up -d keycloak
 curl -i http://localhost:8081/actuator/health
 
 # без токена -> должно быть 401 с НАШИМ json (timestamp, path, status, error, message, traceId)
-curl -i http://localhost:8081/v1/auth/me
+curl -i http://localhost:8081/api/v1/auth/me
 
 # keycloak поднялся и realm импортировался
 curl -s http://localhost:8080/realms/payment-platform/.well-known/openid-configuration | head -c 300
@@ -188,3 +199,86 @@ $t = "PASTE.TOKEN.HERE".Split(".")[1]
 | client id | `.env` `KEYCLOAK_CLIENT_ID` | `realm-export.json` `clientId` |
 | client secret | `.env` `KEYCLOAK_CLIENT_SECRET` | `realm-export.json` `secret` |
 | эндпоинт tempo | `application-docker.yml` `tempo:4318/v1/traces` | OTLP-приёмник в `tempo.yml` |
+
+---
+
+## 8. Сокращения
+
+Каждое из них хоть раз встречается в коде, логах или конфигах проекта.
+
+| Сокращение | Полностью | Что это здесь |
+|---|---|---|
+| **MDC** | Mapped Diagnostic Context | Карта «ключ-значение», привязанная к потоку. Logback подмешивает её в каждую запись лога — оттуда `traceId` и `spanId`. Включено через `spring.reactor.context-propagation: auto` |
+| **OTLP** | OpenTelemetry Protocol | Протокол отправки трейсов в Tempo. Порт 4318, путь `/v1/traces`. **Не** OLTP — это другое |
+| **OTel** | OpenTelemetry | Стандарт и библиотеки для трейсов и метрик |
+| **OIDC** | OpenID Connect | Слой аутентификации поверх OAuth 2.0. «Стандартная» сторона Keycloak — `KeycloakOidcGateway` |
+| **JWT** | JSON Web Token | Токен из трёх частей через точку: заголовок, полезная нагрузка, подпись |
+| **JWKS** | JSON Web Key Set | Публичные ключи realm. По ним `ReactiveJwtDecoder` проверяет подпись JWT |
+| **ECS** | Elastic Common Schema | Формат JSON-логов. Отсюда поля `@timestamp`, `log.level`, `service.name` |
+| **PromQL** | Prometheus Query Language | Язык запросов Prometheus: `rate(auth_login_total[5m])` |
+| **UT / IT** | Unit Test / Integration Test | Коды тест-кейсов из ТЗ: `UT-REG-001`, `IT-KC-001` |
+| **JDBC** | Java Database Connectivity | Стандартный API Java к базам. Через него Flyway ходит в PostgreSQL |
+| **BOM** | Bill Of Materials | Список версий, которым управляет Spring Boot вместо нас |
+| **DTO** | Data Transfer Object | Объект для передачи данных между слоями |
+| **DDL** | Data Definition Language | Часть SQL, создающая таблицы — наши миграции Flyway |
+| **CI** | Continuous Integration | Сборка и тесты на сервере, не на твоей машине |
+
+---
+
+## 9. Коды тест-кейсов
+
+ТЗ называет каждый обязательный тест кодом из трёх частей. Тот же код стоит в
+`@DisplayName` теста, поэтому в отчёте Gradle и в IDE он виден рядом с
+результатом — сверять с таблицей ТЗ можно не гадая.
+
+```
+IT  -  KC  -  001
+│      │      └── порядковый номер внутри группы
+│      └───────── область: что именно проверяем
+└──────────────── тип теста
+```
+
+**Тип:**
+
+| | Полностью | Что значит |
+|---|---|---|
+| **UT** | Unit Test, модульный тест | Один класс в изоляции, зависимости замоканы. Быстрый, без контейнеров. Пакет `com.dezxxx.individuals.unit` |
+| **IT** | Integration Test, интеграционный тест | Несколько частей вместе, настоящий HTTP и настоящие контейнеры. Медленный. Пакет `com.dezxxx.individuals.integration` |
+
+Пакет решает, какая задача Gradle тест запустит: `test` фильтрует по `unit.*`,
+`integrationTest` — по `integration.*`. Тест вне обоих пакетов не запускается
+вообще и молчит об этом.
+
+**Область:**
+
+| | Полностью | Класс |
+|---|---|---|
+| **REG** | Registration, регистрация | `RegistrationServiceTest`, `PasswordsMatchValidatorTest` |
+| **LOG** | Login, вход | `AuthenticationServiceTest` |
+| **REF** | Refresh, обновление токена | `AuthenticationServiceTest` |
+| **ME** | эндпоинт `/me` | `AuthenticationServiceTest` |
+| **KC** | Keycloak | `KeycloakRegistrationIT` |
+| **OBS** | Observability, наблюдаемость | `ObservabilityIT` |
+| **DB** | Database, база данных | `PersonSchemaMigrationIT` |
+
+**Все пятнадцать кодов:**
+
+| Код | Читается как | Сценарий |
+|---|---|---|
+| UT-REG-001 | модульный, регистрация, №1 | валидный запрос: сначала person-service, потом Keycloak, потом токены |
+| UT-REG-002 | модульный, регистрация, №2 | пароль и подтверждение не совпали: 400, Keycloak не вызывается |
+| UT-REG-003 | модульный, регистрация, №3 | person-service сообщает о конфликте почты: 409, Keycloak не вызывается |
+| UT-REG-004 | модульный, регистрация, №4 | доменный пользователь создан, Keycloak недоступен: 502/503, сбой зафиксирован |
+| UT-LOG-001 | модульный, логин, №1 | успешный вход: вернулись access и refresh токены |
+| UT-LOG-002 | модульный, логин, №2 | неверный пароль: 401 |
+| UT-REF-001 | модульный, refresh, №1 | успешное обновление: вернулся новый access токен |
+| UT-ME-001 | модульный, `/me`, №1 | валидный bearer-токен: вернулся текущий пользователь |
+| IT-KC-001 | интеграционный, Keycloak, №1 | регистрация против реального контейнера: пользователь появился в realm |
+| IT-KC-002 | интеграционный, Keycloak, №2 | после регистрации: атрибут `user_uid` найден в Keycloak |
+| IT-KC-003 | интеграционный, Keycloak, №3 | `/login` против реального token endpoint: вернулся настоящий JWT |
+| IT-OBS-001 | интеграционный, наблюдаемость, №1 | `/actuator/prometheus` читается |
+| IT-OBS-002 | интеграционный, наблюдаемость, №2 | после запроса трейс виден в Tempo/Grafana |
+| IT-OBS-003 | интеграционный, наблюдаемость, №3 | записи логов несут `traceId` и `spanId` |
+| IT-DB-001 | интеграционный, база данных, №1 | миграции person-service против PostgreSQL: Flyway отработал |
+
+Что из этого уже написано — в `CONTEXT.ru.md`, раздел 8. Здесь только расшифровка.
