@@ -191,6 +191,9 @@ class AuthenticationServiceTest {
                     assertThat(user.getFirstName()).isEqualTo("Ivan");
                     assertThat(user.getLastName()).isEqualTo("Ivanov");
                     assertThat(user.getEmailVerified()).isTrue();
+                    // Only the platform role. Keycloak's own three describe
+                    // what the account may do inside Keycloak and mean nothing
+                    // to a client asking who it is.
                     assertThat(user.getRoles()).containsExactly("USER");
                     // The eighth is in no claim, which is the whole reason this
                     // endpoint costs one call to the Admin API.
@@ -255,10 +258,15 @@ class AuthenticationServiceTest {
                 .tokenType("Bearer");
     }
 
+    /**
+     * The roles are what Keycloak really puts in a token: ours, plus the three
+     * it grants every account for its own purposes.
+     */
     private static Jwt accessToken() {
         return jwt()
                 .claim("user_uid", USER_UID.toString())
-                .claim("realm_access", Map.of("roles", List.of("USER")))
+                .claim("realm_access", Map.of("roles", List.of(
+                        "default-roles-payment-platform", "offline_access", "uma_authorization", "USER")))
                 .build();
     }
 

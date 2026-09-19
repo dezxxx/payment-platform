@@ -10,6 +10,8 @@ import com.dezxxx.individuals.logging.RequestLog;
 import com.dezxxx.individuals.metrics.AuthMetrics;
 import com.dezxxx.individuals.util.KeycloakClaims;
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +39,17 @@ public class AuthenticationService {
     private static final String FAMILY_NAME = "family_name";
 
     private static final String EMAIL_VERIFIED = "email_verified";
+
+    /**
+     * Roles Keycloak grants every account for its own purposes. They describe
+     * what an account may do inside Keycloak, not what a person may do on this
+     * platform, so they are not part of the answer - a client reading
+     * {@code roles} is asking a business question.
+     */
+    private static final Set<String> KEYCLOAK_OWN_ROLES = Set.of("offline_access", "uma_authorization");
+
+    /** The realm's default-role composite: {@code default-roles-<realm>}. */
+    private static final String DEFAULT_ROLES_PREFIX = "default-roles-";
 
     private final KeycloakOidcGateway keycloakOidcGateway;
 
@@ -94,8 +107,22 @@ public class AuthenticationService {
                 .firstName(jwt.getClaimAsString(GIVEN_NAME))
                 .lastName(jwt.getClaimAsString(FAMILY_NAME))
                 .emailVerified(jwt.getClaimAsBoolean(EMAIL_VERIFIED))
-                .roles(KeycloakClaims.realmRoles(jwt))
+                .roles(platformRoles(jwt))
                 .registeredAt(registeredAt);
+    }
+
+    /**
+     * The realm roles of the token, minus the ones Keycloak grants itself.
+     *
+     * <p>Filtered here rather than in {@code KeycloakClaims}, which reads the
+     * claim and says so: which roles are worth showing is a decision about this
+     * API, not about Keycloak's token format.
+     */
+    private static List<String> platformRoles(Jwt jwt) {
+        return KeycloakClaims.realmRoles(jwt).stream()
+                .filter(role -> !KEYCLOAK_OWN_ROLES.contains(role))
+                .filter(role -> !role.startsWith(DEFAULT_ROLES_PREFIX))
+                .toList();
     }
 
     /**

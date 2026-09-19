@@ -829,6 +829,34 @@ neither task and fails silently by never running at all.
       the published artifact - so the repository survives a version change, not
       only a restart.
 
+- [x] **Every account gets the `USER` role, and `/me` answers with it alone.**
+      The role was declared in the realm export and granted to nobody. Two
+      declarative routes were tried and neither works: Keycloak builds its own
+      `default-roles-<realm>` composite before it reads ours and keeps its own,
+      and `realmRoles` in the create-user body is accepted with **201** and
+      ignored. So `KeycloakAdminGateway.assignPlatformRole` grants it - two
+      calls, because Keycloak resolves a role mapping by id and the id is known
+      only after reading the role. Granted after the password, inside the block
+      that compensates, so a failure there removes the half-made account like
+      any other.
+      That surfaced a missing permission: the service account had `view-users`,
+      `query-users` and `manage-users`, but reading a realm role needs
+      `view-realm`. Without it registration answered **503**, which is also the
+      real reason a duplicate address did - not the missing person-service.
+      `/me` filters Keycloak's own three roles out of the answer: they say what
+      an account may do inside Keycloak, and a client reading `roles` is asking
+      a business question.
+- [x] `details` is always an array, empty when there is nothing to report. The
+      handout's error example shows one, and a client that checks the length
+      before reading `details[0]` then behaves the same on every error instead
+      of telling an absent field from an empty one.
+- [x] **Postman collection** - required by the handout's artifact list, which
+      the acceptance criteria do not mention. Ten requests: the four endpoints
+      in the order a person walks them, four failures, and the two actuator
+      paths the module is judged on. Nothing is copied by hand - registration
+      generates a fresh address and stores the tokens, so the whole run is one
+      click. Verified with `newman`: 31 assertions, green.
+
 The Dockerfile still uses `publishToMavenLocal` rather than Nexus, and that is
 deliberate: `docker build` has no route to `localhost:8083`, which inside the
 builder means the builder itself. The image stays self-contained, and Nexus is
@@ -875,12 +903,10 @@ spans.
 
 ### Next up, in this order
 
-**Every acceptance criterion is met.** What is left is not required by the
-handout:
+**Every acceptance criterion is met, every line of the student's checklist is
+ticked, and every artifact the handout asks for exists.** What is left is not
+required by it:
 
-- [ ] Postman collection — in no criterion and on no checklist, but it was on
-      this list before the criteria were read closely. Keep or drop is a
-      decision, not a task
 - [ ] A separate `ErrorCode` for "no valid token", so a typo in a URL stops
       answering *"Email or password is incorrect"* — see above
 - [ ] A test for `KeycloakErrorTranslator`, which JaCoCo reports at 0%. Not a

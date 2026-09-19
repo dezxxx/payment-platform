@@ -47,9 +47,11 @@ public class ErrorResponseFactory {
                 .error(code.name())
                 .message(message);
         body.setTraceId(currentTraceId());
-        // The generated model starts with an empty list; null keeps the field
-        // out of the response entirely when there is nothing to report.
-        body.setDetails(details == null || details.isEmpty() ? null : List.copyOf(details));
+        // Always an array, empty when there is nothing to report, because the
+        // handout's error example shows one. A client that reads details[0]
+        // after checking the length then behaves the same on every error,
+        // instead of having to tell an absent field from an empty one.
+        body.setDetails(details == null ? List.of() : List.copyOf(details));
         return body;
     }
 

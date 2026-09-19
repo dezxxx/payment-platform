@@ -91,6 +91,7 @@ class RegistrationServiceTest {
         when(keycloakAdminGateway.createUser(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString()))
                 .thenReturn(Mono.just(KEYCLOAK_USER_ID));
         when(keycloakAdminGateway.setPassword(KEYCLOAK_USER_ID, PASSWORD)).thenReturn(Mono.empty());
+        when(keycloakAdminGateway.assignPlatformRole(KEYCLOAK_USER_ID)).thenReturn(Mono.empty());
         when(keycloakOidcGateway.login(EMAIL, PASSWORD)).thenReturn(Mono.just(new TokenResponse()));
 
         // when / then - user_uid is in no token Keycloak issues, it is carried
@@ -104,6 +105,10 @@ class RegistrationServiceTest {
         inOrder.verify(personServiceGateway).createPerson(EMAIL, FIRST_NAME, LAST_NAME);
         inOrder.verify(keycloakAdminGateway).createUser(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString());
         inOrder.verify(keycloakAdminGateway).setPassword(KEYCLOAK_USER_ID, PASSWORD);
+        // After the password, not before: an account that cannot be logged into
+        // has no use for a role, and this order keeps the compensation below
+        // covering every write Keycloak has seen.
+        inOrder.verify(keycloakAdminGateway).assignPlatformRole(KEYCLOAK_USER_ID);
         inOrder.verify(keycloakOidcGateway).login(EMAIL, PASSWORD);
         verify(keycloakAdminGateway, never()).deleteUser(anyString());
         verify(metrics).registrationStarted();
@@ -239,6 +244,7 @@ class RegistrationServiceTest {
         when(keycloakAdminGateway.createUser(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString()))
                 .thenReturn(Mono.just(KEYCLOAK_USER_ID));
         when(keycloakAdminGateway.setPassword(KEYCLOAK_USER_ID, PASSWORD)).thenReturn(Mono.empty());
+        when(keycloakAdminGateway.assignPlatformRole(KEYCLOAK_USER_ID)).thenReturn(Mono.empty());
         when(keycloakOidcGateway.login(EMAIL, PASSWORD))
                 .thenReturn(Mono.error(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE)));
 

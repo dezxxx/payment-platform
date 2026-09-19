@@ -122,6 +122,7 @@ it breaks, and nothing above a gateway ever holds a foreign payload.
 | [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) | Every port, credential, endpoint, status code and command on one page — plus what every acronym stands for and how a test code like `IT-KC-001` decomposes. Russian mirror: [`CHEATSHEET.ru.md`](docs/CHEATSHEET.ru.md). |
 | [`docs/CLASSES.md`](docs/CLASSES.md) | One line per class: what it is and its single job. Open it next to the IDE. |
 | [`docs/*.puml`](docs) | Sequence and class diagrams — registration, rollback, `/me`, the gateway layer. |
+| [`postman/`](postman) | Postman collection: every endpoint plus its failures, with the tokens carried between requests for you. Import it, press Run. |
 
 ## Status
 
@@ -131,7 +132,9 @@ Module 1 is not finished. What is honest as of today:
 |---|---|
 | ✅ Working | Contract, Gradle build, Keycloak realm, all three gateways, `RegistrationService` with compensation, `AuthenticationService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — all eight meters, and JSON logs carrying every field the module requires |
 | 🐳 Compose | `docker compose up` brings up nine services and the app runs inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
-| 🧪 Tests | **33 tests, green: 22 unit and 11 integration.** Every test case the handout lists is covered, and each carries its code — `UT-REG-001`, `IT-KC-001` — in its display name. Integration runs against a real Keycloak and a real PostgreSQL in containers |
-| 🚧 Missing | `person-service` itself is module 2 — migrations only — so registration reaches it and stops there with **503**. Nexus is not in the compose file, and `person-client` is still resolved from the local Maven repository. A coverage number (JaCoCo) and a Postman collection are still ahead |
+| 🧪 Tests | **33 tests, green: 22 unit and 11 integration.** Every test case the handout lists is covered, and each carries its code — `UT-REG-001`, `IT-KC-001` — in its display name. Integration runs against a real Keycloak and a real PostgreSQL in containers. Coverage on the key services is **100%**, with the build failing below 80% |
+| 📮 Postman | `postman/individuals-api.postman_collection.json` — ten requests, tokens captured automatically, 31 assertions |
+| 📦 Nexus | In the compose file, and `person-client` is resolved from it rather than from the local Maven repository |
+| 🚧 Missing | `person-service` itself is module 2 — migrations only — so registration reaches it and stops there with **503** unless something answers in its place |
 
 The ordered to-do list lives in §8 of `CONTEXT.md` and is kept current.

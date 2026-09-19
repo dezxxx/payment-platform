@@ -159,6 +159,10 @@ docker compose up -d keycloak
 ./gradlew :individuals-api:jacocoTestReport   # отчёт, открыть build/reports/jacoco/test/html/index.html
 ./gradlew :individuals-api:jacocoTestCoverageVerification   # порог 80% на пакете service
 
+
+# Postman: ÐºÐ¾Ð»Ð»ÐµÐºÑÐ¸Ñ ÑÐµÐ»Ð¸ÐºÐ¾Ð¼, Ð¸Ð· ÑÐµÑÐ¼Ð¸Ð½Ð°Ð»Ð°
+npx newman run postman/individuals-api.postman_collection.json
+
 # Nexus: публикация клиента, который потом резолвят другие модули
 NEXUS_USERNAME=admin NEXUS_PASSWORD=admin123 ./gradlew :person-client:publish
 

@@ -11,6 +11,7 @@ import java.net.URI;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -41,6 +42,18 @@ public class KeycloakAdminGateway {
     private static final String BY_ID = "/{id}";
 
     private static final String RESET_PASSWORD = "/{id}/reset-password";
+
+    private static final String REALM_ROLE_MAPPINGS = "/{id}/role-mappings/realm";
+
+    /** Appended to {@code rolesUri()} - realm roles are addressed by name. */
+    private static final String BY_NAME = "/{name}";
+
+    /**
+     * The platform's own role, declared in {@code realm/realm-export.json}.
+     * A rename there has to be matched here, and the realm import is what the
+     * integration tests use - so the two cannot drift silently.
+     */
+    private static final String PLATFORM_ROLE = "USER";
 
     private final WebClient keycloakWebClient;
 
@@ -96,6 +109,46 @@ public class KeycloakAdminGateway {
                 .onStatus(HttpStatusCode::isError, KeycloakErrorTranslator::translate)
                 .toBodilessEntity()
                 .then());
+    }
+
+    /**
+     * Grants the platform role to a freshly created account.
+     *
+     * <p>Keycloak grants new accounts its own {@code default-roles-<realm>}
+     * composite and nothing else. {@code USER} is declared in the realm export,
+     * but no import setting hands it out - neither a realm default role nor
+     * {@code realmRoles} in the create body, which Keycloak accepts and
+     * ignores. Both were tried. So the role is granted here, which is also what
+     * the description on the role in the realm export already said would
+     * happen.
+     *
+     * <p>Two calls, because a role mapping is resolved by id and the id is
+     * known only after reading the role. Not cached on purpose: an immutable
+     * value held forever is the kind of state that outlives the realm it came
+     * from, and registration already costs several round trips.
+     */
+    public Mono<Void> assignPlatformRole(String keycloakUserId) {
+        return findRealmRole(PLATFORM_ROLE)
+                .flatMap(role -> withAdminToken(token -> keycloakWebClient.post()
+                        .uri(properties.usersUri() + REALM_ROLE_MAPPINGS, keycloakUserId)
+                        .headers(headers -> headers.setBearerAuth(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        // An array: the endpoint grants any number of roles at
+                        // once, and we happen to grant one.
+                        .bodyValue(List.of(role))
+                        .retrieve()
+                        .onStatus(HttpStatusCode::isError, KeycloakErrorTranslator::translate)
+                        .toBodilessEntity()
+                        .then()));
+    }
+
+    private Mono<KeycloakRealmRole> findRealmRole(String name) {
+        return withAdminToken(token -> keycloakWebClient.get()
+                .uri(properties.rolesUri() + BY_NAME, name)
+                .headers(headers -> headers.setBearerAuth(token))
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, KeycloakErrorTranslator::translate)
+                .bodyToMono(KeycloakRealmRole.class));
     }
 
     /**

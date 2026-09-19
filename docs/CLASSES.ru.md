@@ -4,7 +4,7 @@
 Держать открытым рядом с IDE. Подробности — в `CONTEXT.ru.md`, *почему именно
 так* — в javadoc самого класса.
 
-32 класса в `main`, плюс сгенерированный из OpenAPI `AuthApi` и
+33 класса в `main`, плюс сгенерированный из OpenAPI `AuthApi` и
 сгенерированный `person-client` — их руками никто не писал.
 
 Английская версия — основная: [`CLASSES.md`](CLASSES.md). Если тексты
@@ -91,6 +91,7 @@ Keycloak                        person-service
 | `KeycloakUserRequest` | `.admin` | `record` | Тело `POST /users`. Семь полей из пятидесяти. Без пароля — это второй вызов. |
 | `KeycloakCredential` | `.admin` | `record` | Тело `PUT /reset-password`. Несёт `temporary = false`; без него следующий логин упадёт с **400 (Bad Request)**. |
 | `KeycloakUserRepresentation` | `.admin` | `record`, package-private | Разбирает `GET /users/{id}`. Одно поле, `createdTimestamp`. Назван по модели самого Keycloak, чтобы имя гуглилось по их документации. |
+| `KeycloakRealmRole` | `.admin` | `record`, package-private | Роль realm — и читаем её, и отправляем обратно. Несёт `id`, ради которого и существует: Keycloak сопоставляет роль по id, а не по имени, поэтому роль надо сначала прочитать, чтобы выдать. |
 | `PersonServiceGateway` | `gateway.person` | `@Component` | Создаёт доменного пользователя и возвращает `user_uid` — идентификатор, которым пользуется вся платформа. |
 | `PersonErrorTranslator` | `gateway.person` | `final`, статический | То же, что и его Keycloak-близнец, только короче: person-service наш и уже говорит на модели ошибок платформы. |
 

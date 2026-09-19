@@ -35,4 +35,9 @@ public record KeycloakProperties(
     public String usersUri() {
         return "/admin/realms/" + realm + "/users";
     }
+
+    /** Admin REST API base for the realm's own roles, addressed by name. */
+    public String rolesUri() {
+        return "/admin/realms/" + realm + "/roles";
+    }
 }

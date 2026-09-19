@@ -3,7 +3,7 @@
 One line per class: what it is and the single job it owns. Open it next to the
 IDE. Depth lives in `CONTEXT.md`; the javadoc on each class explains *why*.
 
-32 classes in `main`, plus the OpenAPI-generated `AuthApi` and the generated
+33 classes in `main`, plus the OpenAPI-generated `AuthApi` and the generated
 `person-client`, neither of which is written by hand.
 
 Russian mirror: [`CLASSES.ru.md`](CLASSES.ru.md). Ports, credentials and
@@ -89,6 +89,7 @@ the nesting means.
 | `KeycloakUserRequest` | `.admin` | `record` | Body of `POST /users`. Seven fields of Keycloak's fifty. No password — that is a second call. |
 | `KeycloakCredential` | `.admin` | `record` | Body of `PUT /reset-password`. Carries `temporary = false`; without it the next login fails with **400 (Bad Request)**. |
 | `KeycloakUserRepresentation` | `.admin` | `record`, package-private | Parses `GET /users/{id}`. One field, `createdTimestamp`. Named after Keycloak's own model so the name is searchable in their docs. |
+| `KeycloakRealmRole` | `.admin` | `record`, package-private | The realm role, read and sent back. Carries the `id`, which is the whole reason it exists: Keycloak resolves a role mapping by id, never by name, so the role has to be read before it can be granted. |
 | `PersonServiceGateway` | `gateway.person` | `@Component` | Creates the domain user and returns the `user_uid` — the identifier the whole platform uses. |
 | `PersonErrorTranslator` | `gateway.person` | `final`, static | Same job as its Keycloak twin, but shorter: person-service is ours and already speaks the platform's error model. |
 

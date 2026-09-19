@@ -74,6 +74,11 @@ public class RegistrationService {
                 .createUser(request.getEmail(), request.getFirstName(), request.getLastName(), userUid.toString())
                 .flatMap(keycloakUserId -> keycloakAdminGateway
                         .setPassword(keycloakUserId, request.getPassword())
+                        // Deferred for the same reason as the login below: then()
+                        // takes a Mono that is already built, and building this
+                        // one early would call the gateway before the password
+                        // is set.
+                        .then(Mono.defer(() -> keycloakAdminGateway.assignPlatformRole(keycloakUserId)))
                         .onErrorResume(cause -> undo(keycloakUserId, cause)))
                 .then()
                 .onErrorMap(cause -> inconsistent(userUid, cause));
