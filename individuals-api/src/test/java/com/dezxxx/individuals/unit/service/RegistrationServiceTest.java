@@ -25,6 +25,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -191,12 +192,13 @@ class RegistrationServiceTest {
     }
 
     /**
-     * Nothing to undo here: the account was never created, so only
+     * UT-REG-004. Nothing to undo here: the account was never created, so only
      * person-service holds a record. Same outcome as a failed password, and no
      * delete call - removing an id we never received would be a bug of its own.
      */
     @Test
-    @DisplayName("given the account cannot be created, when registering, then nothing is deleted")
+    @DisplayName("UT-REG-004: given Keycloak is unreachable after the domain user exists, "
+            + "then it answers 503 and records the partial failure")
     void reportsInconsistencyWhenTheAccountFails() {
         // given
         when(personServiceGateway.createPerson(EMAIL, FIRST_NAME, LAST_NAME)).thenReturn(Mono.just(USER_UID));
@@ -205,13 +207,22 @@ class RegistrationServiceTest {
 
         // when / then
         StepVerifier.create(registrationService.register(request()))
-                .expectErrorSatisfies(error -> assertThat(((ApiException) error).getErrorCode())
-                        .isEqualTo(ErrorCode.REGISTRATION_INCONSISTENT))
+                .expectErrorSatisfies(error -> {
+                    ErrorCode code = ((ApiException) error).getErrorCode();
+                    assertThat(code).isEqualTo(ErrorCode.REGISTRATION_INCONSISTENT);
+                    // The status is asserted, not only the code: the handout
+                    // fixes 502 or 503 for this case, and a code carrying the
+                    // wrong status would otherwise pass unnoticed.
+                    assertThat(code.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+                })
                 .verify();
 
-        // then
+        // then - the partial failure is recorded, which is the other half of
+        // what the handout asks for here
         verify(keycloakAdminGateway, never()).deleteUser(anyString());
         verifyNoInteractions(keycloakOidcGateway);
+        verify(metrics).registrationFailed();
+        verify(metrics, never()).registrationSucceeded();
     }
 
     /**

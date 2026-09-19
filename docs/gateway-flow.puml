@@ -290,7 +290,7 @@ end note
 :Keycloak\nPOST /admin/.../users;
 
 if (created?) then (no)
-  #FFCCCC:**500** REGISTRATION_INCONSISTENT;
+  #FFCCCC:**503** REGISTRATION_INCONSISTENT;
   note right
     Domain user exists, account does not.
     Nothing to roll back in Keycloak.
@@ -313,7 +313,7 @@ if (password set?) then (no)
     while its address stays taken, so
     registering again answers 409 forever.
   end note
-  #FFCCCC:**500** REGISTRATION_INCONSISTENT;
+  #FFCCCC:**503** REGISTRATION_INCONSISTENT;
   stop
 else (yes)
 endif

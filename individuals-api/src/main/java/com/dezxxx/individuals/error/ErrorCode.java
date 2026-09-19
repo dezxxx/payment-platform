@@ -54,15 +54,23 @@ public enum ErrorCode {
      * <p>Deliberately not {@code INTERNAL_ERROR}. Registration writes to two
      * systems with no transaction spanning them, and a half-finished one must
      * be findable: this code is what a log query, an alert and a metric filter
-     * on. Folding it into the generic 500 would hide exactly the failure that
+     * on. Folding it into a generic failure would hide exactly the case that
      * needs a human.
      *
+     * <p><b>503 (Service Unavailable), which the handout fixes for this case
+     * (UT-REG-004) - and it is not the status this started with.</b> The
+     * argument for 500 was that the split is ours, not the dependency's, and
+     * that 503 invites a retry which is now guaranteed to answer
+     * <b>409 (Conflict)</b>: the address is taken in person-service and unknown
+     * in Keycloak. The argument for 503 wins anyway - the trigger is a
+     * dependency that did not answer, the acceptance criteria name the status,
+     * and the message below promises no successful retry.
+     *
      * <p>The message says "contact support" rather than describing the split.
-     * The caller cannot repair it - the address is now taken in one system and
-     * unknown in the other - and naming the internal state would leak our
+     * The caller cannot repair it, and naming the internal state would leak our
      * topology.
      */
-    REGISTRATION_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR,
+    REGISTRATION_INCONSISTENT(HttpStatus.SERVICE_UNAVAILABLE,
             "Registration did not complete, please contact support"),
 
     DEPENDENCY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Dependency is not reachable");

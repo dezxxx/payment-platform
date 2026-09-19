@@ -115,10 +115,14 @@ dependencies {
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.security.test)
     testImplementation(libs.reactor.test)
-    testImplementation(libs.spring.boot.testcontainers)
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.keycloak)
+    // IT-DB-001 runs person-service's migrations for real, so it needs the
+    // migration engine and a JDBC driver that the application itself does not.
+    testImplementation(libs.flyway.core)
+    testRuntimeOnly(libs.flyway.database.postgresql)
+    testRuntimeOnly(libs.postgresql)
     // Gradle 9 no longer puts the JUnit Platform launcher on the test runtime
     // classpath by itself, and without it the test JVM cannot start at all.
     testRuntimeOnly(libs.junit.platform.launcher)
@@ -138,6 +142,16 @@ val integrationTest = tasks.register<Test>("integrationTest") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
     filter { includeTestsMatching("com.dezxxx.individuals.integration.*") }
+
+    // IT-DB-001 migrates the schema person-service owns. The scripts belong to
+    // that module, and a test must not guess where a sibling module lives, so
+    // the path is resolved by Gradle and handed over.
+    systemProperty(
+        "person.migrations.dir",
+        rootProject.layout.projectDirectory
+            .dir("person-service/src/main/resources/db/migration").asFile.absolutePath
+    )
+
     shouldRunAfter(tasks.test)
 }
 

@@ -54,7 +54,7 @@ class PasswordsMatchValidatorTest {
     }
 
     @Test
-    @DisplayName("rejects a mismatch and reports it on confirmPassword")
+    @DisplayName("UT-REG-002: rejects a mismatch and reports it on confirmPassword")
     void reportsMismatchOnTheConfirmationField() {
         Set<ConstraintViolation<RegistrationRequest>> violations =
                 validator.validate(request(PASSWORD, "Str0ngP@ssw0rt"));
