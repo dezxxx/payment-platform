@@ -28,7 +28,7 @@ service listens on inside the compose network — that is the one used in
 | tempo | 3200 | 3200 | http://localhost:3200 | trace storage, queried by Grafana |
 | tempo OTLP | 4318 | 4318 | — | where the app pushes traces |
 | loki | 3100 | 3100 | http://localhost:3100 | log store, queried through Grafana |
-| alloy | none | none | — | reads container logs, pushes them to Loki |
+| alloy | 12345 | 12345 | http://localhost:12345 | reads container logs, pushes them to Loki; its own UI shows the pipeline |
 | grafana | 3000 | 3000 | http://localhost:3000 | dashboards |
 
 Why 8083 for Nexus: Nexus normally defaults to 8081, but the handout fixes 8081
