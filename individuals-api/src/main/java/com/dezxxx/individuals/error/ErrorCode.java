@@ -22,11 +22,27 @@ public enum ErrorCode {
     VALIDATION_ERROR(HttpStatus.BAD_REQUEST, "Request validation failed"),
 
     /**
-     * Deliberately says "email or password" rather than naming which one was
+     * A password was compared and did not match - the login flow, and nothing
+     * else.
+     *
+     * <p>Deliberately says "email or password" rather than naming which one was
      * wrong: a different answer per case would let an attacker discover which
      * addresses are registered.
      */
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect"),
+
+    /**
+     * No usable token on a request that needs one: none sent, expired, signed
+     * by a key this realm does not know - or a path that does not exist, since
+     * anything outside the public list needs authentication before it can be
+     * routed.
+     *
+     * <p>Separate from {@link #INVALID_CREDENTIALS} because the two share a
+     * status and nothing else. Answering "Email or password is incorrect" to a
+     * request that carried no password sends the caller looking for a problem
+     * in the wrong place - and a mistyped URL used to do exactly that.
+     */
+    AUTHENTICATION_REQUIRED(HttpStatus.UNAUTHORIZED, "A valid access token is required"),
 
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access is denied"),
 

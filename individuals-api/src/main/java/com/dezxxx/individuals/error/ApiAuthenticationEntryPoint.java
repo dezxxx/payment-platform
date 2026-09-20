@@ -22,8 +22,14 @@ public class ApiAuthenticationEntryPoint implements ServerAuthenticationEntryPoi
 
     private final SecurityErrorWriter securityErrorWriter;
 
+    /**
+     * Every rejection from the filter chain lands here, including a request for
+     * a path that does not exist - anything outside the public list has to be
+     * authenticated before it can be routed. So the answer says what is missing,
+     * not that a password was wrong: no password was read.
+     */
     @Override
     public Mono<Void> commence(ServerWebExchange exchange, AuthenticationException ex) {
-        return securityErrorWriter.write(exchange, ErrorCode.INVALID_CREDENTIALS);
+        return securityErrorWriter.write(exchange, ErrorCode.AUTHENTICATION_REQUIRED);
     }
 }

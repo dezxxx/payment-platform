@@ -862,15 +862,25 @@ deliberate: `docker build` has no route to `localhost:8083`, which inside the
 builder means the builder itself. The image stays self-contained, and Nexus is
 what the build on the host resolves through.
 
-### Still misleading: a 401 that says the password is wrong
+### Two failures share 401, and the code is what tells them apart
 
-`ApiAuthenticationEntryPoint` maps every filter-chain rejection to
-`INVALID_CREDENTIALS`, so a typo in a URL answers *"Email or password is
-incorrect"* on a request that carried no password at all. Correct as a status -
-**401 (Unauthorized)** is what a resource server owes an unauthenticated
-caller - and wrong as a message. Worth a separate `ErrorCode` for "no valid
-token", keeping `INVALID_CREDENTIALS` for the login flow that genuinely
-compared a password.
+`AUTHENTICATION_REQUIRED` - no usable token: none sent, expired, signed by an
+unknown key, or a path that does not exist, since anything outside the public
+list has to be authenticated before it can be routed.
+
+`INVALID_CREDENTIALS` - a password was compared and did not match. The login
+flow, and nothing else.
+
+Until this was split, `ApiAuthenticationEntryPoint` mapped every filter-chain
+rejection to `INVALID_CREDENTIALS`, so a typo in a URL answered *"Email or
+password is incorrect"* on a request that carried no password at all. The
+status was right - **401 (Unauthorized)** is what a resource server owes an
+unauthenticated caller - and the message sent the reader looking in the wrong
+place.
+
+**A path that does not exist still answers 401, not 404, and that is
+deliberate.** Answering "no such path" to an unauthenticated caller maps out
+the API for anyone who asks. `ErrorContractIT` pins both this and the split.
 
 ### What the first full compose run cost
 
@@ -907,8 +917,6 @@ spans.
 ticked, and every artifact the handout asks for exists.** What is left is not
 required by it:
 
-- [ ] A separate `ErrorCode` for "no valid token", so a typo in a URL stops
-      answering *"Email or password is incorrect"* — see above
 - [ ] A test for `KeycloakErrorTranslator`, which JaCoCo reports at 0%. Not a
       criterion either, but it is the one piece of our own code that nothing
       has ever executed

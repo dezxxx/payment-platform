@@ -228,6 +228,11 @@
                   "pm.test('rejected in the filter chain, still our error shape', () => {",
                   "    const body = pm.response.json();",
                   "    pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details');",
+                  "});",
+                  "pm.test('says the token is missing, not that a password is wrong', () => {",
+                  "    // Same status as a wrong password, different code - no",
+                  "    // password was read on this request.",
+                  "    pm.expect(pm.response.json().error).to.eql('AUTHENTICATION_REQUIRED');",
                   "});"
                 ]
               }

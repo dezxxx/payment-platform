@@ -86,7 +86,7 @@ Only the ones this service can answer with. Every one of them is a constant in
 | 200 | OK | the call worked | - | login, refresh-token, me |
 | 201 | Created | worked and made something new | - | registration |
 | 400 | Bad Request | the request itself is wrong - bad email, missing field, broken JSON | caller | `VALIDATION_ERROR` |
-| 401 | Unauthorized | "I do not know who you are" - no token, expired token, wrong password | caller | `INVALID_CREDENTIALS` |
+| 401 | Unauthorized | "I do not know who you are" | caller | `INVALID_CREDENTIALS` on a wrong password, `AUTHENTICATION_REQUIRED` when no usable token was sent |
 | 403 | Forbidden | "I know who you are and you may not" - valid token, missing role | caller | `ACCESS_DENIED` |
 | 404 | Not Found | no such path, or no such user | caller | `NOT_FOUND` |
 | 405 | Method Not Allowed | the path exists, the HTTP method does not | caller | `METHOD_NOT_ALLOWED` |

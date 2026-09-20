@@ -88,7 +88,7 @@ public class AuthController implements AuthApi {
         return exchange.getPrincipal()
                 .cast(JwtAuthenticationToken.class)
                 .map(JwtAuthenticationToken::getToken)
-                .switchIfEmpty(Mono.error(() -> new ApiException(ErrorCode.INVALID_CREDENTIALS)))
+                .switchIfEmpty(Mono.error(() -> new ApiException(ErrorCode.AUTHENTICATION_REQUIRED)))
                 .flatMap(authenticationService::currentUser)
                 .map(ResponseEntity::ok);
     }

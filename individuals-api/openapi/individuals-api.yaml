@@ -421,13 +421,17 @@ components:
                 details:
                   - "confirmPassword: must match password"
     Unauthorized:
-      description: Missing or invalid credentials
+      description: |
+        Two different things share this status, and the `error` field is what
+        tells them apart: a password was compared and did not match, or no
+        usable token was presented at all.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
           examples:
             badCredentials:
+              summary: A password was checked and was wrong
               value:
                 timestamp: "2026-08-19T12:34:56Z"
                 path: /api/v1/auth/login
@@ -435,6 +439,17 @@ components:
                 error: INVALID_CREDENTIALS
                 message: Email or password is incorrect
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+            noToken:
+              summary: No token, an expired one, or a path that does not exist
+              value:
+                timestamp: "2026-08-19T12:34:56Z"
+                path: /api/v1/auth/me
+                status: 401
+                error: AUTHENTICATION_REQUIRED
+                message: A valid access token is required
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
     Conflict:
       description: User already exists
       content:
