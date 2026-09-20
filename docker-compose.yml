@@ -83,6 +83,10 @@ services:
       KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+      # Defaults to the compose service that arrives in module 2. The
+      # walkthrough in docs/DEMO.md overrides it in .env to reach a stub
+      # running on the host.
+      PERSON_SERVICE_URL: ${PERSON_SERVICE_URL:-http://person-service:8082}
     ports:
       - "${INDIVIDUALS_API_PORT}:8081"
 

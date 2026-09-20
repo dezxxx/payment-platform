@@ -15,7 +15,11 @@ individuals:
   person-service:
     # person-service itself arrives in module 2; only its database runs today,
     # so any call through this address fails until then. That is expected.
-    base-url: http://person-service:8082
+    #
+    # Overridable because the walkthrough in docs/DEMO.md points it at a stub
+    # running on the host - without something answering here, registration
+    # stops at its first step and there is nothing to demonstrate.
+    base-url: ${PERSON_SERVICE_URL:http://person-service:8082}
   keycloak:
     base-url: http://keycloak:8080
 

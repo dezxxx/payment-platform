@@ -582,11 +582,13 @@ payment-platform/
 ├── docker-compose.yml
 ├── .env                       image tags, ports, credentials (not in git)
 ├── infra/                     prometheus, tempo, grafana provisioning
-├── postman/
+├── postman/                   collection: every endpoint and its failures
 ├── docs/                      PlantUML diagrams (component, deployment,
 │                              registration sequence, layers) and
+│                              DEMO.md - the end-to-end walkthrough
 │                              CHEATSHEET.md - ports, credentials, commands
 │                              CLASSES.md - one line per class
+│                              demo/ - the person-service stub DEMO.md uses
 ├── person-client/             generated DTOs + HTTP clients -> Nexus
 ├── individuals-api/           the orchestrator
 └── person-service/            contract + Flyway migrations only (module 2)

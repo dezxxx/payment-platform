@@ -547,11 +547,13 @@ payment-platform/
 ├── docker-compose.yml
 ├── .env                       теги образов, порты, секреты (не в git)
 ├── infra/                     провижининг prometheus, tempo, grafana
-├── postman/
+├── postman/                   коллекция: все эндпоинты и их отказы
 ├── docs/                      диаграммы PlantUML (компоненты, деплой,
 │                              последовательность регистрации, слои) и
+│                              DEMO.md — сценарий полного прогона
 │                              CHEATSHEET.md — порты, пароли, команды
 │                              CLASSES.md — по строке на класс
+│                              demo/ — заглушка person-service для DEMO.md
 ├── person-client/             сгенерированные DTO + HTTP-клиенты -> Nexus
 ├── individuals-api/           оркестратор
 └── person-service/            только контракт + миграции Flyway (модуль 2)
