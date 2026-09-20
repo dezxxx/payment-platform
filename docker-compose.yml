@@ -94,6 +94,13 @@ services:
     image: ${PROMETHEUS_IMAGE}
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Named on purpose. The image declares VOLUME /prometheus itself, so
+      # without this line Docker creates an anonymous one - the data survives
+      # all the same, but it is a volume named after a hash, indistinguishable
+      # from junk in `docker volume ls` and the first thing `docker volume
+      # prune` takes. Every other service here is named; this one was the
+      # exception by accident.
+      - prometheus-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT}:9090"
 
@@ -189,6 +196,7 @@ services:
 volumes:
   keycloak-postgres-data:
   person-postgres-data:
+  prometheus-data:
   nexus-data:
   tempo-data:
   loki-data:
