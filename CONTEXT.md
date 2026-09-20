@@ -272,6 +272,19 @@ registered as `auth_registration_total` is scraped as
 `auth_registration_total_total`. The handout lists the scraped names; the code
 must register the dotted ones.
 
+**Histogram buckets are switched on for `http.server.requests`.** Boot
+publishes `count`, `sum` and `max` for its built-in HTTP timer and nothing
+else, which is enough for an average and useless for a percentile -
+`histogram_quantile` has no buckets to read. The dashboard's 95th percentile
+panel had been drawing from data nobody had enabled, and showed an empty graph
+without an error anywhere.
+
+An average would have been the wrong fix: nine fast requests and one slow one
+average out to "fine", and the slow one is the whole reason the panel exists.
+Enabled for that one meter rather than globally - each bucket is its own line
+in the scrape, and the built-in HTTP timer is the only place a percentile is
+worth that.
+
 **Tracing.** Micrometer Tracing over OpenTelemetry, exported by OTLP:
 
 ```yaml

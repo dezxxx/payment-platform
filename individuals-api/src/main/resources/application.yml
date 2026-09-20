@@ -47,6 +47,22 @@ individuals:
     client-secret: ${KEYCLOAK_CLIENT_SECRET:}
 
 management:
+  metrics:
+    distribution:
+      # Buckets for the built-in HTTP timer, so a percentile can be computed.
+      # Off by default: Boot publishes count, sum and max, and nothing else -
+      # which is enough for an average and useless for a percentile, because
+      # histogram_quantile has no buckets to read. The dashboard's 95th
+      # percentile panel was drawing from data nobody had switched on.
+      #
+      # An average is the wrong answer here: nine fast requests and one slow
+      # one average out to "fine", and the slow one is the whole reason the
+      # panel exists. A percentile keeps the tail visible.
+      #
+      # The cost is size - each bucket is its own line in the scrape. Limited
+      # to this one meter rather than enabled globally for that reason.
+      percentiles-histogram:
+        http.server.requests: true
   endpoints:
     web:
       exposure:
