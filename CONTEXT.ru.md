@@ -829,6 +829,12 @@ Dockerfile по-прежнему использует `publishToMavenLocal`, а 
 
 `INVALID_CREDENTIALS` — пароль сравнили, и он не подошёл. Только поток логина.
 
+`REFRESH_TOKEN_INVALID` — refresh-токен израсходован: истёк, уже использован
+или отозван. Keycloak отвечает `invalid_grant` и на это, и на неверный пароль,
+поэтому шлюз их не различает; `AuthenticationService.refresh` различает —
+пароля до него не доходило. Клиент читает этот код как «сессия кончилась,
+покажи форму входа».
+
 Пока это не разделили, `ApiAuthenticationEntryPoint` переводил любой отказ
 фильтра в `INVALID_CREDENTIALS`, и опечатка в URL отвечала «Email or password is
 incorrect» на запрос, в котором пароля не было вовсе. Статус был верный —

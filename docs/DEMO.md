@@ -331,9 +331,13 @@ One client request, **seven** calls to external systems. Nothing else shows that
 
 ### Tying a log line to a trace
 
-Take the `traceId` from the "Registered" line in Loki and paste it into Tempo -
-that exact trace opens. In Grafana the `TraceID` field in a log line is
-clickable; the jump is wired in the datasource provisioning.
+Take the `traceId` from any line in Loki and paste it into **the same TraceQL
+field** - a bare identifier works there, Grafana recognises it and opens that
+exact trace. There is no separate tab for it, and none is needed.
+
+The `TraceID` field in the log line is clickable as well - the jump is wired in
+the datasource provisioning, so getting from a log to its trace needs no
+copying at all.
 
 That is the correlation the module asks for: from one log line to the whole
 request in two clicks.

@@ -61,7 +61,7 @@ account включён, direct access grants включён, standard flow вы�
 |---|---|---|---|---|
 | POST | `/api/v1/auth/registration` | нет | 201 токены | 400 валидация, 409 почта занята, 503 зависимость |
 | POST | `/api/v1/auth/login` | нет | 200 токены | 400 валидация, 401 неверные данные, 503 |
-| POST | `/api/v1/auth/refresh-token` | нет | 200 токены | 400 валидация, 401 refresh истёк или битый, 503 |
+| POST | `/api/v1/auth/refresh-token` | нет | 200 токены | 400 валидация, 401 `REFRESH_TOKEN_INVALID`, 503 |
 | GET | `/api/v1/auth/me` | `Bearer <access>` | 200 пользователь | 401 токена нет или он невалиден |
 
 Инфраструктурные, все открытые:
@@ -87,7 +87,7 @@ account включён, direct access grants включён, standard flow вы�
 | 200 | OK | вызов сработал | — | login, refresh-token, me |
 | 201 | Created | сработал и создал новое | — | registration |
 | 400 | Bad Request | сам запрос неправильный — кривая почта, нет поля, битый JSON | вызывающего | `VALIDATION_ERROR` |
-| 401 | Unauthorized | «я не знаю, кто ты» | вызывающего | `INVALID_CREDENTIALS` на неверный пароль, `AUTHENTICATION_REQUIRED` когда токена нет или он негоден |
+| 401 | Unauthorized | «я не знаю, кто ты» | вызывающего | `INVALID_CREDENTIALS` на неверный пароль, `AUTHENTICATION_REQUIRED` когда токена нет, `REFRESH_TOKEN_INVALID` на истёкший refresh |
 | 403 | Forbidden | «знаю, кто ты, и тебе нельзя» — токен валиден, роли не хватает | вызывающего | `ACCESS_DENIED` |
 | 404 | Not Found | нет такого пути или такого пользователя | вызывающего | `NOT_FOUND` |
 | 405 | Method Not Allowed | путь есть, а такого HTTP-метода у него нет | вызывающего | `METHOD_NOT_ALLOWED` |

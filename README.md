@@ -50,6 +50,13 @@ the Java interface is generated from it.
 Every failure answers in one shape, built from a single `ErrorCode` constant
 that carries the code, the HTTP status and the message together.
 
+One status is not one answer. Three different things arrive as
+**401 (Unauthorized)**, and the `error` field is what tells them apart:
+`INVALID_CREDENTIALS` when a password was compared and did not match,
+`AUTHENTICATION_REQUIRED` when no usable token was sent, and
+`REFRESH_TOKEN_INVALID` when a refresh token is spent. A client shows a
+different screen for each, and one code could not ask for all three.
+
 ## Running it
 
 **1. Environment.** Copy the template and set the Keycloak client secret; `.env`

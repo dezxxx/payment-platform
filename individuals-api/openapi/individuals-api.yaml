@@ -450,6 +450,16 @@ components:
                 message: A valid access token is required
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
                 details: []
+            spentRefreshToken:
+              summary: The session ended - the refresh token is expired or used
+              value:
+                timestamp: "2026-08-19T12:34:56Z"
+                path: /api/v1/auth/refresh-token
+                status: 401
+                error: REFRESH_TOKEN_INVALID
+                message: Refresh token is expired or no longer valid
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
     Conflict:
       description: User already exists
       content:

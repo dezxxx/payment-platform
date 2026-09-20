@@ -873,6 +873,12 @@ list has to be authenticated before it can be routed.
 `INVALID_CREDENTIALS` - a password was compared and did not match. The login
 flow, and nothing else.
 
+`REFRESH_TOKEN_INVALID` - the refresh token is spent: expired, already used,
+or revoked. Keycloak answers `invalid_grant` to this and to a wrong password
+alike, so the gateway cannot tell them apart; `AuthenticationService.refresh`
+can, because no password reached it. A client reads this one as "the session
+ended, show the login form".
+
 Until this was split, `ApiAuthenticationEntryPoint` mapped every filter-chain
 rejection to `INVALID_CREDENTIALS`, so a typo in a URL answered *"Email or
 password is incorrect"* on a request that carried no password at all. The

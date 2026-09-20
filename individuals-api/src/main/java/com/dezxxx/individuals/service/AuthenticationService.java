@@ -78,11 +78,28 @@ public class AuthenticationService {
      * Only attempts are counted. A refusal here is an expired or already-used
      * refresh token, which is the normal end of a session rather than a
      * failure worth a meter of its own.
+     *
+     * <p>The gateway reports that refusal as {@code INVALID_CREDENTIALS},
+     * because Keycloak answers {@code invalid_grant} to a wrong password and a
+     * dead refresh token alike and nothing at that level can tell them apart.
+     * This method can: no password was sent here, so saying one was wrong would
+     * be untrue. The translation belongs exactly here and nowhere lower.
      */
     public Mono<TokenResponse> refresh(String refreshToken) {
         return keycloakOidcGateway.refresh(refreshToken)
                 .flatMap(this::withUserUid)
+                .onErrorMap(AuthenticationService::isRefusedCredentials,
+                        ex -> new ApiException(ErrorCode.REFRESH_TOKEN_INVALID))
                 .doFirst(metrics::refreshStarted);
+    }
+
+    /**
+     * Narrow on purpose. A dependency that never answered, or a token we could
+     * not decode, has nothing to do with the refresh token being spent - those
+     * keep their own codes and must not be flattened into this one.
+     */
+    private static boolean isRefusedCredentials(Throwable cause) {
+        return cause instanceof ApiException api && api.getErrorCode() == ErrorCode.INVALID_CREDENTIALS;
     }
 
     /**

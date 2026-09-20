@@ -158,21 +158,46 @@ class AuthenticationServiceTest {
      * tomorrow.
      */
     @Test
-    @DisplayName("given the refresh token is expired, when refreshing, then the failure is not counted")
-    void doesNotCountARefusedRefresh() {
-        // given
+    @DisplayName("given the refresh token is expired, when refreshing, then it says so rather than blaming a password")
+    void namesTheDeadRefreshTokenRatherThanAPassword() {
+        // given - Keycloak answers invalid_grant to a wrong password and to a
+        // spent refresh token alike, so the gateway hands up the only code it
+        // can justify
         when(keycloakOidcGateway.refresh(REFRESH_TOKEN))
                 .thenReturn(Mono.error(new ApiException(ErrorCode.INVALID_CREDENTIALS)));
+
+        // when / then - this call carried no password, so the answer must not
+        // claim one was wrong
+        StepVerifier.create(authenticationService.refresh(REFRESH_TOKEN))
+                .expectErrorSatisfies(error -> {
+                    ErrorCode code = ((ApiException) error).getErrorCode();
+                    assertThat(code).isEqualTo(ErrorCode.REFRESH_TOKEN_INVALID);
+                    assertThat(code.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                })
+                .verify();
+
+        // then - still not counted as a failure: a session ending is not one
+        verify(metrics).refreshStarted();
+        verify(metrics, never()).loginFailed();
+    }
+
+    /**
+     * The translation above must stay narrow. A dependency that never answered
+     * is not a spent refresh token, and flattening the two would hide an outage
+     * behind a message telling the user to log in again.
+     */
+    @Test
+    @DisplayName("given Keycloak is unreachable, when refreshing, then the outage keeps its own code")
+    void leavesOtherFailuresAlone() {
+        // given
+        when(keycloakOidcGateway.refresh(REFRESH_TOKEN))
+                .thenReturn(Mono.error(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE)));
 
         // when / then
         StepVerifier.create(authenticationService.refresh(REFRESH_TOKEN))
                 .expectErrorSatisfies(error -> assertThat(((ApiException) error).getErrorCode())
-                        .isEqualTo(ErrorCode.INVALID_CREDENTIALS))
+                        .isEqualTo(ErrorCode.DEPENDENCY_UNAVAILABLE))
                 .verify();
-
-        // then
-        verify(metrics).refreshStarted();
-        verify(metrics, never()).loginFailed();
     }
 
     @Test

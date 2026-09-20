@@ -60,7 +60,7 @@ Base: `http://localhost:8081`
 |---|---|---|---|---|
 | POST | `/api/v1/auth/registration` | none | 201 tokens | 400 validation, 409 email taken, 503 dependency |
 | POST | `/api/v1/auth/login` | none | 200 tokens | 400 validation, 401 bad credentials, 503 |
-| POST | `/api/v1/auth/refresh-token` | none | 200 tokens | 400 validation, 401 expired/invalid refresh, 503 |
+| POST | `/api/v1/auth/refresh-token` | none | 200 tokens | 400 validation, 401 `REFRESH_TOKEN_INVALID`, 503 |
 | GET | `/api/v1/auth/me` | `Bearer <access>` | 200 user | 401 missing/invalid token |
 
 Infrastructure, all open:
@@ -86,7 +86,7 @@ Only the ones this service can answer with. Every one of them is a constant in
 | 200 | OK | the call worked | - | login, refresh-token, me |
 | 201 | Created | worked and made something new | - | registration |
 | 400 | Bad Request | the request itself is wrong - bad email, missing field, broken JSON | caller | `VALIDATION_ERROR` |
-| 401 | Unauthorized | "I do not know who you are" | caller | `INVALID_CREDENTIALS` on a wrong password, `AUTHENTICATION_REQUIRED` when no usable token was sent |
+| 401 | Unauthorized | "I do not know who you are" | caller | `INVALID_CREDENTIALS` on a wrong password, `AUTHENTICATION_REQUIRED` with no usable token, `REFRESH_TOKEN_INVALID` on a spent refresh token |
 | 403 | Forbidden | "I know who you are and you may not" - valid token, missing role | caller | `ACCESS_DENIED` |
 | 404 | Not Found | no such path, or no such user | caller | `NOT_FOUND` |
 | 405 | Method Not Allowed | the path exists, the HTTP method does not | caller | `METHOD_NOT_ALLOWED` |

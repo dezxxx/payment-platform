@@ -44,6 +44,22 @@ public enum ErrorCode {
      */
     AUTHENTICATION_REQUIRED(HttpStatus.UNAUTHORIZED, "A valid access token is required"),
 
+    /**
+     * The refresh token is expired, already used, or was revoked - the ordinary
+     * end of a session rather than anything going wrong.
+     *
+     * <p>Keycloak cannot tell us this: it answers {@code invalid_grant} to a
+     * wrong password and to a dead refresh token alike, and the gateway has no
+     * way to know which call it was translating. The service does, so the
+     * distinction is drawn there.
+     *
+     * <p>The separation earns its keep on the client side: this code means
+     * "the session ended, show the login form", while
+     * {@link #INVALID_CREDENTIALS} means "the password was mistyped, let them
+     * try again". Different screens, and one code could not ask for both.
+     */
+    REFRESH_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Refresh token is expired or no longer valid"),
+
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access is denied"),
 
     USER_ALREADY_EXISTS(HttpStatus.CONFLICT, "Email is already registered"),
