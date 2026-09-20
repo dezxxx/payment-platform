@@ -1020,6 +1020,11 @@ The same four views exist as PlantUML in `docs/` - `component.puml`,
 IDE plugin. The Mermaid below is the copy that renders on GitHub without one.
 When one changes, change the other.
 
+`observability.puml` is a fifth, and it answers a different question: which of
+the three - metrics, logs, traces - answers what, which direction each one
+travels, and what ties them together. Open that one when they start blurring
+into "the monitoring".
+
 The files here work at two different times and mostly do not know about each
 other. What binds them is a handful of values that must agree - and those are
 exactly the places that break silently.

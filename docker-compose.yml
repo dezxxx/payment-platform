@@ -124,9 +124,16 @@ services:
     command:
       - run
       - --storage.path=/var/lib/alloy/data
+      # Its own UI shows the pipeline: which containers were discovered, how
+      # many lines each stage read and forwarded. Bound to 0.0.0.0 because the
+      # default is 127.0.0.1, which inside a container means the container
+      # itself and is invisible from outside.
+      - --server.http.listen-addr=0.0.0.0:12345
       - /etc/alloy/config.alloy
     depends_on:
       - loki
+    ports:
+      - "${ALLOY_PORT}:12345"
     # The Docker socket is root-owned, and the image runs as an unprivileged
     # user that cannot read it. Acceptable for a local stack only.
     user: root

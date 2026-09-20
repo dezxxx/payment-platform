@@ -266,6 +266,9 @@ minutes**, иначе всплеск потеряется.
 
 **Grafana → Explore** (компас слева) → источник **Loki** → вкладка **Code**.
 
+> Если в трёх инструментах путаешься — открой `docs/observability.puml`.
+> Там одной картинкой: кто на что отвечает и в какую сторону едет.
+
 | Запрос | Что покажет |
 |---|---|
 | `{service="individuals-api"}` | всё, что писал сервис |
@@ -396,7 +399,87 @@ npx newman run postman/individuals-api.postman_collection.json
 
 ---
 
-## 10. Что скорее всего спросят
+## 10. «А где это лежит?»
+
+Половина вопросов на сдаче будет такой. Карта: что спросили → куда открывать.
+В IDEA файл по имени открывается через **Ctrl+Shift+N**, дерево искать не надо.
+
+### Контракты и описание API
+
+| Спросят | Файл |
+|---|---|
+| где описан ваш API | `individuals-api/openapi/individuals-api.yaml` |
+| где контракт person-service | `person-service/openapi/person-service.yaml` |
+| где сгенерированный интерфейс | `individuals-api/build/generated/openapi/…/api/AuthApi.java` — не в git, создаётся сборкой |
+| где посмотреть API вживую | http://localhost:8081/swagger-ui.html |
+
+### Настройки
+
+| Спросят | Файл |
+|---|---|
+| где настройки приложения | `individuals-api/src/main/resources/application.yml` |
+| где адреса внутри Docker | `individuals-api/src/main/resources/application-docker.yml` |
+| где порты, пароли, версии образов | `.env` в корне — **не в git**; шаблон рядом, `.env.example` |
+| где client secret Keycloak | `.env`, ключ `KEYCLOAK_CLIENT_SECRET`, и больше нигде |
+| где настроен realm Keycloak | `individuals-api/src/main/resources/realm/realm-export.json` |
+| где маппер, кладущий `user_uid` в токен | там же, внутри клиента `individuals-api`, блок `protocolMappers` |
+| где версии библиотек | `gradle/libs.versions.toml` — в build-скриптах версий нет вообще |
+
+### Код
+
+| Спросят | Файл |
+|---|---|
+| где сценарий регистрации | `…/service/RegistrationService.java` |
+| где логин, refresh и `/me` | `…/service/AuthenticationService.java` |
+| где эндпоинты | `…/rest/AuthController.java` |
+| где вызовы Keycloak | `…/gateway/keycloak/oidc/` и `…/gateway/keycloak/admin/` |
+| где вызов person-service | `…/gateway/person/PersonServiceGateway.java` |
+| где все коды ошибок | `…/error/ErrorCode.java` — один enum, в нём код, статус и сообщение |
+| где проверка «пароли совпали» | `…/validation/PasswordsMatch.java` |
+| где имена метрик | `…/metrics/AuthMetrics.java` — все восемь в одном файле |
+| где поля логов | `…/logging/RequestLogFilter.java` |
+| где настроена security | `…/config/SecurityConfig.java` |
+
+Полный путь у всех — `individuals-api/src/main/java/com/dezxxx/individuals/`.
+По строке на каждый класс — в [`CLASSES.ru.md`](CLASSES.ru.md).
+
+### Инфраструктура
+
+| Спросят | Файл |
+|---|---|
+| где описан стек | `docker-compose.yml` |
+| где Prometheus узнаёт, что скрести | `infra/prometheus/prometheus.yml` |
+| где Tempo принимает трейсы | `infra/tempo/tempo.yml` |
+| где логи собираются в Loki | `infra/alloy/config.alloy` |
+| где источники данных Grafana | `infra/grafana/provisioning/datasources/datasources.yml` |
+| где дашборд | `infra/grafana/dashboards/individuals-api.json` |
+| где миграции | `person-service/src/main/resources/db/migration/` |
+| где публикация в Nexus | `person-client/build.gradle.kts`, блок `publishing` |
+
+### Тесты
+
+| Спросят | Файл |
+|---|---|
+| где модульные | `individuals-api/src/test/java/…/unit/` |
+| где интеграционные | `individuals-api/src/test/java/…/integration/` |
+| где тест с реальным Keycloak | `…/integration/KeycloakRegistrationIT.java` |
+| где проверка миграций | `…/integration/PersonSchemaMigrationIT.java` |
+| где настроен порог покрытия | `individuals-api/build.gradle.kts`, `jacocoTestCoverageVerification` |
+| где отчёт о покрытии | `individuals-api/build/reports/jacoco/test/html/index.html` |
+
+### Если забыл
+
+Три документа отвечают почти на всё:
+
+| Вопрос про | Файл |
+|---|---|
+| «что это за класс» | [`CLASSES.ru.md`](CLASSES.ru.md) |
+| «какой порт, пароль, команда» | [`CHEATSHEET.ru.md`](CHEATSHEET.ru.md) |
+| «почему так сделано» | [`CONTEXT.ru.md`](../CONTEXT.ru.md) |
+
+Сказать «сейчас посмотрю в CONTEXT» — нормальный ответ. Проект на то и документирован.
+
+## 11. Что скорее всего спросят
 
 **«Почему individuals-api ничего не хранит?»**
 Потому что он оркестратор. Правда о доменном пользователе принадлежит
@@ -430,7 +513,7 @@ person-service уже записал пользователя, откатить 
 
 ---
 
-## 11. Убрать за собой
+## 12. Убрать за собой
 
 ```bash
 # Ctrl+C в окне заглушки

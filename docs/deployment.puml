@@ -1,17 +1,21 @@
 @startuml deployment
-title Local stack - docker compose
+title Local stack - docker compose, ten services
 
 skinparam shadowing false
 
 actor Client
+actor Developer
 
 node "docker compose network" {
   node "individuals-api\nhost 8081 -> 8081" as API
   node "keycloak\nhost 8080 -> 8080" as KC
   database "keycloak-postgres\nhost 5433 -> 5432" as KCDB
   database "person-postgres\nhost 5434 -> 5432" as PSDB
+  node "nexus\nhost 8083 -> 8081" as NEXUS
   node "prometheus\nhost 9090 -> 9090" as PROM
-  node "tempo\nhost 3200, 4318" as TEMPO
+  node "alloy\nhost 12345 -> 12345" as ALLOY
+  database "loki\nhost 3100 -> 3100" as LOKI
+  database "tempo\nhost 3200, 4318" as TEMPO
   node "grafana\nhost 3000 -> 3000" as GRAF
 }
 
@@ -21,10 +25,18 @@ Client --> API : POST /api/v1/auth/...
 API --> KC : Admin REST API\nand OIDC token endpoint
 API ..> PS : HTTP, not running yet
 KC --> KCDB : JDBC
+
 PROM --> API : scrape /actuator/prometheus
+ALLOY --> API : read stdout\nvia the Docker socket
+ALLOY --> LOKI : push
 API --> TEMPO : OTLP push /v1/traces
+
 GRAF --> PROM
+GRAF --> LOKI
 GRAF --> TEMPO
+
+Developer --> NEXUS : ./gradlew :person-client:publish
+API ..> NEXUS : resolved at build time,\nnever at run time
 
 note right of PROM
   Prometheus pulls, the application pushes.
@@ -33,10 +45,31 @@ note right of PROM
   lives in application.yml.
 end note
 
+note bottom of NEXUS
+  Not on any runtime path. The Gradle build
+  on the host publishes person-client here and
+  resolves it by Maven coordinates - which is
+  what keeps modules from depending on each
+  other through project(":...").
+
+  Port 8083 because the handout gives 8081
+  to individuals-api, so Nexus is the one
+  that moves off its own default.
+end note
+
 note bottom of PSDB
   Runs in module 1 only so the Flyway
   migrations have something to apply to.
   Nothing connects to it yet.
+end note
+
+note right of ALLOY
+  Needed because the application writes to
+  stdout and Docker keeps that in a file that
+  dies with the container. The Loki docker
+  driver would have done it too, but it is a
+  host plugin - and "docker compose up brings
+  everything up" is an acceptance criterion.
 end note
 
 @enduml

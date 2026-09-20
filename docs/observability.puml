@@ -1,0 +1,94 @@
+@startuml observability
+title Observability - three questions, three paths, one traceId
+
+skinparam shadowing false
+skinparam defaultTextAlignment center
+
+actor "operator" as OP
+
+node "individuals-api" as API {
+  component "AuthMetrics\nsix counters, two timers" as METERS
+  component "RequestLogFilter\nJSON to stdout" as LOGS
+  component "OpenTelemetry\nspans" as SPANS
+}
+
+node "prometheus" as PROM
+node "alloy" as ALLOY
+database "loki" as LOKI
+database "tempo" as TEMPO
+node "grafana" as GRAF
+
+' --- metrics: pulled ---
+PROM -[#0b6e4f,bold]-> METERS : **scrape** every 15s\nGET /actuator/prometheus
+
+' --- logs: written, then collected ---
+LOGS -[#b45309,bold]-> ALLOY : stdout\nread through the Docker socket
+ALLOY -[#b45309,bold]-> LOKI : push
+
+' --- traces: pushed by the application itself ---
+SPANS -[#6d28d9,bold]-> TEMPO : **push** OTLP\ntempo:4318/v1/traces
+
+GRAF --> PROM
+GRAF --> LOKI
+GRAF --> TEMPO
+OP --> GRAF
+
+note right of PROM
+  **How many, and how fast?**
+
+  Numbers over time. The application
+  keeps no history - it only knows
+  "right now it is 4". Prometheus
+  walks over and writes it down.
+
+  Ask **rate(...)**, never the raw
+  value: a counter resets to zero on
+  restart, and rate knows that.
+end note
+
+note right of ALLOY
+  **What actually happened?**
+
+  The app writes JSON to stdout and
+  nothing more. Docker keeps that in a
+  file that dies with the container, so
+  an agent has to read it and ship it.
+
+  Alloy turns Docker metadata into Loki
+  labels - service, container, env - and
+  lifts level, traceId and spanId out of
+  the JSON body.
+end note
+
+note right of TEMPO
+  **Where did the request go, and
+  where did it get stuck?**
+
+  One traceId per request, one spanId
+  per operation inside it. A parent id
+  on each span is what builds the tree.
+
+  This is the only place that shows one
+  login costing seven calls outwards.
+end note
+
+note bottom of GRAF
+  **Prometheus pulls. The application pushes.**
+  That is why the app's address lives in prometheus.yml
+  while Tempo's address lives in application.yml.
+  One arrow points each way, and mixing them up is
+  the usual reason a panel stays empty.
+end note
+
+note bottom of LOKI
+  **traceId ties a log line to its trace.**
+  It is in both, so one click in Grafana goes from
+  a line to the whole request.
+
+  Metrics carry no traceId and cannot: a counter is
+  "how many in total", with no individual requests
+  inside it. Metrics say **that** something is wrong;
+  logs and traces say **what**.
+end note
+
+@enduml

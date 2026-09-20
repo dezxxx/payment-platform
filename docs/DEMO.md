@@ -264,6 +264,9 @@ reads straight.
 
 **Grafana → Explore** (the compass) → source **Loki** → the **Code** tab.
 
+> If the three tools blur together, open `docs/observability.puml`. One
+> picture: which answers what, and which direction each one travels.
+
 | Query | Shows |
 |---|---|
 | `{service="individuals-api"}` | everything the service wrote |
@@ -396,7 +399,88 @@ npx newman run postman/individuals-api.postman_collection.json
 
 ---
 
-## 10. What you are likely to be asked
+## 10. "And where does that live?"
+
+Half the questions will be this one. A map from what was asked to what to open.
+In IDEA a file opens by name with **Ctrl+Shift+N**; the tree is not needed.
+
+### Contracts and the API description
+
+| Asked | File |
+|---|---|
+| where your API is described | `individuals-api/openapi/individuals-api.yaml` |
+| where person-service's contract is | `person-service/openapi/person-service.yaml` |
+| where the generated interface is | `individuals-api/build/generated/openapi/…/api/AuthApi.java` - not in git, the build makes it |
+| where to see the API live | http://localhost:8081/swagger-ui.html |
+
+### Configuration
+
+| Asked | File |
+|---|---|
+| where the application is configured | `individuals-api/src/main/resources/application.yml` |
+| where the addresses inside Docker are | `individuals-api/src/main/resources/application-docker.yml` |
+| where ports, passwords and image tags are | `.env` in the root - **not in git**; the template beside it is `.env.example` |
+| where Keycloak's client secret is | `.env`, key `KEYCLOAK_CLIENT_SECRET`, and nowhere else |
+| where the realm is configured | `individuals-api/src/main/resources/realm/realm-export.json` |
+| where the mapper putting `user_uid` in the token is | same file, inside the `individuals-api` client, `protocolMappers` |
+| where library versions are | `gradle/libs.versions.toml` - no build script holds a version |
+
+### Code
+
+| Asked | File |
+|---|---|
+| where the registration scenario is | `…/service/RegistrationService.java` |
+| where login, refresh and `/me` are | `…/service/AuthenticationService.java` |
+| where the endpoints are | `…/rest/AuthController.java` |
+| where Keycloak is called | `…/gateway/keycloak/oidc/` and `…/gateway/keycloak/admin/` |
+| where person-service is called | `…/gateway/person/PersonServiceGateway.java` |
+| where every error code is | `…/error/ErrorCode.java` - one enum carrying code, status and message |
+| where "the passwords match" is checked | `…/validation/PasswordsMatch.java` |
+| where the meter names are | `…/metrics/AuthMetrics.java` - all eight in one file |
+| where the log fields are | `…/logging/RequestLogFilter.java` |
+| where security is configured | `…/config/SecurityConfig.java` |
+
+They all live under `individuals-api/src/main/java/com/dezxxx/individuals/`.
+One line per class in [`CLASSES.md`](CLASSES.md).
+
+### Infrastructure
+
+| Asked | File |
+|---|---|
+| where the stack is described | `docker-compose.yml` |
+| where Prometheus learns what to scrape | `infra/prometheus/prometheus.yml` |
+| where Tempo accepts traces | `infra/tempo/tempo.yml` |
+| where logs are collected into Loki | `infra/alloy/config.alloy` |
+| where Grafana's datasources are | `infra/grafana/provisioning/datasources/datasources.yml` |
+| where the dashboard is | `infra/grafana/dashboards/individuals-api.json` |
+| where the migrations are | `person-service/src/main/resources/db/migration/` |
+| where publishing to Nexus is | `person-client/build.gradle.kts`, the `publishing` block |
+
+### Tests
+
+| Asked | File |
+|---|---|
+| where the unit tests are | `individuals-api/src/test/java/…/unit/` |
+| where the integration tests are | `individuals-api/src/test/java/…/integration/` |
+| where the real-Keycloak test is | `…/integration/KeycloakRegistrationIT.java` |
+| where the migrations are proven | `…/integration/PersonSchemaMigrationIT.java` |
+| where the coverage floor is set | `individuals-api/build.gradle.kts`, `jacocoTestCoverageVerification` |
+| where the coverage report is | `individuals-api/build/reports/jacoco/test/html/index.html` |
+
+### When you cannot remember
+
+Three documents answer nearly everything:
+
+| Question about | File |
+|---|---|
+| "what is this class" | [`CLASSES.md`](CLASSES.md) |
+| "which port, password, command" | [`CHEATSHEET.md`](CHEATSHEET.md) |
+| "why was it done this way" | [`CONTEXT.md`](../CONTEXT.md) |
+
+"Let me check CONTEXT" is a fine answer. The project is documented for exactly
+that.
+
+## 11. What you are likely to be asked
 
 **"Why does individuals-api store nothing?"**
 Because it orchestrates. The truth about the domain user belongs to
@@ -431,7 +515,7 @@ Recorded in `CONTEXT.md` §8.
 
 ---
 
-## 11. Putting it back
+## 12. Putting it back
 
 ```bash
 # Ctrl+C in the stub's window

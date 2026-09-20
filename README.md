@@ -129,7 +129,7 @@ it breaks, and nothing above a gateway ever holds a foreign payload.
 | [`docs/DEMO.md`](docs/DEMO.md) | Walk the module end to end in fifteen minutes: register, then find what the meters, the logs and the traces said about it. Every command verified. Russian mirror: [`DEMO.ru.md`](docs/DEMO.ru.md). |
 | [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) | Every port, credential, endpoint, status code and command on one page — plus what every acronym stands for and how a test code like `IT-KC-001` decomposes. Russian mirror: [`CHEATSHEET.ru.md`](docs/CHEATSHEET.ru.md). |
 | [`docs/CLASSES.md`](docs/CLASSES.md) | One line per class: what it is and its single job. Open it next to the IDE. |
-| [`docs/*.puml`](docs) | Sequence and class diagrams — registration, rollback, `/me`, the gateway layer. |
+| [`docs/*.puml`](docs) | Diagrams: registration and its rollback, `/me`, the gateway layer, how a failure becomes a response — and [`observability.puml`](docs/observability.puml), which is the one to open first if the metrics, logs and traces blur into one thing. |
 | [`postman/`](postman) | Postman collection: every endpoint plus its failures, with the tokens carried between requests for you. Import it, press Run. |
 
 ## Status
