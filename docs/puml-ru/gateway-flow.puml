@@ -1,10 +1,10 @@
 @startuml user-journey
-title The whole story - one person, from the first request to /me
+title Вся история - один человек, от первого запроса до /me
 
 skinparam shadowing false
 autonumber
 
-actor "User" as U
+actor "Пользователь" as U
 participant "AuthController" as Ctl
 participant "AuthenticationService" as Auth
 participant "RegistrationService" as Reg
@@ -16,42 +16,42 @@ end box
 participant "person-service" as PS
 participant "Keycloak" as KC
 
-== He tries to log in, but he has no account yet ==
+== Пробует войти, но учётки у него ещё нет ==
 
 U -> Ctl : POST /api/v1/auth/login\n{ "email": "ivan@dezxxx.com",\n  "password": "Str0ngP@ssw0rd" }
 Ctl -> Auth : login(request)
 Auth -> OG : login(email, password)
-OG -> KC : POST /realms/{realm}/protocol/openid-connect/token\nform: grant_type=password
+OG -> KC : POST /realms/{realm}/protocol/openid-connect/token\nформа: grant_type=password
 KC --> OG : 400 { "error": "invalid_grant",\n       "error_description": "Invalid user credentials" }
 
 note right of OG
-  Keycloak says 400. Our contract says 401.
-  KeycloakErrorTranslator re-reads it:
+  Keycloak отвечает 400. Наш контракт говорит 401.
+  KeycloakErrorTranslator перечитывает:
   invalid_grant -> INVALID_CREDENTIALS.
 end note
 
 OG --> Auth : ApiException(INVALID_CREDENTIALS)
-Auth --> Ctl : (error travels up the chain)
+Auth --> Ctl : (ошибка поднимается по цепочке)
 Ctl --> U : 401 Unauthorized\n{ "error": "INVALID_CREDENTIALS",\n  "message": "Email or password is incorrect" }
 
 note over U
-  Deliberately vague. "No such email" and
-  "wrong password" answer identically, so
-  nobody can discover which addresses exist.
+  Намеренно расплывчато. "Такой почты нет" и
+  "неверный пароль" отвечают одинаково, чтобы
+  никто не мог узнать, какие адреса существуют.
 end note
 
-== So he registers. These are the fields we need ==
+== Тогда он регистрируется. Вот нужные поля ==
 
 U -> Ctl : POST /api/v1/auth/registration\n{ "email", "password", "confirmPassword",\n  "firstName", "lastName" }
 
 note right of Ctl
-  @Valid runs before any of this:
-  email format, password 8..72,
-  firstName/lastName not blank,
-  confirmPassword equals password.
-  A failure here never reaches the service -
-  400 VALIDATION_ERROR with a details[] line
-  per offending field.
+  @Valid отрабатывает до всего остального:
+  формат почты, пароль 8..72,
+  firstName/lastName не пустые,
+  confirmPassword равен password.
+  Сбой здесь до сервиса не доходит -
+  400 VALIDATION_ERROR со строкой в details[]
+  на каждое неверное поле.
 end note
 
 Ctl -> Reg : register(request)
@@ -62,38 +62,37 @@ PG -> PS : POST /api/v1/persons/registration
 PS --> PG : 201 { "userUid": "6f1d2a4e-..." }
 PG --> Reg : UUID
 note right of PG
-  No password is sent here.
-  person-service owns the profile,
-  Keycloak owns the credentials.
+  Пароль сюда не отправляется.
+  Профиль принадлежит person-service,
+  учётные данные - Keycloak.
 end note
 
 Reg -> AG : createUser(email, firstName, lastName, userUid)
 AG -> OG : serviceAccountToken()
 OG -> KC : POST /token  grant_type=client_credentials
 KC --> OG : 200 { access_token }
-OG --> AG : admin token
-AG -> KC : POST /admin/realms/{realm}/users\nBearer <admin token>
+OG --> AG : служебный токен
+AG -> KC : POST /admin/realms/{realm}/users\nBearer <служебный токен>
 KC --> AG : 201 Created\nLocation: .../users/0b7a5f2c-...
 AG --> Reg : keycloakUserId
 
 Reg -> AG : setPassword(keycloakUserId, password)
 AG -> KC : PUT /admin/realms/{realm}/users/{id}/reset-password\n{ "type":"password", "value":"...", "temporary": false }
 KC --> AG : 204 No Content
-AG --> Reg : done
+AG --> Reg : готово
 
 Reg -> AG : assignPlatformRole(keycloakUserId)
 AG -> KC : GET /admin/realms/{realm}/roles/USER
 KC --> AG : 200 { id, name }
 AG -> KC : POST /admin/realms/{realm}/users/{id}/role-mappings/realm\n[ { id, name } ]
 KC --> AG : 204 No Content
-AG --> Reg : done
+AG --> Reg : готово
 note right of AG
-  The role is granted here rather than by the
-  realm import: Keycloak accepts realmRoles in
-  the create body and silently ignores them.
-  Two calls, because a mapping is resolved by
-  id and the id is known only after reading
-  the role.
+  Роль выдаётся здесь, а не импортом realm:
+  Keycloak принимает realmRoles в теле
+  создания и молча их игнорирует.
+  Два вызова, потому что привязка идёт по id,
+  а id известен только после чтения роли.
 end note
 
 Reg -> OG : login(email, password)
@@ -106,15 +105,15 @@ deactivate Reg
 
 Ctl --> U : 201 Created\n{ accessToken, refreshToken,\n  expiresIn, tokenType, userUid }
 
-== Now he asks who he is ==
+== Теперь спрашивает, кто он ==
 
 U -> Ctl : GET /api/v1/auth/me\nAuthorization: Bearer <accessToken>
 
 note right of Ctl
-  The security filter chain verified the
-  signature before the controller was reached.
-  Seven of the eight fields are already inside
-  the token - no network call for them.
+  Цепочка фильтров безопасности проверила
+  подпись до того, как дело дошло до контроллера.
+  Семь полей из восьми уже лежат в токене -
+  обращений по сети за ними не нужно.
 end note
 
 Ctl -> Auth : currentUser(jwt)
@@ -129,24 +128,24 @@ Ctl --> U : 200 { userUid, keycloakUserId, email,\n     firstName, lastName, ema
 
 
 @startuml gateway-structure
-title The gateway layer - what knows what
+title Слой шлюзов - кто что знает
 
 skinparam shadowing false
 skinparam classAttributeIconSize 0
 
-package "service (orchestration only)" #FDFDF0 {
+package "service (только оркестрация)" #FDFDF0 {
   class RegistrationService
   class AuthenticationService
 }
 
 package gateway {
 
-  class GatewayErrors <<utility>> {
+  class GatewayErrors <<утиль>> {
     + transportFailures(dependency, baseUrl)
   }
   note right of GatewayErrors
-    Shared by EVERY gateway.
-    "Nobody answered at all" ->
+    Общий для КАЖДОГО шлюза.
+    "Никто вообще не ответил" ->
     503 DEPENDENCY_UNAVAILABLE.
   end note
 
@@ -154,17 +153,17 @@ package gateway {
     class PersonServiceGateway <<@Component>> {
       + Mono<UUID> createPerson(email, firstName, lastName)
     }
-    class PersonErrorTranslator <<utility>>
+    class PersonErrorTranslator <<утиль>>
   }
 
   package "gateway.keycloak" {
 
-    class KeycloakErrorTranslator <<utility>> {
+    class KeycloakErrorTranslator <<утиль>> {
       + Mono<Throwable> translate(response)
     }
     class KeycloakErrorResponse <<record>>
     note bottom of KeycloakErrorResponse
-      Two shapes in one record:
+      Две формы в одной записи:
       { error, error_description }  (OIDC)
       { errorMessage }              (Admin)
     end note
@@ -200,7 +199,7 @@ RegistrationService --> KeycloakOidcGateway
 AuthenticationService --> KeycloakOidcGateway
 AuthenticationService --> KeycloakAdminGateway
 
-KeycloakAdminGateway --> KeycloakOidcGateway : needs a service token
+KeycloakAdminGateway --> KeycloakOidcGateway : нужен служебный токен
 
 PersonServiceGateway ..> PersonErrorTranslator
 PersonServiceGateway ..> GatewayErrors
@@ -211,32 +210,32 @@ KeycloakAdminGateway ..> GatewayErrors
 KeycloakErrorTranslator ..> KeycloakErrorResponse
 
 legend bottom
-  The layering rule, one line:
-  **shared code lives at the level that covers everyone who uses it.**
-  GatewayErrors            -> all gateways
+  Правило слоёв, одной строкой:
+  **общий код живёт на том уровне, который накрывает всех, кто им пользуется.**
+  GatewayErrors            -> все шлюзы
   KeycloakErrorTranslator  -> admin + oidc
-  the records              -> one process each
+  записи (record)          -> по одной на операцию
 endlegend
 
 @enduml
 
 
 @startuml gateway-translation
-title What a gateway is FOR - the same failure, told twice
+title Зачем нужен шлюз - один и тот же сбой, рассказанный дважды
 
 skinparam shadowing false
 
-rectangle "What the dependency said" #FFF0F0 {
+rectangle "Что сказала зависимость" #FFF0F0 {
   card "Keycloak: 400\ninvalid_grant\n\"Invalid user credentials\"" as k1
   card "Keycloak: 401\ninvalid_client" as k2
   card "Keycloak: 409\n\"User exists with same email\"" as k3
-  card "Keycloak: 400\n(anything unforeseen)" as k4
+  card "Keycloak: 400\n(что-то непредвиденное)" as k4
   card "Keycloak / person-service: 5xx" as k5
-  card "nothing at all\n(refused, DNS, timeout)" as k6
+  card "вообще ничего\n(отказ, DNS, таймаут)" as k6
   card "person-service: 400" as p1
 }
 
-rectangle "What the client is told" #F0FFF0 {
+rectangle "Что сказали клиенту" #F0FFF0 {
   card "**401** INVALID_CREDENTIALS\n\"Email or password is incorrect\"" as o1
   card "**500** INTERNAL_ERROR\n\"Unexpected error\"" as o2
   card "**409** USER_ALREADY_EXISTS\n\"Email is already registered\"" as o3
@@ -244,30 +243,31 @@ rectangle "What the client is told" #F0FFF0 {
 }
 
 k1 --> o1
-k2 --> o2 : our own client_secret is wrong -\nthe caller did nothing
+k2 --> o2 : наш собственный client_secret неверен -\nвызывающий ни при чём
 k3 --> o3
-k4 --> o2 : WE built that request,\nso a 4xx is OUR bug
-p1 --> o2 : their validation and ours\ndisagree - our bug again
+k4 --> o2 : этот запрос собрали МЫ,\nзначит 4xx - НАША ошибка
+p1 --> o2 : их проверка и наша разошлись -\nснова наша ошибка
 k5 --> o4
 k6 --> o4
 
 note bottom
-  Two rules worth remembering:
+  Два правила, которые стоит запомнить:
 
-  1. A 4xx from a dependency is usually **not** the caller's fault.
-     The caller never sent that request - we did.
+  1. 4xx от зависимости обычно **не** вина вызывающего.
+     Этот запрос он не отправлял - отправили мы.
 
-  2. The dependency's own wording never reaches the client. It is
-     logged instead. "Account is not fully set up" describes our
-     internals, and "User exists with same email" lets an attacker
-     enumerate registered addresses.
+  2. Формулировка зависимости до клиента не доходит.
+     Она уходит в лог. "Account is not fully set up"
+     описывает наши внутренности, а "User exists with
+     same email" позволяет перебрать зарегистрированные
+     адреса.
 end note
 
 @enduml
 
 
 @startuml gateway-failures
-title Registration - where it can break and what the client gets
+title Регистрация - где может сломаться и что получит клиент
 
 skinparam shadowing false
 
@@ -275,92 +275,91 @@ start
 
 :POST /api/v1/auth/registration;
 
-if (@Valid passed?) then (no)
+if (@Valid прошёл?) then (нет)
   #FFE0E0:**400** VALIDATION_ERROR
-  details[] names each bad field;
-  note right: Nothing was created anywhere.
+  details[] называет каждое плохое поле;
+  note right: Нигде ничего не создано.
   stop
-else (yes)
+else (да)
 endif
 
 :person-service\nPOST /persons/registration;
 
-if (created?) then (no)
+if (создан?) then (нет)
   #FFE0E0:409 -> **409** USER_ALREADY_EXISTS
   5xx -> **503** DEPENDENCY_UNAVAILABLE
   400 -> **500** INTERNAL_ERROR;
   note right
-    Still nothing created.
-    The caller may simply try again.
+    По-прежнему ничего не создано.
+    Вызывающий может просто повторить.
   end note
   stop
-else (yes)
+else (да)
 endif
 
-:user_uid issued;
+:user_uid выдан;
 note right #FFFFCC
-  From here on, ANY failure leaves
-  person-service and Keycloak
-  disagreeing about this person.
+  С этого места ЛЮБОЙ сбой оставляет
+  person-service и Keycloak
+  несогласованными по этому человеку.
 end note
 
 :Keycloak\nPOST /admin/.../users;
 
-if (created?) then (no)
+if (создан?) then (нет)
   #FFCCCC:**503** REGISTRATION_INCONSISTENT;
   note right
-    Domain user exists, account does not.
-    Nothing to roll back in Keycloak.
-    person-service has no delete - the split
-    is logged with the user_uid and left for
-    a human. Module 1's accepted limit.
+    Доменный пользователь есть, учётки нет.
+    В Keycloak откатывать нечего.
+    У person-service нет удаления - расхождение
+    пишется в лог с user_uid и оставляется
+    человеку. Принятое ограничение модуля 1.
   end note
   stop
-else (yes)
+else (да)
 endif
 
 :Keycloak\nPUT /reset-password;
 
-if (password set?) then (no)
+if (пароль установлен?) then (нет)
   #FFCCCC:DELETE /admin/.../users/{id};
   note right
-    Compensating action. Without it the
-    account can never be logged into
-    (400 "Account is not fully set up")
-    while its address stays taken, so
-    registering again answers 409 forever.
+    Компенсирующее действие. Без него в учётку
+    нельзя войти никогда
+    (400 "Account is not fully set up"),
+    а адрес остаётся занятым, поэтому повторная
+    регистрация будет отвечать 409 вечно.
   end note
   #FFCCCC:**503** REGISTRATION_INCONSISTENT;
   stop
-else (yes)
+else (да)
 endif
 
-:Keycloak\ngrant the USER role;
+:Keycloak\nвыдать роль USER;
 
-if (role granted?) then (no)
+if (роль выдана?) then (нет)
   #FFCCCC:DELETE /admin/.../users/{id};
   note right
-    The same compensation: an account without
-    the role is useless and its address is
-    already taken.
+    Та же компенсация: учётка без роли
+    бесполезна, а адрес занят.
   end note
   #FFCCCC:**503** REGISTRATION_INCONSISTENT;
   stop
-else (yes)
+else (да)
 endif
 
 :Keycloak\nPOST /token grant_type=password;
 
-if (logged in?) then (no)
+if (вход выполнен?) then (нет)
   #FFE0E0:**503** DEPENDENCY_UNAVAILABLE;
   note right
-    NOT an inconsistency. Both systems
-    hold the same user; we merely failed
-    to hand over tokens. The caller can
-    log in normally.
+    НЕ рассогласование. Обе системы
+    знают одного и того же человека;
+    мы просто не смогли отдать токены.
+    Вызывающий может войти обычным путём.
   end note
   stop
-else (yes)
+else (да)
 endif
 
 #CCFFCC:**201** accessToken, refreshToken,

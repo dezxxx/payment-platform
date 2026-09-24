@@ -1,0 +1,45 @@
+@startuml component
+title payment-platform - модули и путь контракта
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+package "монорепозиторий payment-platform" {
+  component "person-service" as PS
+  component "person-client" as PC
+  component "individuals-api" as API
+
+  artifact "person-service.yaml" as PSY
+  artifact "individuals-api.yaml" as IAY
+  artifact "V001, V002\nмиграции Flyway" as MIG
+}
+
+database "Nexus\n(mavenLocal, пока не поднят)" as NEXUS
+artifact "com.dezxxx:person-client:1.0.0-SNAPSHOT" as PCJ
+
+PS *-- PSY
+PS *-- MIG
+API *-- IAY
+
+PSY --> PC : openApiGenerate\nDTO + @HttpExchange
+IAY --> API : openApiGenerate\nтолько интерфейс AuthApi
+PC --> PCJ : публикация
+PCJ --> NEXUS
+NEXUS --> API : подключается по координатам Maven
+
+note bottom of API
+  Никогда project(":person-client").
+  Контракты между модулями ездят
+  опубликованными артефактами - поэтому
+  любой модуль может переехать в свой
+  репозиторий без переписывания.
+end note
+
+note right of PS
+  В модуле 1 кода здесь нет.
+  Только замороженный контракт
+  и миграции, которые запустит
+  следующий модуль.
+end note
+
+@enduml

@@ -1,0 +1,75 @@
+@startuml deployment
+title Локальный стенд - docker compose, десять сервисов
+
+skinparam shadowing false
+
+actor Client
+actor Developer
+
+node "сеть docker compose" {
+  node "individuals-api\nхост 8081 -> 8081" as API
+  node "keycloak\nхост 8080 -> 8080" as KC
+  database "keycloak-postgres\nхост 5433 -> 5432" as KCDB
+  database "person-postgres\nхост 5434 -> 5432" as PSDB
+  node "nexus\nхост 8083 -> 8081" as NEXUS
+  node "prometheus\nхост 9090 -> 9090" as PROM
+  node "alloy\nхост 12345 -> 12345" as ALLOY
+  database "loki\nхост 3100 -> 3100" as LOKI
+  database "tempo\nхост 3200, 4318" as TEMPO
+  node "grafana\nхост 3000 -> 3000" as GRAF
+}
+
+node "person-service\n8082 - появится в модуле 2" as PS
+
+Client --> API : POST /api/v1/auth/...
+API --> KC : Admin REST API\nи точка выдачи токенов OIDC
+API ..> PS : HTTP, пока не запущен
+KC --> KCDB : JDBC
+
+PROM --> API : опрос /actuator/prometheus
+ALLOY --> API : читает stdout\nчерез сокет Docker
+ALLOY --> LOKI : push
+API --> TEMPO : отправка по OTLP /v1/traces
+
+GRAF --> PROM
+GRAF --> LOKI
+GRAF --> TEMPO
+
+Developer --> NEXUS : ./gradlew :person-client:publish
+API ..> NEXUS : разрешается при сборке,\nникогда во время работы
+
+note right of PROM
+  Prometheus забирает, приложение отправляет.
+  Поэтому адрес приложения живёт в
+  prometheus.yml, а адрес Tempo -
+  в application.yml.
+end note
+
+note bottom of NEXUS
+  Не участвует в работе сервиса. Сборка Gradle
+  на машине публикует сюда person-client и
+  подключает его по координатам Maven - именно
+  это не даёт модулям зависеть друг от друга
+  через project(":...").
+
+  Порт 8083, потому что методичка отдаёт 8081
+  под individuals-api, и съезжает со своего
+  порта по умолчанию именно Nexus.
+end note
+
+note bottom of PSDB
+  В модуле 1 поднимается только затем, чтобы
+  миграциям Flyway было что применять.
+  Пока к ней никто не подключается.
+end note
+
+note right of ALLOY
+  Нужен потому, что приложение пишет в stdout,
+  а Docker держит это в файле, который умирает
+  вместе с контейнером. Драйвер Loki для Docker
+  сделал бы то же самое, но это плагин хоста -
+  а "docker compose up поднимает всё" входит
+  в критерии приёмки.
+end note
+
+@enduml

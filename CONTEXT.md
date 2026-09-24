@@ -1039,7 +1039,11 @@ When one changes, change the other.
 `observability.puml` is a fifth, and it answers a different question: which of
 the three - metrics, logs, traces - answers what, which direction each one
 travels, and what ties them together. Open that one when they start blurring
-into "the monitoring".
+into "the monitoring". Its second diagram draws one trace as a tree of spans.
+
+`docs/puml-ru/` mirrors every diagram in Russian, same file names. The English
+files are the ones that count; a pair is edited together, like this file and
+`CONTEXT.ru.md`.
 
 The files here work at two different times and mostly do not know about each
 other. What binds them is a handful of values that must agree - and those are

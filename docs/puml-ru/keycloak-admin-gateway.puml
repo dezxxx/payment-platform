@@ -1,0 +1,336 @@
+@startuml admin-registration
+title Регистрация - шаги сценария из методички
+
+autonumber
+skinparam shadowing false
+
+participant "AuthController" as Ctl
+participant "RegistrationService" as Svc
+participant "PersonsApi\n(сгенерированный клиент)" as Person
+participant "KeycloakAdminGateway" as Admin
+participant "KeycloakOidcGateway" as Oidc
+participant "person-service" as Ps
+participant "Keycloak" as Kc
+
+Ctl -> Svc : register(RegistrationRequest)
+activate Svc
+
+== 1. сначала создаётся доменный пользователь ==
+
+Svc -> Person : registerPerson(email, firstName, lastName)
+activate Person
+Person -> Ps : POST /api/v1/persons/registration\n{ "email", "firstName", "lastName" }
+Ps --> Person : 201 { "userUid": "6f1d2a4e-..." }
+Person --> Svc : userUid
+deactivate Person
+
+note right of Svc
+  Пароль сюда не едет никогда.
+  Профиль принадлежит person-service,
+  учётные данные - Keycloak.
+
+  Этот шаг идёт первым намеренно:
+  если он не удастся, учётка в Keycloak
+  ещё не создана, и ничего
+  недоделанного не остаётся.
+end note
+
+== 2. сервис представляется сам за себя ==
+
+Svc -> Admin : createUser(email, firstName, lastName, userUid)
+activate Admin
+
+Admin -> Oidc : serviceAccountToken()
+activate Oidc
+Oidc -> Kc : POST /realms/{realm}/protocol/openid-connect/token\nформа: grant_type=client_credentials\n       client_id, client_secret
+Kc --> Oidc : 200 { access_token, ... }
+Oidc --> Admin : служебный токен
+deactivate Oidc
+
+== 3. учётка, пока без пароля ==
+
+Admin -> Kc : POST /admin/realms/{realm}/users\nAuthorization: Bearer <служебный токен>
+activate Kc
+note right of Kc
+  {
+    "username": "user@dezxxx.com",
+    "email":    "user@dezxxx.com",
+    "firstName": "Ivan",
+    "lastName":  "Ivanov",
+    "enabled": true,
+    "emailVerified": false,
+    "attributes": { "user_uid": ["6f1d2a4e-..."] }
+  }
+
+  Учётных данных здесь нет - по методичке
+  пароль ставится отдельно.
+  user_uid едет рядом как пользовательский
+  атрибут (шаг 8 сценария).
+end note
+Kc --> Admin : 201 Created\nLocation: .../users/0b7a5f2c-19d4-...\n(тела нет вообще)
+deactivate Kc
+
+note right of Admin
+  Новый id приходит только в заголовке
+  Location. Вынуть его оттуда - работа
+  этого шлюза.
+end note
+
+Admin --> Svc : keycloakUserId
+deactivate Admin
+
+== 4. пароль ==
+
+Svc -> Admin : setPassword(keycloakUserId, password)
+activate Admin
+Admin -> Oidc : serviceAccountToken()
+Oidc --> Admin : служебный токен
+Admin -> Kc : PUT /admin/realms/{realm}/users/{id}/reset-password\n{ "type": "password",\n  "value": "Str0ngP@ssw0rd",\n  "temporary": false }
+Kc --> Admin : 204 No Content
+Admin --> Svc : готово
+deactivate Admin
+
+note over Admin, Kc
+  temporary ОБЯЗАН быть false. Со значением
+  Keycloak по умолчанию учётка создаётся успешно,
+  а первый же вход падает с
+  400 (Bad Request) / invalid_grant
+  "Account is not fully set up".
+end note
+
+== 5. роль платформы ==
+
+Svc -> Admin : assignPlatformRole(keycloakUserId)
+activate Admin
+Admin -> Kc : GET /admin/realms/{realm}/roles/USER
+Kc --> Admin : 200 { id, name }
+Admin -> Kc : POST /admin/realms/{realm}/users/{id}/role-mappings/realm\n[ { id, name } ]
+Kc --> Admin : 204 No Content
+Admin --> Svc : готово
+deactivate Admin
+
+note over Admin, Kc
+  Импорт realm роль не раздаёт: ни роль по
+  умолчанию, ни realmRoles в теле создания
+  не работают - Keycloak принимает и молча
+  игнорирует. Два вызова, потому что привязка
+  идёт по id, а id известен только после
+  чтения роли.
+end note
+
+== 6. обычный вход, ничего особенного ==
+
+Svc -> Oidc : login(email, password)
+activate Oidc
+Oidc -> Kc : POST /realms/{realm}/protocol/openid-connect/token\nформа: grant_type=password
+Kc --> Oidc : 200 { access_token, refresh_token, expires_in, token_type }
+Oidc --> Svc : TokenResponse
+deactivate Oidc
+
+== 7. ответ ==
+
+Svc -> Svc : response.userUid(userUid)
+Svc --> Ctl : 201 { accessToken, refreshToken,\n     expiresIn, tokenType, userUid }
+deactivate Svc
+
+@enduml
+
+
+@startuml admin-rollback
+title Что происходит, когда падает шаг с паролем или ролью
+
+skinparam shadowing false
+
+start
+
+:person-service создал доменного пользователя;
+:Keycloak создал учётку
+(пароля пока нет);
+
+if (пароль поставлен и роль выдана?) then (да)
+  :войти и ответить клиенту;
+  stop
+else (нет)
+  note right
+    Учётка существует, но войти в неё
+    нельзя никогда, а адрес уже занят:
+    каждая следующая попытка
+    зарегистрировать его отвечает
+    409 (Conflict) - навсегда.
+  end note
+  :DELETE /admin/realms/{realm}/users/{id};
+  note right
+    Компенсирующее действие. Адрес снова
+    свободен, вызывающий может просто
+    попробовать ещё раз.
+
+    Доменный пользователь в person-service
+    НЕ откатывается - в его контракте нет
+    операции удаления. Записано как известное
+    ограничение в CONTEXT.md.
+  end note
+  :ответить клиенту исходной ошибкой;
+  stop
+endif
+
+@enduml
+
+
+@startuml admin-me
+title GET /api/v1/auth/me - зачем здесь тоже нужен Admin-шлюз
+
+skinparam shadowing false
+
+rectangle "Access-токен (уже проверен)" as Tok {
+  card "sub            -> keycloakUserId" as c1
+  card "email          -> email" as c2
+  card "given_name     -> firstName" as c3
+  card "family_name    -> lastName" as c4
+  card "email_verified -> emailVerified" as c5
+  card "realm_access.roles -> roles" as c6
+  card "user_uid       -> userUid" as c7
+}
+
+rectangle "Admin API\nGET /admin/realms/{realm}/users/{sub}" as Adm {
+  card "createdTimestamp -> registeredAt" as c8
+}
+
+rectangle "CurrentUserResponse\n8 обязательных полей" as Out
+
+Tok --> Out : семь полей, без обращений по сети
+Adm --> Out : восьмое
+
+note bottom of Tok
+  user_uid есть в токене потому, что realm
+  объявляет для него протокольный маппер.
+  Без маппера за этим полем понадобился бы
+  второй вызов в Admin API.
+end note
+
+note bottom of Adm
+  registeredAt нет ни в одном claim, поэтому
+  /me стоит одного чтения через Admin API.
+  Альтернатива - хранить это у себя, а своей
+  базы у сервиса нет.
+end note
+
+@enduml
+
+
+@startuml admin-classes
+title Где стоит Admin-шлюз
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+package service {
+  class RegistrationService
+  class AuthenticationService
+}
+
+package gateway {
+  class GatewayErrors <<static>> {
+    + transportFailures(dependency, baseUrl)
+  }
+
+  package "gateway.person" {
+    class PersonServiceGateway <<@Component>> {
+      + Mono<UUID> createPerson(email,\n                       firstName, lastName)
+    }
+  }
+
+  package "gateway.keycloak" {
+    class KeycloakErrorTranslator <<static>> {
+      + Mono<Throwable> translate(response)
+    }
+
+    package "gateway.keycloak.oidc" {
+      class KeycloakOidcGateway <<@Component>> {
+        + Mono<TokenResponse> login(email, password)
+        + Mono<TokenResponse> refresh(token)
+        + Mono<String> serviceAccountToken()
+      }
+    }
+
+    package "gateway.keycloak.admin" {
+      class KeycloakAdminGateway <<@Component>> {
+        + Mono<String> createUser(email, firstName,\n                         lastName, userUid)
+        + Mono<Void> setPassword(id, password)
+        + Mono<Void> assignPlatformRole(id)
+        + Mono<Void> deleteUser(id)
+        + Mono<OffsetDateTime> findRegisteredAt(id)
+      }
+      class KeycloakUserRequest <<record>> {
+        username, email, firstName, lastName,
+        enabled, emailVerified, attributes
+      }
+      class KeycloakUserRepresentation <<record>> {
+        ~ createdTimestamp
+      }
+      class KeycloakCredential <<record>> {
+        type, value, temporary
+      }
+      class KeycloakRealmRole <<record>> {
+        id, name
+      }
+    }
+  }
+}
+
+package config {
+  class KeycloakProperties <<record>> {
+    tokenUri()
+    usersUri()
+    rolesUri()
+  }
+  class HttpClientsConfig {
+    keycloakWebClient
+    personsApi
+  }
+}
+
+RegistrationService --> PersonServiceGateway : шаг 1, user_uid
+RegistrationService --> KeycloakAdminGateway
+RegistrationService --> KeycloakOidcGateway
+AuthenticationService --> KeycloakOidcGateway
+AuthenticationService --> KeycloakAdminGateway : /me читает registeredAt
+
+KeycloakAdminGateway --> KeycloakOidcGateway : нужен служебный токен
+KeycloakAdminGateway ..> KeycloakUserRequest : тело POST /users
+KeycloakAdminGateway ..> KeycloakCredential : тело PUT /reset-password
+KeycloakAdminGateway ..> KeycloakRealmRole : читает роль по имени,\nпривязывает по id
+KeycloakAdminGateway ..> KeycloakUserRepresentation : разбирает, а наверх\nотдаёт время
+KeycloakAdminGateway ..> KeycloakErrorTranslator : общий с OIDC-шлюзом
+KeycloakAdminGateway ..> GatewayErrors : общий со всеми шлюзами
+KeycloakAdminGateway --> KeycloakProperties : usersUri()
+HttpClientsConfig --> KeycloakAdminGateway : keycloakWebClient
+
+note right of KeycloakCredential
+  Больше не часть KeycloakUserRequest.
+  По методичке пароль ставится своим
+  отдельным вызовом, поэтому эта запись
+  едет отдельно как его тело.
+end note
+
+note right of KeycloakErrorTranslator
+  Уже написан. Оба шлюза переводят сбои
+  Keycloak по одной таблице, поэтому 409
+  означает "почта занята" независимо от
+  того, какой вызов его вызвал.
+end note
+
+note as N1
+  Почему такая вложенность: общий код лежит
+  на уровне, который накрывает всех, кто им
+  пользуется.
+
+  GatewayErrors           - каждый шлюз
+  KeycloakErrorTranslator - оба API Keycloak
+  записи (record)         - по одному вызову
+
+  То есть глубина пакета - не привычка
+  раскладывать по полочкам, а указание,
+  насколько далеко достаёт знание внутри него.
+end note
+
+@enduml

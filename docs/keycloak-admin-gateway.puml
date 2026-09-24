@@ -98,7 +98,26 @@ note over Admin, Kc
   "Account is not fully set up".
 end note
 
-== 5. an ordinary login, nothing special ==
+== 5. the platform role ==
+
+Svc -> Admin : assignPlatformRole(keycloakUserId)
+activate Admin
+Admin -> Kc : GET /admin/realms/{realm}/roles/USER
+Kc --> Admin : 200 { id, name }
+Admin -> Kc : POST /admin/realms/{realm}/users/{id}/role-mappings/realm\n[ { id, name } ]
+Kc --> Admin : 204 No Content
+Admin --> Svc : done
+deactivate Admin
+
+note over Admin, Kc
+  The realm import hands out no role: neither a
+  realm default role nor realmRoles in the create
+  body works - Keycloak accepts and ignores them.
+  Two calls, because a mapping is resolved by id
+  and the id is known only after reading the role.
+end note
+
+== 6. an ordinary login, nothing special ==
 
 Svc -> Oidc : login(email, password)
 activate Oidc
@@ -107,7 +126,7 @@ Kc --> Oidc : 200 { access_token, refresh_token, expires_in, token_type }
 Oidc --> Svc : TokenResponse
 deactivate Oidc
 
-== 6. the answer ==
+== 7. the answer ==
 
 Svc -> Svc : response.userUid(userUid)
 Svc --> Ctl : 201 { accessToken, refreshToken,\n     expiresIn, tokenType, userUid }
@@ -117,7 +136,7 @@ deactivate Svc
 
 
 @startuml admin-rollback
-title What happens when step 4 fails
+title What happens when the password or the role step fails
 
 skinparam shadowing false
 
@@ -127,7 +146,7 @@ start
 :Keycloak created the account
 (no password yet);
 
-if (PUT reset-password succeeded?) then (yes)
+if (password set and role granted?) then (yes)
   :login and answer the client;
   stop
 else (no)
@@ -236,6 +255,7 @@ package gateway {
       class KeycloakAdminGateway <<@Component>> {
         + Mono<String> createUser(email, firstName,\n                         lastName, userUid)
         + Mono<Void> setPassword(id, password)
+        + Mono<Void> assignPlatformRole(id)
         + Mono<Void> deleteUser(id)
         + Mono<OffsetDateTime> findRegisteredAt(id)
       }
@@ -249,6 +269,9 @@ package gateway {
       class KeycloakCredential <<record>> {
         type, value, temporary
       }
+      class KeycloakRealmRole <<record>> {
+        id, name
+      }
     }
   }
 }
@@ -257,6 +280,7 @@ package config {
   class KeycloakProperties <<record>> {
     tokenUri()
     usersUri()
+    rolesUri()
   }
   class HttpClientsConfig {
     keycloakWebClient
@@ -273,6 +297,7 @@ AuthenticationService --> KeycloakAdminGateway : /me reads registeredAt
 KeycloakAdminGateway --> KeycloakOidcGateway : needs a service token
 KeycloakAdminGateway ..> KeycloakUserRequest : body of POST /users
 KeycloakAdminGateway ..> KeycloakCredential : body of PUT /reset-password
+KeycloakAdminGateway ..> KeycloakRealmRole : reads the role by name,\nmaps it by id
 KeycloakAdminGateway ..> KeycloakUserRepresentation : parses, then hands\nout a time instead
 KeycloakAdminGateway ..> KeycloakErrorTranslator : shared with the OIDC gateway
 KeycloakAdminGateway ..> GatewayErrors : shared with every gateway

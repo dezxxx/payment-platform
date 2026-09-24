@@ -30,8 +30,10 @@ deactivate PGw
 group Domain user already exists past this line
   Svc -> AGw : create account
   activate AGw
-  AGw -> Kc : POST /admin/realms/REALM/users\ncredentials (temporary false)\nplus user_uid attribute
+  AGw -> Kc : POST /admin/realms/REALM/users\nno password, plus user_uid attribute
   Kc --> AGw : keycloak user id
+  AGw -> Kc : PUT .../users/{id}/reset-password\ntemporary false
+  AGw -> Kc : GET .../roles/USER\nPOST .../users/{id}/role-mappings/realm
   AGw --> Svc : keycloak user id
   deactivate AGw
 
@@ -53,9 +55,10 @@ note over Svc, Kc
   created only after the domain step succeeded, so
   no account is ever left without a domain user.
 
-  One admin call, not three. Password and attribute
-  travel in the create body, so the account is either
-  created complete or not created at all.
+  Three admin calls, not one: Keycloak takes the
+  password through its own endpoint and hands out no
+  role on import. An account left between them is
+  removed again - see keycloak-admin-gateway.puml.
 
   The inverse is the open window. Any failure inside
   the group leaves an orphaned domain user, and the

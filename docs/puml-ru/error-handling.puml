@@ -1,5 +1,5 @@
 @startuml error-flow
-title Error handling - how a failure becomes a response body
+title Обработка ошибок - как сбой становится телом ответа
 
 skinparam shadowing false
 skinparam ArrowFontSize 11
@@ -7,12 +7,12 @@ skinparam ArrowFontSize 11
 actor Client
 
 box "Netty / WebFlux" #F7F7F7
-  participant "Security\nfilter chain" as Filters
+  participant "Цепочка фильтров\nбезопасности" as Filters
   participant "DispatcherHandler" as Dispatcher
   participant "AuthController" as Ctl
 end box
 
-box "package error" #EEF6FF
+box "пакет error" #EEF6FF
   participant "ApiAuthenticationEntryPoint\nApiAccessDeniedHandler" as SecHandlers
   participant "SecurityErrorWriter" as Writer
   participant "GlobalExceptionHandler\n@RestControllerAdvice" as Advice
@@ -21,9 +21,9 @@ end box
 
 participant "Tracer\n(micrometer)" as Tracer
 
-== Road B - rejected before any handler is chosen ==
+== Дорога B - отказ до того, как выбран обработчик ==
 
-Client -> Filters : GET /api/v1/auth/me, no token
+Client -> Filters : GET /api/v1/auth/me, без токена
 activate Filters
 Filters -> SecHandlers : commence(exchange, AuthenticationException)
 activate SecHandlers
@@ -32,30 +32,30 @@ activate Writer
 Writer -> Factory : create(code, message, [], path)
 activate Factory
 Factory -> Tracer : currentSpan()
-Tracer --> Factory : traceId (or "unavailable")
+Tracer --> Factory : traceId (или "unavailable")
 Factory --> Writer : ErrorResponse
 deactivate Factory
 note right of Writer
-  No message converter runs in the
-  filter chain, so the body is
-  serialised by hand and written
-  into the response as a DataBuffer.
+  Внутри цепочки фильтров не работает
+  ни один конвертер сообщений, поэтому
+  тело сериализуется руками и пишется
+  в ответ как DataBuffer.
 end note
 Writer --> Client : 401 + JSON
 deactivate Writer
 deactivate SecHandlers
 deactivate Filters
 
-== Road A - the request reached a handler ==
+== Дорога A - запрос дошёл до обработчика ==
 
 Client -> Filters : POST /api/v1/auth/login
-Filters -> Dispatcher : permitted
+Filters -> Dispatcher : пропущен
 activate Dispatcher
 Dispatcher -> Ctl : login(request)
 activate Ctl
-Ctl --> Dispatcher : throws ApiException(INVALID_CREDENTIALS)
+Ctl --> Dispatcher : бросает ApiException(INVALID_CREDENTIALS)
 deactivate Ctl
-Dispatcher -> Advice : matching @ExceptionHandler
+Dispatcher -> Advice : подходящий @ExceptionHandler
 activate Advice
 Advice -> Factory : create(code, message, details, path)
 activate Factory
@@ -63,22 +63,22 @@ Factory -> Tracer : currentSpan()
 Tracer --> Factory : traceId
 Factory --> Advice : ErrorResponse
 deactivate Factory
-Advice -> Advice : log.error for 5xx,\nlog.warn for 4xx
+Advice -> Advice : log.error для 5xx,\nlog.warn для 4xx
 Advice --> Dispatcher : ResponseEntity<ErrorResponse>
 deactivate Advice
-Dispatcher --> Client : 401 + JSON (same shape)
+Dispatcher --> Client : 401 + JSON (та же форма)
 deactivate Dispatcher
 
 note over Factory
-  Both roads end here.
-  One builder = one body shape.
+  Обе дороги заканчиваются здесь.
+  Один сборщик = одна форма тела.
 end note
 
 @enduml
 
 
 @startuml error-classes
-title package error - what each class is for
+title пакет error - за что отвечает каждый класс
 
 skinparam shadowing false
 skinparam classAttributeIconSize 0
@@ -101,11 +101,11 @@ enum ErrorCode {
   - String defaultMessage
 }
 note right of ErrorCode
-  Single source of truth.
-  The status line, the "status"
-  field and the "error" field of
-  the body all come from one
-  line here, so they cannot drift.
+  Единственный источник правды.
+  Строка статуса, поле "status" и
+  поле "error" в теле приходят из
+  одной строки здесь - разойтись
+  они не могут.
 end note
 
 class ApiException <<RuntimeException>> {
@@ -113,12 +113,11 @@ class ApiException <<RuntimeException>> {
   - List<String> details
 }
 note right of ApiException
-  One class for every failure we
-  raise ourselves. The case is
-  carried by the code, not by the
-  type - a subclass is only worth
-  adding when something needs to
-  catch that one case alone.
+  Один класс на любой сбой, который мы
+  поднимаем сами. Случай несёт код, а не
+  тип - отдельный подкласс стоит заводить
+  только тогда, когда именно этот случай
+  надо ловить отдельно.
 end note
 
 class ErrorResponseFactory <<@Component>> {
@@ -151,14 +150,13 @@ class ApiAccessDeniedHandler <<@Component>> {
 interface ServerAuthenticationEntryPoint <<spring-security>>
 interface ServerAccessDeniedHandler <<spring-security>>
 
-class ErrorResponse <<generated>> {
+class ErrorResponse <<сгенерирован>> {
   timestamp, path, status,
   error, message, traceId, details
 }
 note bottom of ErrorResponse
-  Generated from individuals-api.yaml.
-  Nothing here defines the shape -
-  the contract does.
+  Сгенерирован из individuals-api.yaml.
+  Форму задаёт не код здесь, а контракт.
 end note
 
 ApiAuthenticationEntryPoint ..|> ServerAuthenticationEntryPoint
@@ -168,61 +166,61 @@ ApiAuthenticationEntryPoint --> SecurityErrorWriter
 ApiAccessDeniedHandler --> SecurityErrorWriter
 SecurityErrorWriter --> ErrorResponseFactory
 GlobalExceptionHandler --> ErrorResponseFactory
-ErrorResponseFactory ..> ErrorResponse : builds
-ErrorResponseFactory ..> ErrorCode : reads status\nand message
+ErrorResponseFactory ..> ErrorResponse : собирает
+ErrorResponseFactory ..> ErrorCode : читает статус\nи текст
 ApiException --> ErrorCode
-GlobalExceptionHandler ..> ApiException : unwraps
+GlobalExceptionHandler ..> ApiException : разворачивает
 
 @enduml
 
 
 @startuml error-fields
-title Where every field of the answer comes from
+title Откуда берётся каждое поле ответа
 
 skinparam shadowing false
 
-object "HTTP answer" as Answer {
-  status line = ErrorCode.getStatus()
-  Content-Type = converter / set by hand
+object "HTTP-ответ" as Answer {
+  строка статуса = ErrorCode.getStatus()
+  Content-Type = конвертер / выставлен руками
   --
   timestamp = OffsetDateTime.now(UTC)
   path      = exchange.getRequest().getPath()
   status    = ErrorCode.getStatus().value()
   error     = ErrorCode.name()
-  message   = argument, default from ErrorCode
-  traceId   = Tracer.currentSpan(), else "unavailable"
-  details   = ApiException / BindingResult, empty -> null
+  message   = аргумент, по умолчанию из ErrorCode
+  traceId   = Tracer.currentSpan(), иначе "unavailable"
+  details   = ApiException / BindingResult, пусто -> null
 }
 
 object "ErrorCode" as Code {
   name()           -> error
-  getStatus()      -> status line AND status
+  getStatus()      -> строка статуса И поле status
   getDefaultMessage() -> message
 }
 
 object "ErrorResponseFactory" as Factory {
-  fills 5 of the 7 body fields
+  заполняет 5 из 7 полей тела
 }
 
-object "caller" as Caller {
+object "вызывающий" as Caller {
   GlobalExceptionHandler
   SecurityErrorWriter
 }
 
-Code --> Factory : read
+Code --> Factory : читает
 Caller --> Factory : message, details, path
-Factory --> Answer : builds
+Factory --> Answer : собирает
 
 note bottom of Code
-  "error" is the constant's own name.
-  Renaming a constant changes the public
-  contract and the compiler stays silent.
+  "error" - это имя самой константы.
+  Переименование константы меняет публичный
+  контракт, а компилятор промолчит.
 end note
 
 note bottom of Factory
-  The status reaches the answer twice from
-  one source - the line and the field can
-  never disagree.
+  Статус попадает в ответ дважды из одного
+  источника - строка и поле никогда
+  не разойдутся.
 end note
 
 @enduml

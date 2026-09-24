@@ -1,0 +1,161 @@
+@startuml observability
+title Наблюдаемость - три вопроса, три пути, один traceId
+
+skinparam shadowing false
+skinparam defaultTextAlignment center
+
+actor "оператор" as OP
+
+node "individuals-api" as API {
+  component "AuthMetrics\nшесть счётчиков, два таймера" as METERS
+  component "RequestLogFilter\nJSON в stdout" as LOGS
+  component "OpenTelemetry\nспаны" as SPANS
+}
+
+node "prometheus" as PROM
+node "alloy" as ALLOY
+database "loki" as LOKI
+database "tempo" as TEMPO
+node "grafana" as GRAF
+
+' --- метрики: забирают ---
+PROM -[#0b6e4f,bold]-> METERS : **опрос** раз в 15 с\nGET /actuator/prometheus
+
+' --- логи: пишем, потом собирают ---
+LOGS -[#b45309,bold]-> ALLOY : stdout\nчитает через сокет Docker
+ALLOY -[#b45309,bold]-> LOKI : push
+
+' --- трейсы: отправляет само приложение ---
+SPANS -[#6d28d9,bold]-> TEMPO : **отправка** по OTLP\ntempo:4318/v1/traces
+
+GRAF --> PROM
+GRAF --> LOKI
+GRAF --> TEMPO
+OP --> GRAF
+
+note right of PROM
+  **Сколько и как быстро?**
+
+  Числа во времени. Приложение истории
+  не хранит - оно знает только
+  "прямо сейчас их 4". Prometheus
+  приходит и записывает.
+
+  Спрашивать **rate(...)**, а не сырое
+  значение: счётчик обнуляется при
+  перезапуске, и rate это учитывает.
+end note
+
+note right of ALLOY
+  **Что на самом деле произошло?**
+
+  Приложение пишет JSON в stdout и
+  больше ничего. Docker держит это в
+  файле, который умирает вместе с
+  контейнером, поэтому строки должен
+  прочитать и отправить агент.
+
+  Alloy превращает метаданные Docker в
+  метки Loki - сервис, контейнер, среда -
+  и вынимает level, traceId и spanId
+  из тела JSON.
+end note
+
+note right of TEMPO
+  **Куда пошёл запрос и где застрял?**
+
+  Один traceId на запрос, один spanId
+  на каждую операцию внутри. Дерево
+  строится по ссылке на родителя.
+
+  Только здесь видно, что один логин
+  стоит семи вызовов наружу.
+end note
+
+note bottom of GRAF
+  **Prometheus забирает. Приложение отправляет.**
+  Поэтому адрес приложения живёт в prometheus.yml,
+  а адрес Tempo - в application.yml.
+  По одной стрелке в каждую сторону, и перепутать их -
+  обычная причина пустой панели.
+end note
+
+note bottom of LOKI
+  **traceId связывает строку лога с её трейсом.**
+  Он есть и там и там, поэтому один клик в Grafana
+  ведёт от строки ко всему запросу.
+
+  У метрик traceId нет и быть не может: счётчик - это
+  "сколько всего", отдельных запросов внутри него нет.
+  Метрики говорят, **что** что-то не так;
+  логи и трейсы - **что именно**.
+end note
+
+@enduml
+
+
+@startuml trace-tree
+title Один трейс, много спанов - что Tempo рисует для регистрации
+
+skinparam shadowing false
+skinparam rectangleBorderColor #6d28d9
+
+rectangle "**трейс** 16bc50fe...  один id на весь запрос" as T {
+  rectangle "**серверный спан**\nPOST /api/v1/auth/registration\nродителя нет - он и начинает трейс" as S0
+
+  rectangle "клиентский спан\nPOST person-service /api/v1/persons/registration" as S1
+  rectangle "клиентский спан\nPOST Keycloak /token  client_credentials" as S2
+  rectangle "клиентский спан\nPOST Keycloak /admin/.../users" as S3
+  rectangle "клиентский спан\nPOST Keycloak /token  client_credentials" as S4
+  rectangle "клиентский спан\nPUT Keycloak /admin/.../reset-password" as S5
+  rectangle "клиентский спан\nGET + POST Keycloak role-mappings" as S6
+  rectangle "клиентский спан\nPOST Keycloak /token  password" as S7
+}
+
+S0 --> S1
+S0 --> S2
+S0 --> S3
+S0 --> S4
+S0 --> S5
+S0 --> S6
+S0 --> S7
+
+note right of S0
+  **трейс** = весь запрос, от начала до конца.
+  **спан**  = один шаг внутри него.
+
+  В каждом спане три вещи:
+    traceId  - одинаковый у всех
+    spanId   - свой
+    parentId - под кем висит
+
+  Дерево строится только по parentId. Tempo
+  складывает спаны как они пришли, порядок неважен.
+end note
+
+note bottom of T
+  Только здесь видно, чего стоит одна регистрация -
+  и какой из вызовов съел время.
+
+  Служебный токен берётся на КАЖДЫЙ админский вызов
+  и не кешируется. Поэтому вызовов больше, чем шагов:
+    1 person-service
+    2 токен + создать учётку
+    2 токен + поставить пароль
+    4 токен + прочитать роль, токен + привязать роль
+    1 логин
+  Итого десять обращений наружу. В дереве это видно
+  сразу, в коде - нет.
+
+  У каждого спана записан и исход, поэтому упавший
+  вызов в дереве красный, даже если сам запрос
+  в итоге ответил 201.
+end note
+
+note as N1
+  Тот же traceId стоит в каждой строке лога этого
+  запроса - поэтому один клик в Grafana ведёт от
+  спана к его строкам лога и обратно.
+end note
+
+@enduml

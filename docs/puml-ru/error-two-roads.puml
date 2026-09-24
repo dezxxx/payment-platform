@@ -1,0 +1,58 @@
+@startuml error-two-roads
+title Две дороги - главное, что нужно помнить о пакете error
+
+skinparam shadowing false
+skinparam rectangle {
+  BackgroundColor<<road>> #EEF6FF
+  BackgroundColor<<shared>> #FFF3D6
+  BackgroundColor<<stop>> #FFE3E3
+}
+skinparam ArrowFontSize 11
+
+rectangle "ЗАПРОС" as Req
+
+rectangle "Цепочка фильтров безопасности\n(SecurityWebFilterChain)" as Sec <<stop>>
+
+rectangle "DispatcherHandler\nмаршрутизация, разбор тела, @Valid,\nконтроллер, сервис, шлюз" as Disp
+
+rectangle "ДОРОГА B\nApiAuthenticationEntryPoint  -> 401\nApiAccessDeniedHandler       -> 403" as RoadB <<road>>
+rectangle "SecurityErrorWriter\nсам сериализует и пишет байты" as Writer <<road>>
+
+rectangle "ДОРОГА A\nGlobalExceptionHandler\n7 обработчиков -> respond()" as RoadA <<road>>
+
+rectangle "ErrorResponseFactory\nсобирает тело, добавляет traceId" as Factory <<shared>>
+
+rectangle "ErrorCode\nстатус + текст по умолчанию" as Code <<shared>>
+
+rectangle "одна форма JSON\ntimestamp, path, status,\nerror, message, traceId, details" as Out
+
+Req --> Sec
+Sec --> RoadB : отказ\n(всегда только 401 или 403)
+Sec --> Disp : пропущен
+Disp --> RoadA : что угодно брошенное\n400 404 405 409 415 500 503
+RoadB --> Writer
+Writer --> Factory
+RoadA --> Factory
+Code --> Factory : читает
+Factory --> Out
+
+note right of Sec
+  Водораздел. Всё решает один вопрос:
+  пропустила ли цепочка фильтров
+  этот запрос?
+end note
+
+note right of Writer
+  Внутри фильтра не работает ни один
+  конвертер сообщений, поэтому статус,
+  Content-Type, сериализация и
+  освобождение буфера делаются руками.
+end note
+
+note bottom of Factory
+  Две дороги, четыре вызывающих, один сборщик.
+  Больше никому не разрешено собирать
+  ErrorResponse.
+end note
+
+@enduml

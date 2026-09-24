@@ -14,7 +14,7 @@ package "api (generated)" <<Frame>> {
   end note
 }
 
-package controller {
+package rest {
   class AuthController
 }
 
@@ -24,17 +24,32 @@ package service {
 }
 
 package gateway {
-  interface PersonServiceGateway
-  interface KeycloakAdminGateway
-  interface KeycloakOidcGateway
+  class PersonServiceGateway <<@Component>>
+  class KeycloakAdminGateway <<@Component>>
+  class KeycloakOidcGateway <<@Component>>
 }
 
 package validation {
-  class PasswordConfirmationValidator
+  class PasswordsMatchValidator
 }
 
 package error {
   class GlobalExceptionHandler
+  class SecurityErrorWriter
+}
+
+package logging {
+  class RequestLogFilter
+  class RequestLog
+}
+
+package config {
+  class SecurityConfig
+  class HttpClientsConfig
+}
+
+package util {
+  class KeycloakClaims
 }
 
 package metrics {
@@ -52,22 +67,35 @@ AuthenticationService --> KeycloakOidcGateway
 
 RegistrationService --> AuthMetrics
 AuthenticationService --> AuthMetrics
+AuthenticationService --> KeycloakAdminGateway
+AuthenticationService --> KeycloakClaims
 
 note bottom of gateway
   individuals-api owns no data, so it has no
-  repository. The gateway takes that seat:
-  an interface out front, an implementation
-  behind it, injected through the constructor.
+  repository. The gateway takes that seat: one
+  class per external system, injected through
+  the constructor. No interface in front of it -
+  a second implementation would be the reason to
+  add one, and there is none.
 
   Nothing above this layer may see person-client
-  types or the Keycloak sub. Only the domain
-  user_uid crosses upwards.
+  types or Keycloak's own shapes. Only the domain
+  user_uid and our own types cross upwards.
+end note
+
+note bottom of logging
+  Not a layer of its own - it wraps every request.
+  RequestLogFilter runs before the security chain,
+  and RequestLog carries the fields across thread
+  hops so every record of a request is complete.
 end note
 
 note bottom of error
   Controllers declare throws Exception, so
   errors land here and become one ErrorResponse
-  carrying the traceId.
+  carrying the traceId. SecurityErrorWriter is
+  the second road: what the filter chain rejects
+  never reaches an advice.
 end note
 
 @enduml

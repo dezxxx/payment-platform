@@ -1,0 +1,103 @@
+@startuml layers
+title individuals-api - целевая структура слоёв
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+package "api (сгенерировано)" <<Frame>> {
+  interface AuthApi
+  note right of AuthApi
+    Сгенерирован из individuals-api.yaml
+    с interfaceOnly. Контроллер его
+    реализует, поэтому контракт и код
+    не могут разойтись.
+  end note
+}
+
+package rest {
+  class AuthController
+}
+
+package service {
+  class RegistrationService
+  class AuthenticationService
+}
+
+package gateway {
+  class PersonServiceGateway <<@Component>>
+  class KeycloakAdminGateway <<@Component>>
+  class KeycloakOidcGateway <<@Component>>
+}
+
+package validation {
+  class PasswordsMatchValidator
+}
+
+package error {
+  class GlobalExceptionHandler
+  class SecurityErrorWriter
+}
+
+package logging {
+  class RequestLogFilter
+  class RequestLog
+}
+
+package config {
+  class SecurityConfig
+  class HttpClientsConfig
+}
+
+package util {
+  class KeycloakClaims
+}
+
+package metrics {
+  class AuthMetrics
+}
+
+AuthController ..|> AuthApi
+AuthController --> RegistrationService
+AuthController --> AuthenticationService
+
+RegistrationService --> PersonServiceGateway
+RegistrationService --> KeycloakAdminGateway
+RegistrationService --> KeycloakOidcGateway
+AuthenticationService --> KeycloakOidcGateway
+
+RegistrationService --> AuthMetrics
+AuthenticationService --> AuthMetrics
+AuthenticationService --> KeycloakAdminGateway
+AuthenticationService --> KeycloakClaims
+
+note bottom of gateway
+  У individuals-api нет своих данных, поэтому
+  нет и репозитория. Его место занимает шлюз:
+  по классу на каждую внешнюю систему, внедряется
+  через конструктор. Интерфейса перед ним нет -
+  его стоило бы завести ради второй реализации,
+  а её нет.
+
+  Ничто выше этого слоя не должно видеть типы
+  person-client или собственные формы Keycloak.
+  Наверх переходят только доменный user_uid и
+  наши собственные типы.
+end note
+
+note bottom of logging
+  Не отдельный слой - он обёрнут вокруг каждого
+  запроса. RequestLogFilter работает раньше цепочки
+  безопасности, а RequestLog переносит поля через
+  смену потоков, чтобы каждая строка запроса была
+  полной.
+end note
+
+note bottom of error
+  Контроллеры объявляют throws Exception,
+  поэтому ошибки попадают сюда и становятся
+  одним ErrorResponse с traceId.
+  SecurityErrorWriter - вторая дорога: то, что
+  отбила охрана, до advice не доходит.
+end note
+
+@enduml

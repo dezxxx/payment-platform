@@ -92,3 +92,72 @@ note bottom of LOKI
 end note
 
 @enduml
+
+
+@startuml trace-tree
+title One trace, many spans - what Tempo draws for a registration
+
+skinparam shadowing false
+skinparam rectangleBorderColor #6d28d9
+
+rectangle "**trace** 16bc50fe...  one id for the whole request" as T {
+  rectangle "**server span**\nPOST /api/v1/auth/registration\nparent: none - this one starts the trace" as S0
+
+  rectangle "client span\nPOST person-service /api/v1/persons/registration" as S1
+  rectangle "client span\nPOST Keycloak /token  client_credentials" as S2
+  rectangle "client span\nPOST Keycloak /admin/.../users" as S3
+  rectangle "client span\nPOST Keycloak /token  client_credentials" as S4
+  rectangle "client span\nPUT Keycloak /admin/.../reset-password" as S5
+  rectangle "client span\nGET + POST Keycloak role-mappings" as S6
+  rectangle "client span\nPOST Keycloak /token  password" as S7
+}
+
+S0 --> S1
+S0 --> S2
+S0 --> S3
+S0 --> S4
+S0 --> S5
+S0 --> S6
+S0 --> S7
+
+note right of S0
+  **trace** = the whole request, start to finish.
+  **span**  = one step inside it.
+
+  Every span carries three things:
+    traceId  - the same across all of them
+    spanId   - its own
+    parentId - who it hangs under
+
+  The tree is built from parentId alone. Tempo
+  stores spans as they arrive, in any order.
+end note
+
+note bottom of T
+  This is the only view that shows what one
+  registration really costs - and which call took
+  the time.
+
+  The service token is fetched for EVERY admin call
+  and never cached, so there are more calls than
+  steps:
+    1 person-service
+    2 token + create the account
+    2 token + set the password
+    4 token + read the role, token + map the role
+    1 login
+  Ten calls outwards. The tree makes that obvious;
+  the code does not.
+
+  Each span also carries the outcome, so a failed
+  call is red in the tree while the request that
+  contained it may still have answered 201.
+end note
+
+note as N1
+  The same traceId is in every log line of this
+  request - that is what makes one click in Grafana
+  go from a span to its log records and back.
+end note
+
+@enduml

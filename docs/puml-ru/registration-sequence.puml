@@ -1,0 +1,71 @@
+@startuml registration
+title Регистрация - основной сценарий
+
+autonumber
+skinparam shadowing false
+
+actor Client
+participant "AuthController" as Ctl
+participant "RegistrationService" as Svc
+participant "PersonServiceGateway" as PGw
+participant "person-service" as Per
+participant "KeycloakAdminGateway" as AGw
+participant "KeycloakOidcGateway" as OGw
+participant "Keycloak" as Kc
+
+Client -> Ctl : POST /api/v1/auth/registration
+activate Ctl
+Ctl -> Svc : register
+activate Svc
+
+Svc -> Svc : проверить формат и\nсовпадение паролей
+
+Svc -> PGw : создать доменного пользователя
+activate PGw
+PGw -> Per : POST /api/v1/persons/registration
+Per --> PGw : user_uid
+PGw --> Svc : user_uid
+deactivate PGw
+
+group За этой чертой доменный пользователь уже существует
+  Svc -> AGw : создать учётку
+  activate AGw
+  AGw -> Kc : POST /admin/realms/REALM/users\nбез пароля, плюс атрибут user_uid
+  Kc --> AGw : id пользователя в Keycloak
+  AGw -> Kc : PUT .../users/{id}/reset-password\ntemporary false
+  AGw -> Kc : GET .../roles/USER\nPOST .../users/{id}/role-mappings/realm
+  AGw --> Svc : id пользователя в Keycloak
+  deactivate AGw
+
+  Svc -> OGw : войти
+  activate OGw
+  OGw -> Kc : POST /realms/REALM/protocol/openid-connect/token
+  Kc --> OGw : access, refresh, expiresIn
+  OGw --> Svc : токены
+  deactivate OGw
+end
+
+Svc --> Ctl : TokenResponse
+deactivate Svc
+Ctl --> Client : 201 с токенами и user_uid
+deactivate Ctl
+
+note over Svc, Kc
+  Порядок выбран сознательно: учётка в Keycloak
+  создаётся только после успешного доменного шага,
+  поэтому учётка никогда не остаётся без
+  доменного пользователя.
+
+  Админских вызова три, а не один: Keycloak принимает
+  пароль своим отдельным эндпоинтом и не раздаёт роль
+  при импорте. Учётку, застрявшую между ними, удаляем -
+  см. keycloak-admin-gateway.puml.
+
+  Обратное - открытое окно. Любой сбой внутри
+  группы оставляет осиротевшего доменного
+  пользователя, и действует политика компенсации:
+  структурный лог, пометить регистрацию
+  несогласованной, вернуть ошибку, ничего не прятать.
+end note
+
+@enduml
