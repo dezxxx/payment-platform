@@ -211,7 +211,9 @@ $t = "PASTE.TOKEN.HERE".Split(".")[1]
 ## 7. Same value in two files
 
 Change one side and the other silently breaks. Full table in `CONTEXT.md` §
-"Cross-file consistency"; the ones that bite most often:
+"Cross-file consistency", the realm file's own pairs in
+`individuals-api/src/main/resources/realm/README.md`; the ones that bite most
+often:
 
 | Value | Lives in | Must match |
 |---|---|---|

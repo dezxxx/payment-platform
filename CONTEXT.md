@@ -324,6 +324,9 @@ the domain `user_uid` when known.
 The client secret is a credential: it lives in `.env`, never in the export
 committed to git.
 
+JSON carries no comments, so the file is described block by block in
+`realm/README.md`, together with the facts it repeats elsewhere in the project.
+
 #### Why `upConfig` is not optional
 
 Since Keycloak 24 the declarative user profile is always on, and unmanaged
