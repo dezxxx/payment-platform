@@ -11,77 +11,106 @@
 # Requires make. It ships with Linux and macOS; on Windows install it once:
 #   winget install ezwinports.make
 #
-# On Windows run it from Git Bash, not from PowerShell or cmd. make is a
-# Windows program: started from PowerShell it runs every recipe through cmd,
-# where there is no sh, no grep and no ./gradlew. Git Bash has all three.
-# In IntelliJ IDEA: Settings -> Tools -> Terminal -> Shell path -> the bash.exe
-# of your Git installation.
+# Runs from anywhere: Git Bash, PowerShell, cmd, or the green arrow in the IDE.
+# That is why no recipe uses a shell built-in, a pipe or a POSIX tool - on
+# Windows make hands recipes to cmd, which has none of them. The wrapper is
+# picked per platform for the same reason: gradlew is a shell script and
+# gradlew.bat is its batch twin.
 
-SHELL := /bin/sh
+ifeq ($(OS),Windows_NT)
+    WRAPPER := gradlew.bat
+else
+    WRAPPER := gradlew
+endif
 
-API     := individuals-api
-CLIENT  := person-client
-CONTRACT := person-service
+# Absolute, with forward slashes: the one spelling both shells accept. A bare
+# gradlew.bat is not found by cmd, which does not search the current directory,
+# and .\gradlew.bat is not found by sh, which reads the backslash as an escape.
+API      := $(CURDIR)/individuals-api
+CLIENT   := $(CURDIR)/person-client
+CONTRACT := $(CURDIR)/person-service
+
+# One name for the tool, in case a machine only has the old docker-compose.
+DOCKER_COMPOSE := docker compose
 
 .DEFAULT_GOAL := all
-.PHONY: all help build jar publish-local publish test it check up down restart logs ps clean
+.PHONY: all help build jar publish-local publish test it check up down restart rebuild logs ps clean
 
-## all: build everything and start the stack - the one command
+# all: build everything and start the stack - the one command
 all: jar up
 
-## help: list the targets
+# help: list the targets
 help:
-	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## //'
+	@echo make              build the jar and start the stack
+	@echo make build        publish person-client locally, then build with tests
+	@echo make jar          publish person-client locally, then package the jar
+	@echo make publish-local   person-client into the local Maven repository
+	@echo make publish      person-client into Nexus - needs NEXUS_USERNAME and NEXUS_PASSWORD
+	@echo make test         unit tests only - needs nothing running
+	@echo make it           integration tests - stops the stack first
+	@echo make check        contract validation of person-service
+	@echo make up           start the stack, rebuilding the image
+	@echo make down         stop the stack, keep the volumes
+	@echo make restart      down, then up
+	@echo make rebuild      rebuild the image from scratch, then start
+	@echo make logs         follow the application log
+	@echo make ps           what is running
+	@echo make clean        remove build output of every module
 
-## build: publish person-client locally, then build individuals-api with tests
+# build: publish person-client locally, then build individuals-api with tests
 build: publish-local
-	cd $(API) && ./gradlew build
+	cd $(API) && $(API)/$(WRAPPER) build
 
-## jar: publish person-client locally, then package the application jar
+# jar: publish person-client locally, then package the application jar
 jar: publish-local
-	cd $(API) && ./gradlew bootJar
+	cd $(API) && $(API)/$(WRAPPER) bootJar
 
-## publish-local: person-client into the local Maven repository
+# publish-local: person-client into the local Maven repository
 publish-local:
-	cd $(CLIENT) && ./gradlew publishToMavenLocal
+	cd $(CLIENT) && $(CLIENT)/$(WRAPPER) publishToMavenLocal
 
-## publish: person-client into Nexus (needs NEXUS_USERNAME and NEXUS_PASSWORD)
+# publish: person-client into Nexus (needs NEXUS_USERNAME and NEXUS_PASSWORD)
 publish:
-	cd $(CLIENT) && ./gradlew publish
+	cd $(CLIENT) && $(CLIENT)/$(WRAPPER) publish
 
-## test: unit tests only - needs nothing running
+# test: unit tests only - needs nothing running
 test:
-	cd $(API) && ./gradlew test
+	cd $(API) && $(API)/$(WRAPPER) test
 
-## it: integration tests - they start their own containers, so stop the stack first
+# it: integration tests - they start their own containers, so stop the stack first
 it: down
-	cd $(API) && ./gradlew integrationTest
+	cd $(API) && $(API)/$(WRAPPER) integrationTest
 
-## check: contract validation of person-service
+# check: contract validation of person-service
 check:
-	cd $(CONTRACT) && ./gradlew check
+	cd $(CONTRACT) && $(CONTRACT)/$(WRAPPER) check
 
-## up: start the stack, rebuilding the image from the jar built beforehand
+# up: start the stack, rebuilding the image from the jar built beforehand
 up:
 	docker compose up -d --build
 
-## down: stop the stack, keep the volumes
+# down: stop the stack, keep the volumes
 down:
 	docker compose down
 
-## restart: down, then up
+# restart: down, then up
 restart: down up
 
-## logs: follow the application log
-logs:
-	docker compose logs -f $(API)
+# rebuild: build the image from scratch, ignoring the layer cache, then start
+rebuild:
+	@$(DOCKER_COMPOSE) build --no-cache individuals-api
+	@$(DOCKER_COMPOSE) up -d
 
-## ps: what is running
+# logs: follow the application log
+logs:
+	docker compose logs -f individuals-api
+
+# ps: what is running
 ps:
 	docker compose ps
 
-## clean: remove build output of every module
+# clean: remove build output of every module
 clean:
-	cd $(CLIENT) && ./gradlew clean
-	cd $(API) && ./gradlew clean
-	cd $(CONTRACT) && ./gradlew clean
+	cd $(CLIENT) && $(CLIENT)/$(WRAPPER) clean
+	cd $(API) && $(API)/$(WRAPPER) clean
+	cd $(CONTRACT) && $(CONTRACT)/$(WRAPPER) clean

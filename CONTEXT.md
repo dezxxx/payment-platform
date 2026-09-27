@@ -147,6 +147,15 @@ at is irrelevant to the build and must not be "fixed" to make it work.
    `RestClient`; see the deviations table for why the adapter differs while the
    style does not.
 
+   Module 2's handout says the same in stronger words - use HTTP Service
+   Clients, **not** Spring Cloud OpenFeign, which it calls feature-complete.
+   The `Feign/OpenAPI` label on the platform diagram predates both and is not a
+   requirement.
+
+   person-service needs no HTTP client at all: it answers calls and owns a
+   database, it does not make outbound calls. `person-client` is for its
+   callers, starting with individuals-api.
+
 5. **Every build validates the contracts** — `openApiValidate` runs before
    `openApiGenerate`, and `check` depends on it. A broken contract fails the
    build, not the runtime.
