@@ -9,6 +9,9 @@
 // part of every build.
 
 plugins {
+    // A base plugin is needed for the check task this module hangs validation
+    // on - it ships no Java code of its own yet.
+    base
     alias(libs.plugins.openapi.generator)
 }
 

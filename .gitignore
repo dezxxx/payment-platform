@@ -14,8 +14,11 @@ hs_err_pid*
 replay_pid*
 
 # --- Keep the wrapper in git ---
-!gradle/wrapper/gradle-wrapper.jar
-!gradle/wrapper/gradle-wrapper.properties
+# Every module carries its own wrapper now, so the exception has to match at
+# any depth. Without it *.jar above - and the same rule in a global gitignore -
+# would leave a clone unable to build: ./gradlew has nothing to run.
+!**/gradle/wrapper/gradle-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.properties
 
 # --- IDE: IntelliJ ---
 .idea/

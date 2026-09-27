@@ -15,8 +15,25 @@ plugins {
     alias(libs.plugins.openapi.generator)
 }
 
-val contract = rootProject.layout.projectDirectory
-    .file("person-service/openapi/person-service.yaml")
+// Conventions live here rather than in a root build: the folder above is a Git
+// root, not a Gradle project, so each module carries its own.
+java {
+    toolchain {
+        languageVersion.set(
+            JavaLanguageVersion.of(providers.gradleProperty("javaToolchainVersion").get().toInt())
+        )
+    }
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.encoding = "UTF-8"
+    options.compilerArgs.addAll(listOf("-parameters", "-Xlint:all", "-Xlint:-processing"))
+}
+
+// The contract belongs to person-service, which is a separate build. Only the
+// file is shared, by path - no Gradle dependency crosses the folder.
+val contract = layout.projectDirectory
+    .file("../person-service/openapi/person-service.yaml")
 
 val generatedDir = layout.buildDirectory.dir("generated/openapi")
 

@@ -89,10 +89,10 @@
 
 | Решение | Значение | Где живёт |
 |---|---|---|
-| Корневой проект Gradle | `payment-platform` | `settings.gradle.kts` |
+| Схема сборки | по независимой сборке Gradle на модуль, корневого проекта нет | `settings.gradle.kts` каждого модуля |
 | Базовый пакет | `com.dezxxx.individuals` | — |
-| Maven group | `com.dezxxx` | `gradle.properties` |
-| Java | 25 (Gradle toolchain, игнорирует `JAVA_HOME`) | `gradle.properties` |
+| Maven group | `com.dezxxx` | `gradle.properties` каждого модуля |
+| Java | 25 (Gradle toolchain, игнорирует `JAVA_HOME`) | `gradle.properties` каждого модуля |
 | Spring Boot | 4.1.0 | `gradle/libs.versions.toml` |
 | Gradle | 9.5.1 через Wrapper | `gradle/wrapper/` |
 | Lombok | да — 1.18.46 | корневой `build.gradle.kts` |
@@ -555,37 +555,63 @@ claim'ы вообще существовали, и дальше эту копи�
 ## 6. Структура модулей
 
 ```
-payment-platform/
-├── settings.gradle.kts        включает модули, резолв Nexus + mavenLocal
-├── build.gradle.kts           общие соглашения (toolchain, Lombok, тесты)
-├── gradle.properties          координаты, toolchain, Nexus
-├── gradle/libs.versions.toml  все версии
+payment-platform/              Git root, а НЕ проект Gradle
+├── gradle/libs.versions.toml  все версии — обычный файл, его читает каждый модуль
 ├── docker-compose.yml
 ├── .env                       теги образов, порты, секреты (не в git)
 ├── infra/                     провижининг prometheus, tempo, grafana
 ├── postman/                   коллекция: все эндпоинты и их отказы
-├── docs/                      диаграммы PlantUML (компоненты, деплой,
-│                              последовательность регистрации, слои) и
-│                              DEMO.md — сценарий полного прогона
-│                              CHEATSHEET.md — порты, пароли, команды
-│                              CLASSES.md — по строке на класс
-│                              demo/ — заглушка person-service для DEMO.md
+├── docs/puml-diagrams/        PlantUML: компоненты, деплой, последовательность
+│                              регистрации, слои, шлюзы, ошибки, наблюдаемость
+├── docs/puml-ru/              те же диаграммы на русском
+├── docs/demo/                 заглушка person-service для прогона
 ├── person-client/             сгенерированные DTO + HTTP-клиенты -> Nexus
 ├── individuals-api/           оркестратор
 └── person-service/            только контракт + миграции Flyway (модуль 2)
 ```
 
+Каждый модуль — самостоятельная сборка Gradle: свой `settings.gradle.kts`,
+`gradle.properties`, wrapper и соглашения. Так требует методичка: «корневой
+проект не является Maven/Gradle проектом, это просто пакет, который играет
+роль Git root», а межмодульные зависимости идут только через опубликованные
+артефакты.
+
+Общий остаётся один файл — `gradle/libs.versions.toml`, каждый модуль
+подключает его как `from(files("../gradle/libs.versions.toml"))`. Версии
+держатся вместе, а папка проектом не становится.
+
 ---
 
 ## 7. Порядок сборки
 
+Всё это делает `make`: одна команда `make` собирает jar и поднимает стенд,
+`make help` показывает остальные цели. `Makefile` существует именно потому,
+что корневой сборки нет — он единственное место, где записан порядок: сначала
+сборка в папке модуля, потом compose в этой.
+
+Что он запускает, на случай, если make не установлен:
+
 `person-client` обязан существовать артефактом до того, как `individuals-api`
-начнёт резолвиться. Пока Nexus не поднят, `mavenLocal()` это покрывает:
+начнёт резолвиться. Корневой сборки, которая сделала бы и то и другое, нет —
+каждый модуль собирается из своей папки; пока Nexus не поднят, передачу
+покрывает `mavenLocal()`:
 
 ```bash
-./gradlew :person-client:publishToMavenLocal
-./gradlew build
+cd person-client   && ./gradlew publishToMavenLocal
+cd individuals-api && ./gradlew build
+cd person-service  && ./gradlew check      # проверяет контракт
 ```
+
+Образ упаковывает уже собранный jar, а не собирает его:
+
+```bash
+cd individuals-api && ./gradlew bootJar
+docker compose build individuals-api
+```
+
+Собрать `person-client` внутри docker build нельзя: он подключается по
+координатам, а ни Nexus, ни локальный репозиторий Maven изнутри сборки образа
+недоступны.
 
 ---
 
@@ -711,10 +737,6 @@ payment-platform/
 - [x] `AuthenticationService` — login, refresh, `/me`
 - [x] `README.md` — первая версия: что это, четыре эндпоинта, как запустить и
       честная таблица состояния
-- [x] `docs/CHEATSHEET.ru.md` — у эксплуатационной шпаргалки наконец появился
-      русский двойник
-- [x] `docs/CLASSES.md` + `docs/CLASSES.ru.md` — каждый класс, его
-      единственная работа и правило, по которому выбирается пакет для нового
 - [x] `validation/` — `PasswordsMatch` и его валидатор, прицепленные к
       сгенерированной модели из контракта; три теста через настоящий
       `Validator`, чтобы правило, переставшее доезжать до класса, не прошло
@@ -768,7 +790,7 @@ payment-platform/
       всё это уже делает; не делало — вызова MDC не было нигде в `main`
 - [x] **Все обязательные тест-кейсы задания — пятнадцать кодов, 22 модульных и
       11 интеграционных, зелёные.** `AuthenticationServiceTest` закрывает
-      UT-LOG-001, UT-LOG-002, UT-REF-001 и UT-ME-001; `KeycloakRegistrationIT`,
+      UT-LOG-001, UT-LOG-002, UT-REF-001 и UT-ME-001; `AuthControllerIT`,
       `ObservabilityIT` и `PersonSchemaMigrationIT` — семь IT-кодов.
       person-service заменён стабом на reactor-netty, потому что в модуле 1 его
       нет, и Tempo тоже: индексирует ли Tempo полученное — обещание Tempo, наше

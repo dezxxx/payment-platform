@@ -1,34 +1,18 @@
-# Two stages: build the jar, then ship only the jar.
+# Packages a jar that was already built.
 #
-# The build context is the repository root, not this directory - Gradle needs
-# settings.gradle.kts, the wrapper and the version catalog, and it also has to
-# build person-client first. docker-compose.yml sets the context accordingly.
+# Each module of this repository is an independent Gradle build - the folder
+# above is a Git root, not a project - so nothing here can build a sibling.
+# individuals-api needs person-client, which is resolved by coordinates from
+# Nexus or the local Maven repository, and neither is reachable from inside a
+# docker build.
 #
-# person-client is published into the builder's own local Maven repository and
-# resolved from there, because inside the build there is no Nexus to reach.
-# That mirrors what the wrapper does on a developer machine and keeps the rule
-# intact: modules see each other as artifacts, never as sibling directories.
-
-FROM eclipse-temurin:25-jdk AS build
-
-WORKDIR /workspace
-
-COPY . .
-
-# The wrapper loses its executable bit on a Windows checkout.
-RUN chmod +x ./gradlew
-
-# Two invocations, not one. Asked for in a single build, Gradle resolves
-# individuals-api's compile classpath against a local Maven repository that
-# publishToMavenLocal has not written to yet, and the build dies looking for
-# person-client in a Nexus that does not exist inside this container. Splitting
-# them lets the first build finish and leave the artifact behind before the
-# second one goes looking for it.
-RUN ./gradlew --no-daemon --no-configuration-cache :person-client:publishToMavenLocal
-
-RUN ./gradlew --no-daemon --no-configuration-cache :individuals-api:bootJar
-
-# ---------------------------------------------------------------------------
+# So the build happens first, on the machine:
+#
+#   cd person-client   && ./gradlew publishToMavenLocal   # or publish, to Nexus
+#   cd ../individuals-api && ./gradlew bootJar
+#   docker compose build individuals-api
+#
+# The build context is this module, and the only thing copied is the jar.
 
 FROM eclipse-temurin:25-jre AS runtime
 
@@ -38,7 +22,7 @@ WORKDIR /app
 RUN useradd --system --create-home --shell /usr/sbin/nologin app
 USER app
 
-COPY --from=build --chown=app:app /workspace/individuals-api/build/libs/*.jar app.jar
+COPY --chown=app:app build/libs/individuals-api.jar app.jar
 
 # Documentation only - the published port is decided by docker-compose.yml.
 EXPOSE 8081

@@ -88,10 +88,10 @@ These are settled. Do not change them without an explicit decision.
 
 | Decision | Value | Where it lives |
 |---|---|---|
-| Gradle root project | `payment-platform` | `settings.gradle.kts` |
+| Build layout | one independent Gradle build per module, no root project | each module's `settings.gradle.kts` |
 | Base package | `com.dezxxx.individuals` | — |
-| Maven group | `com.dezxxx` | `gradle.properties` |
-| Java | 25 (Gradle toolchain, ignores `JAVA_HOME`) | `gradle.properties` |
+| Maven group | `com.dezxxx` | each module's `gradle.properties` |
+| Java | 25 (Gradle toolchain, ignores `JAVA_HOME`) | each module's `gradle.properties` |
 | Spring Boot | 4.1.0 | `gradle/libs.versions.toml` |
 | Gradle | 9.5.1 via Wrapper | `gradle/wrapper/` |
 | Lombok | yes — 1.18.46 | root `build.gradle.kts` |
@@ -590,37 +590,60 @@ asks every repository for sources and reports the whole lookup as failed.
 ## 6. Module layout
 
 ```
-payment-platform/
-├── settings.gradle.kts        includes modules, Nexus + mavenLocal resolution
-├── build.gradle.kts           shared conventions (toolchain, Lombok, tests)
-├── gradle.properties          coordinates, toolchain, Nexus
-├── gradle/libs.versions.toml  every version
+payment-platform/              a Git root, NOT a Gradle project
+├── gradle/libs.versions.toml  every version - a plain file each module reads
 ├── docker-compose.yml
 ├── .env                       image tags, ports, credentials (not in git)
 ├── infra/                     prometheus, tempo, grafana provisioning
 ├── postman/                   collection: every endpoint and its failures
-├── docs/                      PlantUML diagrams (component, deployment,
-│                              registration sequence, layers) and
-│                              DEMO.md - the end-to-end walkthrough
-│                              CHEATSHEET.md - ports, credentials, commands
-│                              CLASSES.md - one line per class
-│                              demo/ - the person-service stub DEMO.md uses
+├── docs/puml-diagrams/        PlantUML: component, deployment, registration
+│                              sequence, layers, gateways, errors, observability
+├── docs/puml-ru/              the same diagrams in Russian
+├── docs/demo/                 the person-service stub the walkthrough uses
 ├── person-client/             generated DTOs + HTTP clients -> Nexus
 ├── individuals-api/           the orchestrator
 └── person-service/            contract + Flyway migrations only (module 2)
 ```
 
+Each module is an independent Gradle build: its own `settings.gradle.kts`,
+`gradle.properties`, wrapper and conventions. The handout requires it - "the
+root is not a Maven/Gradle project, it is a package that plays the role of a
+Git root", and every cross-module dependency travels as a published artifact.
+
+The only thing shared is `gradle/libs.versions.toml`, read by each module as
+`from(files("../gradle/libs.versions.toml"))`. It keeps versions aligned
+without making the folder a build.
+
 ---
 
 ## 7. Build order
 
+`make` does all of it: `make` alone builds the jar and starts the stack, and
+`make help` lists the rest. The `Makefile` exists because there is no root
+build to hang the order on - it is the one place that knows a module is built
+in its own folder before compose runs in this one.
+
+What it runs, for when it is not installed:
+
 `person-client` must exist as an artifact before `individuals-api` resolves.
-Until Nexus is up, `mavenLocal()` covers it:
+There is no root build to do both, so each module is built from its own folder;
+until Nexus is up, `mavenLocal()` covers the hand-over:
 
 ```bash
-./gradlew :person-client:publishToMavenLocal
-./gradlew build
+cd person-client   && ./gradlew publishToMavenLocal
+cd individuals-api && ./gradlew build
+cd person-service  && ./gradlew check      # validates the contract
 ```
+
+The image packages the jar built above rather than building it:
+
+```bash
+cd individuals-api && ./gradlew bootJar
+docker compose build individuals-api
+```
+
+A docker build cannot produce `person-client` - it resolves by coordinates, and
+neither Nexus nor the local Maven repository is reachable from inside one.
 
 ---
 
@@ -746,9 +769,6 @@ neither task and fails silently by never running at all.
 - [x] `AuthenticationService` — login, refresh, `/me`
 - [x] `README.md` — first version: what it is, the four endpoints, how to run
       it, and an honest status table
-- [x] `docs/CHEATSHEET.ru.md` — the operations sheet finally has its mirror
-- [x] `docs/CLASSES.md` + `docs/CLASSES.ru.md` — every class, its one
-      job, and the rule that decides which package a new class goes into
 - [x] `validation/` — `PasswordsMatch` and its validator, attached to the
       generated model from the contract; three tests, run through a real
       `Validator` so a rule that stops reaching the class cannot pass silently
@@ -802,7 +822,7 @@ neither task and fails silently by never running at all.
       there was no MDC call anywhere in `main`
 - [x] **Every test case the handout requires - all fifteen codes, 22 unit and
       11 integration, green.** `AuthenticationServiceTest` closes UT-LOG-001,
-      UT-LOG-002, UT-REF-001 and UT-ME-001; `KeycloakRegistrationIT`,
+      UT-LOG-002, UT-REF-001 and UT-ME-001; `AuthControllerIT`,
       `ObservabilityIT` and `PersonSchemaMigrationIT` close the seven IT codes.
       person-service is stubbed on reactor-netty, since module 1 does not
       contain it, and Tempo is stubbed too - whether Tempo indexes what it is

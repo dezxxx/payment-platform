@@ -10,6 +10,9 @@
 // project(":person-client").
 
 plugins {
+    // Applied here rather than inherited: the folder above is a Git root, not
+    // a Gradle project, so this module brings its own toolchain and plugins.
+    java
     alias(libs.plugins.spring.boot)
     alias(libs.plugins.spring.dependency.management)
     alias(libs.plugins.openapi.generator)
@@ -21,6 +24,29 @@ plugins {
 
 jacoco {
     toolVersion = libs.versions.jacoco.get()
+}
+
+// Conventions live here rather than in a root build: the folder above is a Git
+// root, not a Gradle project, so each module carries its own.
+java {
+    toolchain {
+        languageVersion.set(
+            JavaLanguageVersion.of(providers.gradleProperty("javaToolchainVersion").get().toInt())
+        )
+    }
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.encoding = "UTF-8"
+    options.compilerArgs.addAll(listOf("-parameters", "-Xlint:all", "-Xlint:-processing"))
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+        showStandardStreams = false
+    }
 }
 
 val contract = layout.projectDirectory.file("openapi/individuals-api.yaml")
@@ -92,6 +118,12 @@ sourceSets {
 }
 
 dependencies {
+    // --- Lombok: compile-only plus annotation processor, in both source sets ---
+    compileOnly(libs.lombok)
+    annotationProcessor(libs.lombok)
+    testCompileOnly(libs.lombok)
+    testAnnotationProcessor(libs.lombok)
+
     // --- Web / security / validation ---
     implementation(libs.spring.boot.starter.webflux)
     implementation(libs.spring.boot.starter.webclient)
@@ -156,8 +188,8 @@ val integrationTest = tasks.register<Test>("integrationTest") {
     // the path is resolved by Gradle and handed over.
     systemProperty(
         "person.migrations.dir",
-        rootProject.layout.projectDirectory
-            .dir("person-service/src/main/resources/db/migration").asFile.absolutePath
+        layout.projectDirectory
+            .dir("../person-service/src/main/resources/db/migration").asFile.absolutePath
     )
 
     shouldRunAfter(tasks.test)

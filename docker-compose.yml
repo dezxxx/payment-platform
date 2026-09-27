@@ -64,10 +64,11 @@ services:
 
   individuals-api:
     build:
-      # Root context: Gradle needs settings.gradle.kts, the wrapper, the
-      # version catalog and person-client, none of which live in the module.
-      context: .
-      dockerfile: individuals-api/Dockerfile
+      # The module is the context: the image only packages a jar that was
+      # built beforehand. Each module is its own Gradle build, so nothing in a
+      # docker build can produce person-client - see individuals-api/Dockerfile.
+      context: ./individuals-api
+      dockerfile: Dockerfile
     depends_on:
       # service_started, not service_healthy: Keycloak needs a while to finish
       # importing the realm, so the application must tolerate it not answering

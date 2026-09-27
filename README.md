@@ -68,24 +68,41 @@ cp .env.example .env
 # individuals-api/src/main/resources/realm/realm-export.json
 ```
 
-**2. Build.** `person-client` must exist as an artifact before
-`individuals-api` can resolve it. Until Nexus is up, the local Maven repository
-covers that:
+**2. Everything at once.** One command builds the jar and starts the stack:
 
 ```bash
-./gradlew :person-client:publishToMavenLocal
-./gradlew build
+make
+```
+
+`make help` lists the rest — `make test`, `make it`, `make down`, `make logs`.
+Requires make, which ships with Linux and macOS; on Windows install it once
+with `winget install ezwinports.make` and **run it from Git Bash** — started
+from PowerShell it runs every recipe through cmd, which has no `sh`. The steps
+behind it, if you would rather run them by hand, are below.
+
+**3. Build by hand.** This folder is a Git root, not a Gradle project: every
+module is an independent build with its own wrapper, and they reach each other
+only through published artifacts. So `person-client` is built and published
+first, and `individuals-api` resolves it by coordinates. Until Nexus is up, the
+local Maven repository covers that:
+
+```bash
+cd person-client && ./gradlew publishToMavenLocal && cd ..
+cd individuals-api && ./gradlew build && cd ..
 ```
 
 `build` runs the integration tests too, so **Docker has to be running** — they
-start a Keycloak and a PostgreSQL of their own. For the fast loop use
-`./gradlew :individuals-api:test`, which is unit tests only and needs nothing.
+start a Keycloak and a PostgreSQL of their own, and the stack itself should be
+down, or the two compete for memory. For the fast loop use `./gradlew test`
+inside `individuals-api`, which is unit tests only and needs nothing.
 
-**3. Start the stack.** Images are pinned in `.env`, so the stack is
-reproducible and an upgrade is one deliberate edit in one file.
+**4. Start the stack by hand.** Images are pinned in `.env`, so the stack is
+reproducible and an upgrade is one deliberate edit in one file. The image only
+packages the jar built in step 3, so build the jar first when the code changed:
 
 ```bash
-docker compose up -d
+cd individuals-api && ./gradlew bootJar && cd ..
+docker compose up -d --build
 ```
 
 | | URL |
@@ -126,10 +143,7 @@ it breaks, and nothing above a gateway ever holds a foreign payload.
 |---|---|
 | [`CONTEXT.md`](CONTEXT.md) | The working document: decisions, rules, the registration flow, progress. The long read. |
 | [`CONTEXT.ru.md`](CONTEXT.ru.md) | Russian mirror. English wins if the two disagree. |
-| [`docs/DEMO.md`](docs/DEMO.md) | Walk the module end to end in fifteen minutes: register, then find what the meters, the logs and the traces said about it. Every command verified. Russian mirror: [`DEMO.ru.md`](docs/DEMO.ru.md). |
-| [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) | Every port, credential, endpoint, status code and command on one page — plus what every acronym stands for and how a test code like `IT-KC-001` decomposes. Russian mirror: [`CHEATSHEET.ru.md`](docs/CHEATSHEET.ru.md). |
-| [`docs/CLASSES.md`](docs/CLASSES.md) | One line per class: what it is and its single job. Open it next to the IDE. |
-| [`docs/*.puml`](docs) | Diagrams: registration and its rollback, `/me`, the gateway layer, how a failure becomes a response — and [`observability.puml`](docs/observability.puml), which is the one to open first if the metrics, logs and traces blur into one thing. A Russian mirror of all of them lives in [`docs/puml-ru`](docs/puml-ru). |
+| [`docs/puml-diagrams/`](docs/puml-diagrams) | Diagrams: registration and its rollback, `/me`, the gateway layer, how a failure becomes a response — and [`observability.puml`](docs/puml-diagrams/observability.puml), which is the one to open first if the metrics, logs and traces blur into one thing. A Russian mirror of all of them lives in [`docs/puml-ru`](docs/puml-ru). |
 | [`postman/`](postman) | Postman collection: every endpoint plus its failures, with the tokens carried between requests for you. Import it, press Run. |
 
 ## Status

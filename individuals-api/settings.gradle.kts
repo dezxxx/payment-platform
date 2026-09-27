@@ -1,13 +1,15 @@
-// Root of the payment platform monorepo.
+// individuals-api builds on its own.
 //
-// The root ships no code - it exists to provide one Gradle Wrapper, one
-// version catalog and one set of shared conventions for every module.
+// The folder above is a Git root, not a Gradle project: every module here is
+// an independent build, and modules reach each other only through artifacts
+// published to Nexus - never through project(":...").
 //
-// Modules are included so a single wrapper builds them all, but they must NOT
-// depend on each other via project(":..."). Cross-module contracts always
-// travel through artifacts published to Nexus (see gradle.properties).
+// person-client is resolved from mavenLocal or Nexus by its coordinates, which
+// is why both repositories are listed below.
+//
+// The one thing shared is the version catalog, a plain file in that folder.
 
-rootProject.name = "payment-platform"
+rootProject.name = "individuals-api"
 
 pluginManagement {
     repositories {
@@ -18,9 +20,16 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+
+    versionCatalogs {
+        create("libs") {
+            from(files("../gradle/libs.versions.toml"))
+        }
+    }
+
     repositories {
-        // Lets the monorepo build before Nexus is up:
-        //   ./gradlew :person-client:publishToMavenLocal
+        // Lets this module build before Nexus is up:
+        //   cd ../person-client && ./gradlew publishToMavenLocal
         mavenLocal()
         mavenCentral()
         maven {
@@ -39,22 +48,10 @@ dependencyResolutionManagement {
                     username = user
                     password = pass
                 }
-                // Preemptive, for the same reason as in person-client: Nexus
-                // answers an unauthenticated read with 403, and Gradle only
-                // retries after a 401.
+                // Preemptive: Nexus answers an unauthenticated read with 403,
+                // and Gradle only retries after a 401.
                 authentication { create<BasicAuthentication>("basic") }
             }
         }
     }
 }
-
-// --- Module 1 ---
-include("person-client")
-include("individuals-api")
-include("person-service")
-
-// --- Reserved for the next modules of the course ---
-// include("transaction-service")
-// include("payment-service")
-// include("webhook-collector-service")
-// include("notification-service")
