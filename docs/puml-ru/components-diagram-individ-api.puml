@@ -1,0 +1,18 @@
+@startuml
+
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+Container(indApi, "individuals-api", "Spring Boot WebFlux")
+
+Component(authController, "AuthController", "REST Controller", "Обрабатывает HTTP-запросы клиента")
+Component(userService, "UserService", "Сервис", "Оркестрация регистрации и запроса информации")
+Component(tokenService, "TokenService", "Сервис", "Работа с токенами и refresh-флоу")
+Component(keycloakClient, "KeycloakClient", "WebClient Adapter", "Взаимодействует с Keycloak REST API")
+Component(dto, "DTO (сгенерированные)", "OpenAPI DTO", "Сгенерированные модели запросов/ответов")
+
+Rel(authController, userService, "вызов")
+Rel(userService, tokenService, "вызов")
+Rel(userService, keycloakClient, "вызов")
+Rel(tokenService, keycloakClient, "вызов")
+Rel(authController, dto, "использует")
+@enduml

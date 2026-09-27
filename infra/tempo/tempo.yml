@@ -33,6 +33,9 @@ storage:
     local:
       path: /var/tempo/traces
 
+ingester:
+  trace_idle_period: 10s
+
 compactor:
   compaction:
     block_retention: 24h

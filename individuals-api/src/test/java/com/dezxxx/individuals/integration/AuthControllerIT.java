@@ -24,7 +24,7 @@ import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
  * into the token - runs for real against the realm that docker-compose imports.
  */
 @DisplayName("Registration against a real Keycloak")
-class KeycloakRegistrationIT extends IntegrationTest {
+class AuthControllerIT extends IntegrationTest {
 
     private static final String REGISTRATION_PATH = "/api/v1/auth/registration";
 
