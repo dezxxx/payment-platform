@@ -31,7 +31,13 @@ CLIENT   := $(CURDIR)/person-client
 CONTRACT := $(CURDIR)/person-service
 
 # One name for the tool, in case a machine only has the old docker-compose.
-DOCKER_COMPOSE := docker compose
+#
+# --progress quiet: the default renderer redraws a progress bar, which needs a
+# live terminal. In the IDE's run window or a CI log there is none, so every
+# frame lands as another line - hundreds of them, and the build log on top.
+# Quiet prints nothing while it goes well; a failure still comes through.
+# Swap quiet for plain to watch it step by step.
+DOCKER_COMPOSE := docker compose --progress quiet
 
 .DEFAULT_GOAL := all
 .PHONY: all help build jar publish-local publish test it check up down restart rebuild logs ps clean
@@ -87,11 +93,11 @@ check:
 
 # up: start the stack, rebuilding the image from the jar built beforehand
 up:
-	docker compose up -d --build
+	$(DOCKER_COMPOSE) up -d --build
 
 # down: stop the stack, keep the volumes
 down:
-	docker compose down
+	$(DOCKER_COMPOSE) down
 
 # restart: down, then up
 restart: down up
@@ -103,11 +109,15 @@ rebuild:
 
 # logs: follow the application log
 logs:
-	docker compose logs -f individuals-api
+	$(DOCKER_COMPOSE) logs -f individuals-api
 
 # ps: what is running
+#
+# Three columns of the default nine: service, status and ports are what anyone
+# actually looks for, and the full table wraps into porridge in a run window.
+# The image tags are pinned in .env, so the column would only repeat them.
 ps:
-	docker compose ps
+	$(DOCKER_COMPOSE) ps --format "table {{.Service}}\t{{.Status}}\t{{.Ports}}"
 
 # clean: remove build output of every module
 clean:
