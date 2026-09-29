@@ -26,7 +26,6 @@ IAY --> API : openApiGenerate\nAuthApi interface only
 PC --> PCJ : publish
 PCJ --> NEXUS
 NEXUS --> API : resolved by Maven coordinates\ninside the image build
-inside the image build
 
 note bottom of API
   Never project(":person-client").
