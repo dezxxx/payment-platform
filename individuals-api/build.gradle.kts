@@ -136,6 +136,8 @@ dependencies {
     implementation(libs.spring.boot.starter.actuator)
     implementation(libs.spring.boot.starter.opentelemetry)
     implementation(libs.micrometer.registry.prometheus)
+    // named spans per scenario step - Mono.tap(Micrometer.observation(...))
+    implementation(libs.reactor.core.micrometer)
 
     // --- Swagger UI served over the contract-first spec ---
     implementation(libs.springdoc.openapi.starter.webflux.ui)

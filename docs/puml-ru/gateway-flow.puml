@@ -92,11 +92,13 @@ note right of KC
   а id известен только после чтения роли.
 end note
 
-Usr -> KC : login(email, password)
+Usr -> Tok : issueTokens(email, password)
+Tok -> KC : login(email, password)
 KC -> K : POST /token  grant_type=password
 K --> KC : 200 { access_token, refresh_token,\n       expires_in, token_type }
-KC --> Usr : TokenResponse
-Usr -> Usr : tokens.userUid(userUid)
+KC --> Tok : TokenResponse
+Tok -> Tok : user_uid из access-токена
+Tok --> Usr : TokenResponse + userUid
 Usr --> Ctl : TokenResponse
 deactivate Usr
 
@@ -178,6 +180,7 @@ package util {
 
 UserService --> PersonClient
 UserService --> KeycloakClient
+UserService --> TokenService
 TokenService --> KeycloakClient
 
 PersonClient ..> GatewayErrors

@@ -10,10 +10,13 @@ import com.dezxxx.individuals.gateway.person.PersonClient;
 import com.dezxxx.individuals.logging.RequestLog;
 import com.dezxxx.individuals.metrics.AuthMetrics;
 import com.dezxxx.individuals.util.KeycloakClaims;
+import com.dezxxx.individuals.util.Spans;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -40,7 +43,9 @@ public class UserService {
 
     private final PersonClient personClient;
     private final KeycloakClient keycloakClient;
+    private final TokenService tokenService;
     private final AuthMetrics metrics;
+    private final ObservationRegistry observationRegistry;
 
     // --- registration ---
 
@@ -48,17 +53,19 @@ public class UserService {
     public Mono<TokenResponse> register(RegistrationRequest request) {
         return personClient
                 .createPerson(request.getEmail(), request.getFirstName(), request.getLastName())
+                .transform(span("registration.createPerson"))
                 // defer: without it login() would be called while the chain is
                 // built - before the account exists
                 .flatMap(userUid -> createAccount(request, userUid)
-                        .then(Mono.defer(() -> login(request, userUid))))
+                        .then(Mono.defer(() -> login(request))))
                 .doFirst(metrics::registrationStarted)
                 .doOnError(cause -> metrics.registrationFailed())
                 .doOnSuccess(tokens -> {
                     metrics.registrationSucceeded();
                     RequestLog.userUid(tokens.getUserUid());
                     log.info("Registered {}", tokens.getUserUid());
-                });
+                })
+                .transform(span("registration"));
     }
 
     // the Keycloak part: account -> password -> role; if password or role fails,
@@ -66,10 +73,14 @@ public class UserService {
     private Mono<Void> createAccount(RegistrationRequest request, UUID userUid) {
         return keycloakClient
                 .createAccount(request.getEmail(), request.getFirstName(), request.getLastName(), userUid.toString())
+                .transform(span("registration.createAccount"))
                 .flatMap(keycloakUserId -> keycloakClient
                         .resetUserPassword(keycloakUserId, request.getPassword())
-                        .then(Mono.defer(() -> keycloakClient.assignPlatformRole(keycloakUserId)))
-                        .onErrorResume(cause -> keycloakClient.rollbackAccountWithError(keycloakUserId, cause)))
+                        .transform(span("registration.resetPassword"))
+                        .then(Mono.defer(() -> keycloakClient.assignPlatformRole(keycloakUserId)
+                                .transform(span("registration.assignRole"))))
+                        .onErrorResume(cause -> keycloakClient.rollbackAccountWithError(keycloakUserId, cause)
+                                .transform(span("registration.rollbackAccount"))))
                 .then()
                 .onErrorMap(cause -> inconsistent(userUid, cause));
     }
@@ -83,10 +94,11 @@ public class UserService {
         return new ApiException(ErrorCode.REGISTRATION_INCONSISTENT);
     }
 
-    // user_uid is not in Keycloak's token answer; here we already have it
-    private Mono<TokenResponse> login(RegistrationRequest request, UUID userUid) {
-        return keycloakClient.login(request.getEmail(), request.getPassword())
-                .map(tokens -> tokens.userUid(userUid));
+    // the new account logs in through TokenService, as on the component diagram;
+    // user_uid comes back from the token, which also proves the realm mapper works
+    private Mono<TokenResponse> login(RegistrationRequest request) {
+        return tokenService.issueTokens(request.getEmail(), request.getPassword())
+                .transform(span("registration.login"));
     }
 
     // --- /me ---
@@ -96,7 +108,9 @@ public class UserService {
     public Mono<CurrentUserResponse> currentUser(Jwt jwt) {
         String keycloakUserId = jwt.getSubject();
         return keycloakClient.findRegisteredAt(keycloakUserId)
-                .map(registeredAt -> toCurrentUser(jwt, keycloakUserId, registeredAt));
+                .transform(span("me.findRegisteredAt"))
+                .map(registeredAt -> toCurrentUser(jwt, keycloakUserId, registeredAt))
+                .transform(span("me"));
     }
 
     private CurrentUserResponse toCurrentUser(Jwt jwt, String keycloakUserId, OffsetDateTime registeredAt) {
@@ -111,6 +125,11 @@ public class UserService {
                 .emailVerified(jwt.getClaimAsBoolean(EMAIL_VERIFIED))
                 .roles(platformRoles(jwt))
                 .registeredAt(registeredAt);
+    }
+
+    // one step of a scenario as a named span in the trace
+    private <T> Function<Mono<T>, Mono<T>> span(String name) {
+        return Spans.named(name, observationRegistry);
     }
 
     // token roles minus Keycloak's own - the client asks about business roles

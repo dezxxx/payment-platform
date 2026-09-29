@@ -2,6 +2,7 @@ package com.dezxxx.individuals.integration.support;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import reactor.netty.DisposableServer;
@@ -16,6 +17,9 @@ public final class StubOtlpCollector {
 
     private final List<Integer> exportedPayloadSizes = new CopyOnWriteArrayList<>();
 
+    // raw payloads; span names are plain UTF-8 strings inside the protobuf
+    private final List<String> exportedPayloads = new CopyOnWriteArrayList<>();
+
     private DisposableServer server;
 
     public void start() {
@@ -28,6 +32,7 @@ public final class StubOtlpCollector {
                                 .defaultIfEmpty(new byte[0])
                                 .flatMap(payload -> {
                                     exportedPayloadSizes.add(payload.length);
+                                    exportedPayloads.add(new String(payload, StandardCharsets.ISO_8859_1));
                                     return response.status(HttpResponseStatus.OK)
                                             .header(HttpHeaderNames.CONTENT_TYPE, "application/x-protobuf")
                                             .send()
@@ -49,5 +54,10 @@ public final class StubOtlpCollector {
     // size of each export: non-zero means it carried spans, not an empty batch
     public List<Integer> exportedPayloadSizes() {
         return List.copyOf(exportedPayloadSizes);
+    }
+
+    // true once any export carried a span with this name
+    public boolean receivedSpan(String name) {
+        return exportedPayloads.stream().anyMatch(payload -> payload.contains(name));
     }
 }

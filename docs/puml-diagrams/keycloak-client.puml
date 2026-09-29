@@ -118,16 +118,15 @@ end note
 
 == 6. an ordinary login, nothing special ==
 
-Svc -> Kcl : login(email, password)
+Svc -> Kcl : TokenService.issueTokens -> login(email, password)
 activate Kcl
 Kcl -> Kc : POST /realms/{realm}/protocol/openid-connect/token\nform: grant_type=password
 Kc --> Kcl : 200 { access_token, refresh_token, expires_in, token_type }
-Kcl --> Svc : TokenResponse
+Kcl --> Svc : TokenResponse (TokenService adds user_uid from the token)
 deactivate Kcl
 
 == 7. the answer ==
 
-Svc -> Svc : response.userUid(userUid)
 Svc --> Ctl : 201 { accessToken, refreshToken,\n     expiresIn, tokenType, userUid }
 deactivate Svc
 
@@ -279,7 +278,8 @@ package config {
 }
 
 UserService --> PersonClient : step 1, user_uid
-UserService --> KeycloakClient : account, password,\nrole, rollback, login, /me
+UserService --> KeycloakClient : account, password,\nrole, rollback, /me
+UserService --> TokenService : tokens at the end\nof registration
 TokenService --> KeycloakClient : login, refresh
 
 KeycloakClient ..> KeycloakUserRequest : body of POST /users

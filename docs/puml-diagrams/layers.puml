@@ -62,6 +62,7 @@ AuthController --> TokenService : login, refresh
 
 UserService --> PersonClient
 UserService --> KeycloakClient
+UserService --> TokenService : tokens at the end\nof registration
 TokenService --> KeycloakClient
 
 UserService --> AuthMetrics

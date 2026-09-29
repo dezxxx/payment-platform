@@ -103,22 +103,34 @@ skinparam rectangleBorderColor #6d28d9
 rectangle "**trace** 16bc50fe...  one id for the whole request" as T {
   rectangle "**server span**\nPOST /api/v1/auth/registration\nparent: none - this one starts the trace" as S0
 
-  rectangle "client span\nPOST person-service /api/v1/persons/registration" as S1
-  rectangle "client span\nPOST Keycloak /token  client_credentials" as S2
-  rectangle "client span\nPOST Keycloak /admin/.../users" as S3
-  rectangle "client span\nPOST Keycloak /token  client_credentials" as S4
-  rectangle "client span\nPUT Keycloak /admin/.../reset-password" as S5
-  rectangle "client span\nGET + POST Keycloak role-mappings" as S6
-  rectangle "client span\nPOST Keycloak /token  password" as S7
+  rectangle "**registration**\nthe scenario, named in UserService" as R
+
+  rectangle "registration.createPerson" as R1
+  rectangle "registration.createAccount" as R2
+  rectangle "registration.resetPassword" as R3
+  rectangle "registration.assignRole" as R4
+  rectangle "registration.login" as R5
+
+  rectangle "client span\nPOST person-service /api/v1/persons/registration" as H1
+  rectangle "client span\nPOST Keycloak /token  client_credentials\n(only when the cached token is stale)" as H2
+  rectangle "client span\nPOST Keycloak /admin/.../users" as H3
+  rectangle "client span\nPUT Keycloak /admin/.../reset-password" as H4
+  rectangle "client spans\nGET + POST Keycloak role-mappings" as H5
+  rectangle "client span\nPOST Keycloak /token  password" as H6
 }
 
-S0 --> S1
-S0 --> S2
-S0 --> S3
-S0 --> S4
-S0 --> S5
-S0 --> S6
-S0 --> S7
+S0 --> R
+R --> R1
+R --> R2
+R --> R3
+R --> R4
+R --> R5
+R1 --> H1
+R2 --> H2
+R2 --> H3
+R3 --> H4
+R4 --> H5
+R5 --> H6
 
 note right of S0
   **trace** = the whole request, start to finish.
@@ -131,6 +143,11 @@ note right of S0
 
   The tree is built from parentId alone. Tempo
   stores spans as they arrive, in any order.
+
+  The step spans come from util/Spans:
+  mono.name(step).tap(Micrometer.observation(...)).
+  Open on subscribe, close when the Mono ends,
+  so the HTTP client spans land inside them.
 end note
 
 note bottom of T

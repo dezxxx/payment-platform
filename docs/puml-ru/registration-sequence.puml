@@ -7,6 +7,7 @@ skinparam shadowing false
 actor Client
 participant "AuthController" as Ctl
 participant "UserService" as Svc
+participant "TokenService" as Tok
 participant "PersonClient" as PCl
 participant "person-service" as Per
 participant "KeycloakClient" as KCl
@@ -35,11 +36,13 @@ group За этой чертой доменный пользователь уж�
   KCl -> Kc : PUT .../users/{id}/reset-password\ntemporary false
   Svc -> KCl : assignPlatformRole
   KCl -> Kc : GET .../roles/USER\nPOST .../users/{id}/role-mappings/realm
-  Svc -> KCl : login
+  deactivate KCl
+  Svc -> Tok : issueTokens
+  Tok -> KCl : login
   KCl -> Kc : POST /realms/REALM/protocol/openid-connect/token
   Kc --> KCl : access, refresh, expiresIn
-  KCl --> Svc : токены
-  deactivate KCl
+  KCl --> Tok : токены
+  Tok --> Svc : токены + user_uid из токена
 end
 
 Svc --> Ctl : TokenResponse

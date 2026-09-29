@@ -206,7 +206,9 @@ rest -> service -> gateway -> внешняя система
 Как на компонентной диаграмме преподавателя: `AuthController` вызывает два
 сервиса, и у каждой внешней системы ровно один клиент.
 
-- `UserService` — регистрация и `/me`
+- `UserService` — регистрация и `/me`; последний шаг регистрации получает
+  токены через `TokenService.issueTokens`, как на компонентной диаграмме
+  нарисовано `UserService -> TokenService`
 - `TokenService` — логин и обновление токена
 - `KeycloakClient` — всё про Keycloak: token endpoint (логин, обновление,
   служебный токен с кешем) и Admin API (аккаунт, пароль, роль, откат, дата
@@ -887,6 +889,21 @@ Nexus разрешает анонимное чтение, так что паро
       нераскодируемый токен отклоняла собственная точка входа resource server —
       пустой 401 и текст декодера в `WWW-Authenticate`. Теперь наша стоит и на
       `oauth2ResourceServer`; `ErrorContractIT` это закрепляет
+- [x] **Каждый шаг сценария — именованный спан**, так что Tempo читается как
+      сценарий, а не голым `http post`: `registration` ->
+      `registration.createPerson`, `.createAccount`, `.resetPassword`,
+      `.assignRole`, `.login` (и `.rollbackAccount` при сбое); `login` ->
+      `login.getToken`, `login.readUserUid`; так же для `refresh`; `me` ->
+      `me.findRegisteredAt`. Имена ставятся в сервисах: только сервис знает, к
+      какому сценарию относится вызов — `KeycloakClient.login` служит и
+      регистрации, и логину. Сделано через `util/Spans`:
+      `mono.name(шаг).tap(Micrometer.observation(registry))` из
+      `reactor-core-micrometer`. Не аннотацией: метод, возвращающий `Mono`,
+      возвращается раньше, чем начнётся работа, поэтому `@Observed` (он умеет
+      только `CompletionStage`) закрыл бы спан через ~0 мс, а `@WithSpan`
+      требует стартера OpenTelemetry instrumentation — второй системы
+      трассировки рядом со встроенной в Boot. `ObservabilityIT` проверяет, что
+      каждый шаг регистрации доходит до коллектора
 
 ### На 401 приходятся два разных случая, и различает их код
 
@@ -945,11 +962,6 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 **Все критерии приёмки выполнены, весь чек-лист студента отмечен, все артефакты
 из списка задания существуют.** Осталось то, чего задание не требует:
 
-- [ ] Именованные спаны на методах клиентов и сервисов, чтобы трасса читалась
-      `userService.register` -> `personClient.createPerson` -> ..., а не голым
-      `http post`. `@WithSpan` требует второй библиотеки трассировки, а
-      `@Observed` не умеет `Mono`, поэтому план — реакторный
-      `.name(...).tap(Micrometer.observation(...))`
 - [ ] Открытые вопросы к преподавателю: префикс `/api/v1` или `/v1`, имя роли
       `USER` или `individual.user`
 

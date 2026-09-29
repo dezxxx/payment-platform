@@ -7,6 +7,7 @@ skinparam shadowing false
 actor Client
 participant "AuthController" as Ctl
 participant "UserService" as Svc
+participant "TokenService" as Tok
 participant "PersonClient" as PCl
 participant "person-service" as Per
 participant "KeycloakClient" as KCl
@@ -35,11 +36,13 @@ group Domain user already exists past this line
   KCl -> Kc : PUT .../users/{id}/reset-password\ntemporary false
   Svc -> KCl : assignPlatformRole
   KCl -> Kc : GET .../roles/USER\nPOST .../users/{id}/role-mappings/realm
-  Svc -> KCl : login
+  deactivate KCl
+  Svc -> Tok : issueTokens
+  Tok -> KCl : login
   KCl -> Kc : POST /realms/REALM/protocol/openid-connect/token
   Kc --> KCl : access, refresh, expiresIn
-  KCl --> Svc : tokens
-  deactivate KCl
+  KCl --> Tok : tokens
+  Tok --> Svc : tokens + user_uid from the token
 end
 
 Svc --> Ctl : TokenResponse

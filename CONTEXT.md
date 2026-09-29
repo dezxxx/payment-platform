@@ -206,7 +206,9 @@ generated code.
 As in the teacher's component diagram: `AuthController` calls two services,
 and each external system has exactly one client.
 
-- `UserService` — registration and `/me`
+- `UserService` — registration and `/me`; its last registration step gets the
+  tokens through `TokenService.issueTokens`, as the component diagram draws
+  `UserService -> TokenService`
 - `TokenService` — login and refresh
 - `KeycloakClient` — everything Keycloak: the token endpoint (login, refresh,
   the service-account token, cached) and the Admin API (account, password,
@@ -504,10 +506,10 @@ sequenceDiagram
     Svc->>AGw: assign role USER
     AGw->>Kc: POST .../role-mappings/realm
     Kc-->>AGw: 204
-    Svc->>AGw: log in
+    Svc->>AGw: log in (through TokenService.issueTokens)
     AGw->>Kc: POST token grant_type=password
     Kc-->>AGw: access, refresh, expiresIn
-    AGw-->>Svc: tokens
+    AGw-->>Svc: tokens, user_uid read from the token
     Svc-->>Ctl: TokenResponse plus user_uid
     Ctl-->>Client: 201
 ```
@@ -930,6 +932,21 @@ neither task and fails silently by never running at all.
       undecodable token was rejected by the resource server's own entry point
       - an empty 401 with the decoder's message in `WWW-Authenticate`. Ours is
       now set on `oauth2ResourceServer` as well; `ErrorContractIT` pins it.
+- [x] **Every scenario step is a named span**, so Tempo reads as the flow
+      rather than as bare `http post`: `registration` ->
+      `registration.createPerson`, `.createAccount`, `.resetPassword`,
+      `.assignRole`, `.login` (and `.rollbackAccount` on failure); `login` ->
+      `login.getToken`, `login.readUserUid`; the same for `refresh`; `me` ->
+      `me.findRegisteredAt`. Named in the services, because only a service
+      knows which scenario a call belongs to - `KeycloakClient.login` serves
+      both registration and login. Done with `util/Spans`:
+      `mono.name(step).tap(Micrometer.observation(registry))` from
+      `reactor-core-micrometer`. Not an annotation: a method returning `Mono`
+      returns before any work happens, so `@Observed` (which handles only
+      `CompletionStage`) would close the span at ~0 ms, and `@WithSpan` needs
+      the OpenTelemetry instrumentation starter - a second tracing system next
+      to Boot's. `ObservabilityIT` checks every registration step reaches the
+      collector.
 
 ### Two failures share 401, and the code is what tells them apart
 
@@ -992,11 +1009,6 @@ spans.
 ticked, and every artifact the handout asks for exists.** What is left is not
 required by it:
 
-- [ ] Named spans on the client and service methods, so a trace reads
-      `userService.register` -> `personClient.createPerson` -> ... instead of
-      bare `http post`. `@WithSpan` needs a second tracing library and
-      `@Observed` does not handle `Mono`, so the plan is Reactor's
-      `.name(...).tap(Micrometer.observation(...))`
 - [ ] Open questions for the teacher: path prefix `/api/v1` vs `/v1`, role
       name `USER` vs `individual.user`
 

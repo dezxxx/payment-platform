@@ -18,7 +18,9 @@ import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
 import com.dezxxx.individuals.gateway.person.PersonClient;
 import com.dezxxx.individuals.metrics.AuthMetrics;
+import com.dezxxx.individuals.service.TokenService;
 import com.dezxxx.individuals.service.UserService;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
@@ -28,6 +30,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -58,9 +61,16 @@ class UserServiceTest {
     @Mock
     private KeycloakClient keycloakClient;
 
+    @Mock
+    private TokenService tokenService;
+
     // a mock is enough: we check the right counter is hit, not Micrometer
     @Mock
     private AuthMetrics metrics;
+
+    // a real but empty registry: the spans get their names, nothing records them
+    @Spy
+    private ObservationRegistry observationRegistry = ObservationRegistry.create();
 
     @InjectMocks
     private UserService userService;
@@ -75,16 +85,15 @@ class UserServiceTest {
                 .thenReturn(Mono.just(KEYCLOAK_USER_ID));
         when(keycloakClient.resetUserPassword(KEYCLOAK_USER_ID, PASSWORD)).thenReturn(Mono.empty());
         when(keycloakClient.assignPlatformRole(KEYCLOAK_USER_ID)).thenReturn(Mono.empty());
-        when(keycloakClient.login(EMAIL, PASSWORD)).thenReturn(Mono.just(new TokenResponse()));
+        when(tokenService.issueTokens(EMAIL, PASSWORD)).thenReturn(Mono.just(new TokenResponse().userUid(USER_UID)));
 
-        // when / then - user_uid is in no token Keycloak issues, it is carried
-        // over from step 1, the only place that knows it
+        // when / then - the tokens come from TokenService, carrying user_uid
         StepVerifier.create(userService.register(request()))
                 .assertNext(tokens -> assertThat(tokens.getUserUid()).isEqualTo(USER_UID))
                 .verifyComplete();
 
         // then
-        InOrder inOrder = Mockito.inOrder(personClient, keycloakClient);
+        InOrder inOrder = Mockito.inOrder(personClient, keycloakClient, tokenService);
         inOrder.verify(personClient).createPerson(EMAIL, FIRST_NAME, LAST_NAME);
         inOrder.verify(keycloakClient).createAccount(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString());
         inOrder.verify(keycloakClient).resetUserPassword(KEYCLOAK_USER_ID, PASSWORD);
@@ -92,7 +101,7 @@ class UserServiceTest {
         // has no use for a role, and this order keeps the compensation below
         // covering every write Keycloak has seen.
         inOrder.verify(keycloakClient).assignPlatformRole(KEYCLOAK_USER_ID);
-        inOrder.verify(keycloakClient).login(EMAIL, PASSWORD);
+        inOrder.verify(tokenService).issueTokens(EMAIL, PASSWORD);
         verify(keycloakClient, never()).rollbackAccountWithError(anyString(), any());
         verify(metrics).registrationStarted();
         verify(metrics).registrationSucceeded();
@@ -139,7 +148,7 @@ class UserServiceTest {
 
         // then
         verify(keycloakClient).rollbackAccountWithError(eq(KEYCLOAK_USER_ID), any());
-        verify(keycloakClient, never()).login(anyString(), anyString());
+        verify(tokenService, never()).issueTokens(anyString(), anyString());
         // A registration that was rolled back is still a failed registration -
         // the counter must not be reserved for errors we did not compensate.
         verify(metrics).registrationFailed();
@@ -171,7 +180,7 @@ class UserServiceTest {
         // then - the partial failure is recorded, which is the other half of
         // what the handout asks for here
         verify(keycloakClient, never()).rollbackAccountWithError(anyString(), any());
-        verify(keycloakClient, never()).login(anyString(), anyString());
+        verify(tokenService, never()).issueTokens(anyString(), anyString());
         verify(metrics).registrationFailed();
         verify(metrics, never()).registrationSucceeded();
     }
@@ -186,7 +195,7 @@ class UserServiceTest {
                 .thenReturn(Mono.just(KEYCLOAK_USER_ID));
         when(keycloakClient.resetUserPassword(KEYCLOAK_USER_ID, PASSWORD)).thenReturn(Mono.empty());
         when(keycloakClient.assignPlatformRole(KEYCLOAK_USER_ID)).thenReturn(Mono.empty());
-        when(keycloakClient.login(EMAIL, PASSWORD))
+        when(tokenService.issueTokens(EMAIL, PASSWORD))
                 .thenReturn(Mono.error(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE)));
 
         // when / then
@@ -236,7 +245,7 @@ class UserServiceTest {
                 .verifyComplete();
 
         // then - /me never logs anyone in
-        verify(keycloakClient, never()).login(anyString(), anyString());
+        verify(tokenService, never()).issueTokens(anyString(), anyString());
     }
 
     // no user_uid claim = the realm mapper is broken, our fault: 500, not a half-filled answer

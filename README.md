@@ -162,7 +162,7 @@ Module 1 is not finished. What is honest as of today:
 |---|---|
 | ✅ Working | Contract, Gradle build, Keycloak realm, `KeycloakClient` and `PersonClient`, `UserService` with compensation, `TokenService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — all eight meters, and JSON logs carrying every field the module requires |
 | 🐳 Compose | `make up` brings up eleven services and builds the app inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
-| 🧪 Tests | **51 tests, green: 35 unit and 16 integration.** Every test case the handout lists is covered, and each carries its code — `UT-REG-001`, `IT-KC-001` — in its display name. Integration runs against a real Keycloak and a real PostgreSQL in containers. Coverage on the key services is **100%**, with the build failing below 80% |
+| 🧪 Tests | **53 tests, green: 36 unit and 17 integration.** Every test case the handout lists is covered, and each carries its code — `UT-REG-001`, `IT-KC-001` — in its display name. Integration runs against a real Keycloak and a real PostgreSQL in containers. Coverage on the key services is **100%**, with the build failing below 80% |
 | 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, 20 requests, tokens captured automatically, 52 assertions |
 | 📦 Nexus | In the compose file, and `person-client` is resolved from it rather than from the local Maven repository |
 | 🚧 Missing | `person-service` itself is module 2 — migrations only. Until then a WireMock stub answers in its place |

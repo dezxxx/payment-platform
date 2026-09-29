@@ -14,12 +14,14 @@ import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
 import com.dezxxx.individuals.metrics.AuthMetrics;
 import com.dezxxx.individuals.service.TokenService;
+import io.micrometer.observation.ObservationRegistry;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.JwtException;
@@ -53,6 +55,10 @@ class TokenServiceTest {
 
     @Mock
     private ReactiveJwtDecoder jwtDecoder;
+
+    // a real but empty registry: the spans get their names, nothing records them
+    @Spy
+    private ObservationRegistry observationRegistry = ObservationRegistry.create();
 
     @InjectMocks
     private TokenService tokenService;
@@ -184,6 +190,22 @@ class TokenServiceTest {
 
         // then
         verify(metrics).loginFailed();
+    }
+
+    @Test
+    @DisplayName("given a just-registered account, when tokens are issued, then they carry user_uid and no login is counted")
+    void issuesTokensForRegistrationWithoutCountingALogin() {
+        // given
+        when(keycloakClient.login(EMAIL, PASSWORD)).thenReturn(Mono.just(tokensFromKeycloak()));
+        when(jwtDecoder.decode(ACCESS_TOKEN)).thenReturn(Mono.just(accessToken()));
+
+        // when / then
+        StepVerifier.create(tokenService.issueTokens(EMAIL, PASSWORD))
+                .assertNext(tokens -> assertThat(tokens.getUserUid()).isEqualTo(USER_UID))
+                .verifyComplete();
+
+        // then - registration is not a login the user made
+        verifyNoInteractions(metrics);
     }
 
     // what Keycloak's token endpoint answers: no user_uid in it

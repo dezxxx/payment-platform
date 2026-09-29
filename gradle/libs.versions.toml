@@ -35,6 +35,7 @@ spring-boot-starter-opentelemetry    = { module = "org.springframework.boot:spri
 spring-web                           = { module = "org.springframework:spring-web" }
 spring-context                       = { module = "org.springframework:spring-context" }
 reactor-core                         = { module = "io.projectreactor:reactor-core" }
+reactor-core-micrometer              = { module = "io.projectreactor:reactor-core-micrometer" }
 
 # --- Observability ---
 micrometer-registry-prometheus       = { module = "io.micrometer:micrometer-registry-prometheus" }

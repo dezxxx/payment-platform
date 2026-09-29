@@ -103,22 +103,34 @@ skinparam rectangleBorderColor #6d28d9
 rectangle "**трейс** 16bc50fe...  один id на весь запрос" as T {
   rectangle "**серверный спан**\nPOST /api/v1/auth/registration\nродителя нет - он и начинает трейс" as S0
 
-  rectangle "клиентский спан\nPOST person-service /api/v1/persons/registration" as S1
-  rectangle "клиентский спан\nPOST Keycloak /token  client_credentials" as S2
-  rectangle "клиентский спан\nPOST Keycloak /admin/.../users" as S3
-  rectangle "клиентский спан\nPOST Keycloak /token  client_credentials" as S4
-  rectangle "клиентский спан\nPUT Keycloak /admin/.../reset-password" as S5
-  rectangle "клиентский спан\nGET + POST Keycloak role-mappings" as S6
-  rectangle "клиентский спан\nPOST Keycloak /token  password" as S7
+  rectangle "**registration**\nсценарий, имя даёт UserService" as R
+
+  rectangle "registration.createPerson" as R1
+  rectangle "registration.createAccount" as R2
+  rectangle "registration.resetPassword" as R3
+  rectangle "registration.assignRole" as R4
+  rectangle "registration.login" as R5
+
+  rectangle "клиентский спан\nPOST person-service /api/v1/persons/registration" as H1
+  rectangle "клиентский спан\nPOST Keycloak /token  client_credentials\n(только если токен в кеше устарел)" as H2
+  rectangle "клиентский спан\nPOST Keycloak /admin/.../users" as H3
+  rectangle "клиентский спан\nPUT Keycloak /admin/.../reset-password" as H4
+  rectangle "клиентские спаны\nGET + POST Keycloak role-mappings" as H5
+  rectangle "клиентский спан\nPOST Keycloak /token  password" as H6
 }
 
-S0 --> S1
-S0 --> S2
-S0 --> S3
-S0 --> S4
-S0 --> S5
-S0 --> S6
-S0 --> S7
+S0 --> R
+R --> R1
+R --> R2
+R --> R3
+R --> R4
+R --> R5
+R1 --> H1
+R2 --> H2
+R2 --> H3
+R3 --> H4
+R4 --> H5
+R5 --> H6
 
 note right of S0
   **трейс** = весь запрос, от начала до конца.
@@ -131,6 +143,11 @@ note right of S0
 
   Дерево строится только по parentId. Tempo
   складывает спаны как они пришли, порядок неважен.
+
+  Спаны шагов даёт util/Spans:
+  mono.name(шаг).tap(Micrometer.observation(...)).
+  Открываются на подписке, закрываются, когда Mono
+  завершилась, поэтому HTTP-спаны ложатся внутрь.
 end note
 
 note bottom of T

@@ -7,14 +7,18 @@ import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
 import com.dezxxx.individuals.logging.RequestLog;
 import com.dezxxx.individuals.metrics.AuthMetrics;
 import com.dezxxx.individuals.util.KeycloakClaims;
+import com.dezxxx.individuals.util.Spans;
+import io.micrometer.observation.ObservationRegistry;
 import java.util.UUID;
+import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-// Tokens only: login and refresh. Registration and /me live in UserService.
+// Tokens: login and refresh, and the tokens UserService hands out at the end of
+// registration. Registration itself and /me live in UserService.
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -26,13 +30,24 @@ public class TokenService {
     // the same decoder the security chain uses; keys are cached, no network call
     private final ReactiveJwtDecoder jwtDecoder;
 
+    private final ObservationRegistry observationRegistry;
+
     // email + password -> tokens + user_uid
     public Mono<TokenResponse> login(String email, String password) {
         return keycloakClient.login(email, password)
-                .flatMap(this::withUserUid)
+                .transform(span("login.getToken"))
+                .flatMap(tokens -> withUserUid(tokens).transform(span("login.readUserUid")))
                 .doFirst(metrics::loginStarted)
                 .doOnError(cause -> metrics.loginFailed())
-                .doOnSuccess(tokens -> log.info("Logged in {}", tokens.getUserUid()));
+                .doOnSuccess(tokens -> log.info("Logged in {}", tokens.getUserUid()))
+                .transform(span("login"));
+    }
+
+    // tokens for an account UserService has just registered - the last step of
+    // registration. No login counters: the user did not log in, registration did
+    public Mono<TokenResponse> issueTokens(String email, String password) {
+        return keycloakClient.login(email, password)
+                .flatMap(this::withUserUid);
     }
 
     // refresh token -> new pair. Keycloak answers invalid_grant both to a wrong
@@ -40,10 +55,17 @@ public class TokenService {
     // refusal is renamed to REFRESH_TOKEN_INVALID - "session ended", not "wrong password"
     public Mono<TokenResponse> refresh(String refreshToken) {
         return keycloakClient.refresh(refreshToken)
-                .flatMap(this::withUserUid)
+                .transform(span("refresh.getToken"))
+                .flatMap(tokens -> withUserUid(tokens).transform(span("refresh.readUserUid")))
                 .onErrorMap(TokenService::isRefusedCredentials,
                         ex -> new ApiException(ErrorCode.REFRESH_TOKEN_INVALID))
-                .doFirst(metrics::refreshStarted);
+                .doFirst(metrics::refreshStarted)
+                .transform(span("refresh"));
+    }
+
+    // one step of a scenario as a named span in the trace
+    private <T> Function<Mono<T>, Mono<T>> span(String name) {
+        return Spans.named(name, observationRegistry);
     }
 
     // only that one code is renamed; "Keycloak is down" keeps its own

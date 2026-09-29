@@ -109,6 +109,28 @@ class ObservabilityIT extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("IT-OBS-002: given a registration, when its trace is exported, then every step is a named span")
+    void namesEveryRegistrationStep() {
+        // when
+        register(freshEmail("it-obs-002-steps"));
+
+        // then - the scenario and each of its steps, so Tempo reads as the flow
+        List<String> steps = List.of(
+                "registration",
+                "registration.createPerson",
+                "registration.createAccount",
+                "registration.resetPassword",
+                "registration.assignRole",
+                "registration.login");
+        await().atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofMillis(500))
+                .untilAsserted(() -> assertThat(steps)
+                        .allSatisfy(step -> assertThat(OTLP_COLLECTOR.receivedSpan(step))
+                                .as("span " + step)
+                                .isTrue()));
+    }
+
+    @Test
     @DisplayName("IT-OBS-003: given a business event is logged, when the record is read, then it carries traceId and spanId")
     void stampsTraceContextOnEveryLogRecord() {
         // given / when
