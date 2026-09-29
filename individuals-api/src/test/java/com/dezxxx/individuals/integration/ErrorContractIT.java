@@ -5,15 +5,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
-/**
- * That every failure answers in one shape, and that two failures sharing a
- * status still tell the caller different things.
- *
- * <p>An integration test rather than a unit one because the interesting cases
- * are decided before a handler is ever chosen: the security filter chain
- * rejects them, and WebFlux offers no way to route that into an
- * {@code @ExceptionHandler}. Only a running application exercises that road.
- */
+// Every error has one shape, and errors with the same status still say
+// different things. Needs a running app: security errors never reach a handler
 @DisplayName("Error contract")
 class ErrorContractIT extends IntegrationTest {
 
@@ -36,6 +29,23 @@ class ErrorContractIT extends IntegrationTest {
                 .jsonPath("$.path").isEqualTo(ME)
                 .jsonPath("$.traceId").isNotEmpty()
                 .jsonPath("$.details").isArray();
+    }
+
+    @Test
+    @DisplayName("given a broken token, when asking who am I, then it is our error body, not an empty 401")
+    void answersABrokenTokenInOurShape() {
+        // given / when - a token is sent, but it is not a JWT at all
+        client.get()
+                .uri(ME)
+                .header("Authorization", "Bearer not.a.jwt")
+                .exchange()
+                // then - the resource server rejects it with its own entry point
+                // unless ours is set there too
+                .expectStatus().isUnauthorized()
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("AUTHENTICATION_REQUIRED")
+                .jsonPath("$.path").isEqualTo(ME)
+                .jsonPath("$.traceId").isNotEmpty();
     }
 
     @Test

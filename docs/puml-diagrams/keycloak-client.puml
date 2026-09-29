@@ -1,0 +1,306 @@
+@startuml keycloak-registration
+title Registration - the steps of the handout scenario
+
+autonumber
+skinparam shadowing false
+
+participant "AuthController" as Ctl
+participant "UserService" as Svc
+participant "PersonClient\n(over generated PersonsApi)" as Person
+participant "KeycloakClient" as Kcl
+participant "person-service" as Ps
+participant "Keycloak" as Kc
+
+Ctl -> Svc : register(RegistrationRequest)
+activate Svc
+
+== 1. the domain user is created first ==
+
+Svc -> Person : createPerson(email, firstName, lastName)
+activate Person
+Person -> Ps : POST /api/v1/persons/registration\n{ "email", "firstName", "lastName" }
+Ps --> Person : 201 { "userUid": "6f1d2a4e-..." }
+Person --> Svc : userUid
+deactivate Person
+
+note right of Svc
+  The password never travels here.
+  person-service owns the profile,
+  Keycloak owns the credentials.
+
+  This step comes first on purpose:
+  if it fails, no Keycloak account
+  was created, so nothing is left
+  half-made.
+end note
+
+== 2. this service authenticates as itself ==
+
+Svc -> Kcl : createAccount(email, firstName, lastName, userUid)
+activate Kcl
+
+Kcl -> Kcl : adminLogin()
+note right of Kcl
+  Service-account token (client_credentials),
+  cached until 10 s before it expires, so most
+  calls skip this request entirely.
+end note
+Kcl -> Kc : POST /realms/{realm}/protocol/openid-connect/token\nform: grant_type=client_credentials\n      client_id, client_secret
+Kc --> Kcl : 200 { access_token, expires_in }
+
+== 3. the account, without a password yet ==
+
+Kcl -> Kc : POST /admin/realms/{realm}/users\nAuthorization: Bearer <admin token>
+activate Kc
+note right of Kc
+  {
+    "username": "user@dezxxx.com",
+    "email":    "user@dezxxx.com",
+    "firstName": "Ivan",
+    "lastName":  "Ivanov",
+    "enabled": true,
+    "emailVerified": false,
+    "attributes": { "user_uid": ["6f1d2a4e-..."] }
+  }
+
+  No credentials here - the handout
+  sets the password separately.
+  user_uid rides along as a custom
+  attribute.
+end note
+Kc --> Kcl : 201 Created\nLocation: .../users/0b7a5f2c-19d4-...\n(no body at all)
+deactivate Kc
+
+note right of Kcl
+  The new id arrives only in the
+  Location header. Parsing it out
+  is this client's job.
+end note
+
+Kcl --> Svc : keycloakUserId
+deactivate Kcl
+
+== 4. the password ==
+
+Svc -> Kcl : resetUserPassword(keycloakUserId, password)
+activate Kcl
+Kcl -> Kc : PUT /admin/realms/{realm}/users/{id}/reset-password\n{ "type": "password",\n  "value": "Str0ngP@ssw0rd",\n  "temporary": false }
+Kc --> Kcl : 204 No Content
+Kcl --> Svc : done
+deactivate Kcl
+
+note over Kcl, Kc
+  temporary MUST be false. Left at Keycloak's
+  default the account is created successfully
+  and the very next login fails with
+  400 (Bad Request) / invalid_grant
+  "Account is not fully set up".
+end note
+
+== 5. the platform role ==
+
+Svc -> Kcl : assignPlatformRole(keycloakUserId)
+activate Kcl
+Kcl -> Kc : GET /admin/realms/{realm}/roles/USER
+Kc --> Kcl : 200 { id, name }
+Kcl -> Kc : POST /admin/realms/{realm}/users/{id}/role-mappings/realm\n[ { id, name } ]
+Kc --> Kcl : 204 No Content
+Kcl --> Svc : done
+deactivate Kcl
+
+note over Kcl, Kc
+  The realm import hands out no role: neither a
+  realm default role nor realmRoles in the create
+  body works - Keycloak accepts and ignores them.
+  Two calls, because a mapping is resolved by id
+  and the id is known only after reading the role.
+end note
+
+== 6. an ordinary login, nothing special ==
+
+Svc -> Kcl : login(email, password)
+activate Kcl
+Kcl -> Kc : POST /realms/{realm}/protocol/openid-connect/token\nform: grant_type=password
+Kc --> Kcl : 200 { access_token, refresh_token, expires_in, token_type }
+Kcl --> Svc : TokenResponse
+deactivate Kcl
+
+== 7. the answer ==
+
+Svc -> Svc : response.userUid(userUid)
+Svc --> Ctl : 201 { accessToken, refreshToken,\n     expiresIn, tokenType, userUid }
+deactivate Svc
+
+@enduml
+
+
+@startuml keycloak-rollback
+title What happens when the password or the role step fails
+
+skinparam shadowing false
+
+start
+
+:person-service created the domain user;
+:Keycloak created the account
+(no password yet);
+
+if (password set and role granted?) then (yes)
+  :login and answer the client;
+  stop
+else (no)
+  note right
+    The account exists but can never
+    be logged into, and the address is
+    already taken: every later attempt
+    to register it answers
+    409 (Conflict) - forever.
+  end note
+  :KeycloakClient.rollbackAccountWithError
+  DELETE /admin/realms/{realm}/users/{id};
+  note right
+    Compensating action. The address is
+    free again, the caller can simply
+    try once more.
+
+    The domain user in person-service is
+    NOT rolled back - its contract has no
+    delete operation. Recorded as a known
+    gap in CONTEXT.md.
+  end note
+  :answer the client with the original failure
+  (as REGISTRATION_INCONSISTENT);
+  stop
+endif
+
+@enduml
+
+
+@startuml keycloak-me
+title GET /api/v1/auth/me - why the Admin API is needed here too
+
+skinparam shadowing false
+
+rectangle "Access token (already verified)" as Tok {
+  card "sub            -> keycloakUserId" as c1
+  card "email          -> email" as c2
+  card "given_name     -> firstName" as c3
+  card "family_name    -> lastName" as c4
+  card "email_verified -> emailVerified" as c5
+  card "realm_access.roles -> roles" as c6
+  card "user_uid       -> userUid" as c7
+}
+
+rectangle "Admin API\nGET /admin/realms/{realm}/users/{sub}" as Adm {
+  card "createdTimestamp -> registeredAt" as c8
+}
+
+rectangle "CurrentUserResponse\n8 required fields" as Out
+
+Tok --> Out : seven fields, no network call
+Adm --> Out : the eighth one\n(KeycloakClient.findRegisteredAt)
+
+note bottom of Tok
+  user_uid is in the token because the realm
+  declares a protocol mapper for it. Without
+  that mapper this field would need a second
+  admin call.
+end note
+
+note bottom of Adm
+  registeredAt exists nowhere in the token,
+  so /me costs one admin read. The alternative
+  would be storing it on our side, and this
+  service owns no database.
+end note
+
+@enduml
+
+
+@startuml keycloak-classes
+title Where KeycloakClient sits
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+package service {
+  class UserService
+  class TokenService
+}
+
+package "gateway.person" {
+  class PersonClient <<@Component>> {
+    + Mono<UUID> createPerson(email,\n                       firstName, lastName)
+    - translate(error)
+  }
+}
+
+package "gateway.keycloak.client" {
+  class KeycloakClient <<@Component>> {
+    .. token endpoint ..
+    + Mono<TokenResponse> login(email, password)
+    + Mono<TokenResponse> refresh(refreshToken)
+    + Mono<String> adminLogin()
+    .. Admin API ..
+    + Mono<String> createAccount(email, firstName,\n                         lastName, userUid)
+    + Mono<Void> resetUserPassword(id, password)
+    + Mono<Void> assignPlatformRole(id)
+    + Mono<T> rollbackAccountWithError(id, cause)
+    + Mono<OffsetDateTime> findRegisteredAt(id)
+    .. errors ..
+    - translate(response)
+  }
+  class KeycloakUserRequest <<record>> {
+    username, email, firstName, lastName,
+    enabled, emailVerified, attributes
+  }
+  class KeycloakTokenResponse <<record>> {
+    accessToken, refreshToken,
+    expiresIn, tokenType
+  }
+}
+
+package util {
+  class GatewayErrors <<static>> {
+    + transportFailures(dependency, baseUrl)
+  }
+}
+
+package config {
+  class KeycloakProperties <<record>> {
+    tokenUri()
+    usersUri()
+    rolesUri()
+  }
+  class HttpClientsConfig {
+    keycloakWebClient
+    personsApi
+  }
+}
+
+UserService --> PersonClient : step 1, user_uid
+UserService --> KeycloakClient : account, password,\nrole, rollback, login, /me
+TokenService --> KeycloakClient : login, refresh
+
+KeycloakClient ..> KeycloakUserRequest : body of POST /users
+KeycloakClient ..> KeycloakTokenResponse : token endpoint answer
+KeycloakClient ..> GatewayErrors
+PersonClient ..> GatewayErrors
+KeycloakClient --> KeycloakProperties : tokenUri(), usersUri()
+HttpClientsConfig --> KeycloakClient : keycloakWebClient
+
+note right of KeycloakClient
+  One class for everything Keycloak, as in the
+  teacher's component diagram. The small bodies
+  live inside it as private records:
+  KeycloakCredential, KeycloakRealmRole,
+  KeycloakUserRepresentation, KeycloakError,
+  CachedToken.
+
+  translate() turns Keycloak's error answers into
+  our ApiException: invalid_grant -> 401, a wrong
+  client secret -> 500, 409 -> USER_ALREADY_EXISTS,
+  5xx -> 503. The same table for both APIs.
+end note
+
+@enduml

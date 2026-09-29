@@ -1,11 +1,10 @@
 # Commands for the whole platform, from one place.
 #
 # This folder is a Git root, not a Gradle project: every module is its own
-# build, so bringing the stack up means building a jar in one folder and then
-# running compose in this one. The targets below carry that order, so nobody
-# has to remember it.
+# build. individuals-api is built inside its Docker image and downloads
+# person-client from Nexus, so Nexus has to be up first - make up does that.
 #
-#   make            everything: build the jar and start the stack
+#   make            everything: start Nexus, build the image, start the stack
 #   make help       the list of targets
 #
 # Requires make. It ships with Linux and macOS; on Windows install it once:
@@ -36,12 +35,12 @@ DOCKER_COMPOSE := docker compose
 .DEFAULT_GOAL := all
 .PHONY: all help build jar publish-local publish test it check up down restart rebuild logs ps clean
 
-# all: build everything and start the stack - the one command
-all: jar up
+# all: start the stack - the image builds itself; the one command
+all: up
 
 # help: list the targets
 help:
-	@echo make              build the jar and start the stack
+	@echo make              start the stack - the image builds individuals-api inside Docker
 	@echo make build        publish person-client locally, then build with tests
 	@echo make jar          publish person-client locally, then package the jar
 	@echo make publish-local   person-client into the local Maven repository
@@ -49,7 +48,7 @@ help:
 	@echo make test         unit tests only - needs nothing running
 	@echo make it           integration tests - stops the stack first
 	@echo make check        contract validation of person-service
-	@echo make up           start the stack, rebuilding the image
+	@echo make up           start Nexus, wait for it, then build the image and start the stack
 	@echo make down         stop the stack, keep the volumes
 	@echo make restart      down, then up
 	@echo make rebuild      rebuild the image from scratch, then start
@@ -85,8 +84,9 @@ it: down
 check:
 	cd $(CONTRACT) && $(CONTRACT)/$(WRAPPER) check
 
-# up: start the stack, rebuilding the image from the jar built beforehand
+# up: Nexus first - the image build downloads person-client from it - then the rest
 up:
+	$(DOCKER_COMPOSE) up -d --wait nexus
 	$(DOCKER_COMPOSE) up -d --build
 
 # down: stop the stack, keep the volumes
@@ -98,6 +98,7 @@ restart: down up
 
 # rebuild: build the image from scratch, ignoring the layer cache, then start
 rebuild:
+	@$(DOCKER_COMPOSE) up -d --wait nexus
 	@$(DOCKER_COMPOSE) build --no-cache individuals-api
 	@$(DOCKER_COMPOSE) up -d
 

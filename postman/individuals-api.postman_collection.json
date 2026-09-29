@@ -1,295 +1,26 @@
 {
   "info": {
     "name": "individuals-api",
-    "description": "Every endpoint of individuals-api, in the order a person would actually walk them: register, look at yourself, refresh, log in again. Then the failures worth seeing.\n\nNothing has to be copied by hand. Registration and login store the tokens in collection variables, and the requests that need a token read them from there - so the whole happy path can be run with Postman's Runner in one click.\n\nBefore running: docker compose up -d, and remember that registration needs person-service, which is module 2. Until it exists the first request answers 503 (Service Unavailable) - that is the module's known limit, not a broken collection.",
+    "description": "Every endpoint of individuals-api for two users, Ivan and Anna, so each one can be checked on its own afterwards: in Keycloak (admin console, realm payment-platform, Users) and through /me with that user's token.\n\nNothing is copied by hand: every request stores what the next one needs in collection variables. Run the whole collection with Postman's Runner, top to bottom.\n\nRun it on a fresh stack (make up after the volumes were removed). The emails are fixed so the users are easy to find; a second run on the same stack answers 409 on registration, which is correct.\n\nperson-service is a WireMock stub in module 1 (infra/person-service-stub): it gives every registration a new userUid and answers 409 to a second registration of Ivan or Anna.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    {
-      "key": "baseUrl",
-      "value": "http://localhost:8081",
-      "description": "Host port of individuals-api - see the port table in docs/CHEATSHEET.md."
-    },
-    {
-      "key": "email",
-      "value": "",
-      "description": "Filled in by the first request, so a re-run never collides with the account the last run created."
-    },
-    { "key": "password", "value": "Str0ngPass!" },
-    { "key": "accessToken", "value": "", "description": "Stored by registration and login." },
-    { "key": "refreshToken", "value": "", "description": "Stored by registration and login." },
-    { "key": "userUid", "value": "", "description": "The platform identifier, issued by person-service." }
+    { "key": "baseUrl", "value": "http://localhost:8081" },
+    { "key": "password", "value": "Str0ngPass!", "description": "The same for both users, to keep the collection short." },
+
+    { "key": "ivanEmail", "value": "ivan.petrov@example.com" },
+    { "key": "ivanAccessToken", "value": "" },
+    { "key": "ivanRefreshToken", "value": "" },
+    { "key": "ivanUserUid", "value": "" },
+
+    { "key": "annaEmail", "value": "anna.smirnova@example.com" },
+    { "key": "annaAccessToken", "value": "" },
+    { "key": "annaRefreshToken", "value": "" },
+    { "key": "annaUserUid", "value": "" }
   ],
   "item": [
     {
-      "name": "1. Registration",
-      "event": [
-        {
-          "listen": "prerequest",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "// A fresh address every run: the previous one is taken in both",
-              "// Keycloak and person-service, and would answer 409 for good.",
-              "pm.collectionVariables.set('email', 'user' + Date.now() + '@example.com');"
-            ]
-          }
-        },
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('201 Created', () => pm.response.to.have.status(201));",
-              "const body = pm.response.json();",
-              "pm.test('carries both tokens and the domain identifier', () => {",
-              "    pm.expect(body.accessToken).to.be.a('string').and.not.empty;",
-              "    pm.expect(body.refreshToken).to.be.a('string').and.not.empty;",
-              "    pm.expect(body.userUid).to.be.a('string').and.not.empty;",
-              "});",
-              "pm.test('token type and lifetime are as the contract says', () => {",
-              "    pm.expect(body.tokenType).to.eql('Bearer');",
-              "    pm.expect(body.expiresIn).to.be.a('number');",
-              "});",
-              "pm.collectionVariables.set('accessToken', body.accessToken);",
-              "pm.collectionVariables.set('refreshToken', body.refreshToken);",
-              "pm.collectionVariables.set('userUid', body.userUid);"
-            ]
-          }
-        }
-      ],
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "url": { "raw": "{{baseUrl}}/api/v1/auth/registration", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "registration"] },
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Ivanov\"\n}"
-        },
-        "description": "Creates the domain user in person-service, then the Keycloak account, then logs the new user in - so no second call is needed to get tokens.\n\nAnswers 201 (Created). A duplicate address is 409 (Conflict); a dependency that is down is 503 (Service Unavailable)."
-      }
-    },
-    {
-      "name": "2. Current user",
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));",
-              "const body = pm.response.json();",
-              "pm.test('is the user registration created', () => {",
-              "    pm.expect(body.userUid).to.eql(pm.collectionVariables.get('userUid'));",
-              "    pm.expect(body.email).to.eql(pm.collectionVariables.get('email'));",
-              "});",
-              "pm.test('carries the platform role and none of Keycloak own', () => {",
-              "    pm.expect(body.roles).to.include('USER');",
-              "    pm.expect(body.roles).to.not.include('offline_access');",
-              "});",
-              "pm.test('registeredAt comes from Keycloak, not from a claim', () => {",
-              "    pm.expect(body.registeredAt).to.be.a('string').and.not.empty;",
-              "});"
-            ]
-          }
-        }
-      ],
-      "request": {
-        "method": "GET",
-        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-        "url": { "raw": "{{baseUrl}}/api/v1/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "me"] },
-        "description": "The only protected endpoint. Seven fields come from the verified token; registeredAt is in no claim, so it costs one call to Keycloak's Admin API."
-      }
-    },
-    {
-      "name": "3. Refresh token",
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));",
-              "const body = pm.response.json();",
-              "pm.test('a fresh pair comes back', () => {",
-              "    pm.expect(body.accessToken).to.be.a('string').and.not.empty;",
-              "    pm.expect(body.refreshToken).to.be.a('string').and.not.empty;",
-              "});",
-              "pm.collectionVariables.set('accessToken', body.accessToken);",
-              "pm.collectionVariables.set('refreshToken', body.refreshToken);"
-            ]
-          }
-        }
-      ],
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "url": { "raw": "{{baseUrl}}/api/v1/auth/refresh-token", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "refresh-token"] },
-        "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" },
-        "description": "Keycloak rotates the refresh token as well, so both tokens in the answer are new. An expired or already-used one is 401 (Unauthorized) - the normal end of a session."
-      }
-    },
-    {
-      "name": "4. Login",
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));",
-              "const body = pm.response.json();",
-              "pm.test('user_uid survives a plain login', () => {",
-              "    pm.expect(body.userUid).to.eql(pm.collectionVariables.get('userUid'));",
-              "});",
-              "pm.collectionVariables.set('accessToken', body.accessToken);",
-              "pm.collectionVariables.set('refreshToken', body.refreshToken);"
-            ]
-          }
-        }
-      ],
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] },
-        "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}" },
-        "description": "No database of ours is touched. The credentials go straight to Keycloak; user_uid is read back out of the token the realm's mapper wrote."
-      }
-    },
-    {
-      "name": "Failures",
-      "description": "Worth running once: the error body is the same shape for every one of them, which is the point.",
-      "item": [
-        {
-          "name": "Registration - confirmation does not match (400)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
-                  "const body = pm.response.json();",
-                  "pm.test('names the field that is wrong', () => {",
-                  "    pm.expect(body.error).to.eql('VALIDATION_ERROR');",
-                  "    pm.expect(body.details.join(' ')).to.include('confirmPassword');",
-                  "});",
-                  "pm.test('rejected before any dependency was called', () => {",
-                  "    pm.expect(body.path).to.eql('/api/v1/auth/registration');",
-                  "});"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/registration", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "registration"] },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"mismatch@example.com\",\n  \"password\": \"Str0ngPass!\",\n  \"confirmPassword\": \"Different1!\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Ivanov\"\n}"
-            },
-            "description": "The one request rule OpenAPI cannot express, so it is a constraint on the schema instead. Rejected by @Valid on the controller - no service, and therefore no Keycloak, is ever reached."
-          }
-        },
-        {
-          "name": "Login - wrong password (401)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
-                  "pm.test('answers our code, not Keycloak own', () => {",
-                  "    pm.expect(pm.response.json().error).to.eql('INVALID_CREDENTIALS');",
-                  "});"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] },
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"WrongPassword1!\"\n}" },
-            "description": "Keycloak answers 400 invalid_grant here. The gateway translates it to 401 (Unauthorized), because the caller is wrong, not us."
-          }
-        },
-        {
-          "name": "Current user - no token (401)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
-                  "pm.test('rejected in the filter chain, still our error shape', () => {",
-                  "    const body = pm.response.json();",
-                  "    pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details');",
-                  "});",
-                  "pm.test('says the token is missing, not that a password is wrong', () => {",
-                  "    // Same status as a wrong password, different code - no",
-                  "    // password was read on this request.",
-                  "    pm.expect(pm.response.json().error).to.eql('AUTHENTICATION_REQUIRED');",
-                  "});"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "me"] },
-            "description": "Rejected by Spring Security before any handler runs. WebFlux cannot route that into an @ExceptionHandler, so a separate entry point writes the body - and it has to come out in the same shape. That is what this request checks."
-          }
-        },
-        {
-          "name": "Registration - the same address twice (409)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// Which refusal you get depends on whether person-service is",
-                  "// running, and both are correct answers - so the test asserts",
-                  "// the right one for the environment rather than the one that",
-                  "// will be right after module 2.",
-                  "pm.test('the second attempt is refused', () => {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([409, 503]);",
-                  "});",
-                  "const body = pm.response.json();",
-                  "if (pm.response.code === 409) {",
-                  "    pm.test('person-service refused first, so nothing was created', () => {",
-                  "        pm.expect(body.error).to.eql('USER_ALREADY_EXISTS');",
-                  "    });",
-                  "} else {",
-                  "    pm.test('no person-service: the duplicate is caught by Keycloak, after the domain user was committed', () => {",
-                  "        pm.expect(body.error).to.eql('REGISTRATION_INCONSISTENT');",
-                  "    });",
-                  "}"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/registration", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "registration"] },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Ivanov\"\n}"
-            },
-            "description": "Run after request 1, which stored the address. person-service refuses first, so nothing is created anywhere and the caller keeps the original answer - 409 (Conflict) rather than our inconsistency code.\n\nWith person-service absent this answers 503 instead: the duplicate is then caught by Keycloak, after the domain user was already committed."
-          }
-        }
-      ]
-    },
-    {
-      "name": "Infrastructure",
-      "description": "Not part of the API, but what the module is judged on.",
+      "name": "0. Infrastructure",
       "item": [
         {
           "name": "Health",
@@ -311,6 +42,499 @@
             "url": { "raw": "{{baseUrl}}/actuator/health", "host": ["{{baseUrl}}"], "path": ["actuator", "health"] }
           }
         },
+        {
+          "name": "Swagger UI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('is the Swagger UI page', () => pm.expect(pm.response.text()).to.include('swagger-ui'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/swagger-ui.html", "host": ["{{baseUrl}}"], "path": ["swagger-ui.html"] },
+            "description": "Open it in a browser: http://localhost:8081/swagger-ui.html"
+          }
+        },
+        {
+          "name": "Swagger shows our contract",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const config = pm.response.json();",
+                  "pm.test('the UI loads openapi/individuals-api.yaml, not a spec guessed from the code', () => {",
+                  "    pm.expect(config.url).to.eql('/openapi/individuals-api.yaml');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/v3/api-docs/swagger-config", "host": ["{{baseUrl}}"], "path": ["v3", "api-docs", "swagger-config"] }
+          }
+        },
+        {
+          "name": "Contract file",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const spec = pm.response.text();",
+                  "pm.test('is our contract with all four paths', () => {",
+                  "    pm.expect(spec).to.include('title: individuals-api');",
+                  "    ['/api/v1/auth/registration', '/api/v1/auth/login', '/api/v1/auth/refresh-token', '/api/v1/auth/me']",
+                  "        .forEach(path => pm.expect(spec).to.include(path));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/openapi/individuals-api.yaml", "host": ["{{baseUrl}}"], "path": ["openapi", "individuals-api.yaml"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Ivan",
+      "item": [
+        {
+          "name": "Register Ivan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('both tokens and the userUid', () => {",
+                  "    pm.expect(body.accessToken).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.refreshToken).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.userUid).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.tokenType).to.eql('Bearer');",
+                  "    pm.expect(body.expiresIn).to.be.a('number');",
+                  "});",
+                  "pm.collectionVariables.set('ivanAccessToken', body.accessToken);",
+                  "pm.collectionVariables.set('ivanRefreshToken', body.refreshToken);",
+                  "pm.collectionVariables.set('ivanUserUid', body.userUid);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/registration", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "registration"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{ivanEmail}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\"\n}"
+            },
+            "description": "person-service gives the userUid, Keycloak creates the account, then the user is logged in - tokens come back at once. 201 (Created)."
+          }
+        },
+        {
+          "name": "Ivan - who am I",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('is Ivan', () => {",
+                  "    pm.expect(body.userUid).to.eql(pm.collectionVariables.get('ivanUserUid'));",
+                  "    pm.expect(body.email).to.eql(pm.collectionVariables.get('ivanEmail'));",
+                  "    pm.expect(body.firstName).to.eql('Ivan');",
+                  "    pm.expect(body.lastName).to.eql('Petrov');",
+                  "});",
+                  "pm.test('has the platform role, none of Keycloak own', () => {",
+                  "    pm.expect(body.roles).to.include('USER');",
+                  "    pm.expect(body.roles).to.not.include('offline_access');",
+                  "});",
+                  "pm.test('registeredAt is filled', () => pm.expect(body.registeredAt).to.be.a('string').and.not.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ivanAccessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "me"] }
+          }
+        },
+        {
+          "name": "Ivan - refresh token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('a fresh pair, still Ivan', () => {",
+                  "    pm.expect(body.accessToken).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.refreshToken).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.userUid).to.eql(pm.collectionVariables.get('ivanUserUid'));",
+                  "});",
+                  "pm.collectionVariables.set('ivanAccessToken', body.accessToken);",
+                  "pm.collectionVariables.set('ivanRefreshToken', body.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/refresh-token", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "refresh-token"] },
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{ivanRefreshToken}}\"\n}" }
+          }
+        },
+        {
+          "name": "Ivan - login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('the same userUid as at registration', () => {",
+                  "    pm.expect(body.userUid).to.eql(pm.collectionVariables.get('ivanUserUid'));",
+                  "});",
+                  "pm.collectionVariables.set('ivanAccessToken', body.accessToken);",
+                  "pm.collectionVariables.set('ivanRefreshToken', body.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] },
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{ivanEmail}}\",\n  \"password\": \"{{password}}\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Anna",
+      "item": [
+        {
+          "name": "Register Anna",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('both tokens and the userUid', () => {",
+                  "    pm.expect(body.accessToken).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.refreshToken).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.userUid).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.test('a userUid of her own, not Ivan\\'s', () => {",
+                  "    pm.expect(body.userUid).to.not.eql(pm.collectionVariables.get('ivanUserUid'));",
+                  "});",
+                  "pm.collectionVariables.set('annaAccessToken', body.accessToken);",
+                  "pm.collectionVariables.set('annaRefreshToken', body.refreshToken);",
+                  "pm.collectionVariables.set('annaUserUid', body.userUid);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/registration", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "registration"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{annaEmail}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\",\n  \"firstName\": \"Anna\",\n  \"lastName\": \"Smirnova\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Anna - who am I",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('is Anna', () => {",
+                  "    pm.expect(body.userUid).to.eql(pm.collectionVariables.get('annaUserUid'));",
+                  "    pm.expect(body.email).to.eql(pm.collectionVariables.get('annaEmail'));",
+                  "    pm.expect(body.firstName).to.eql('Anna');",
+                  "    pm.expect(body.lastName).to.eql('Smirnova');",
+                  "});",
+                  "pm.test('has the platform role', () => pm.expect(body.roles).to.include('USER'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{annaAccessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "me"] }
+          }
+        },
+        {
+          "name": "Anna - refresh token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('a fresh pair, still Anna', () => {",
+                  "    pm.expect(body.userUid).to.eql(pm.collectionVariables.get('annaUserUid'));",
+                  "});",
+                  "pm.collectionVariables.set('annaAccessToken', body.accessToken);",
+                  "pm.collectionVariables.set('annaRefreshToken', body.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/refresh-token", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "refresh-token"] },
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{annaRefreshToken}}\"\n}" }
+          }
+        },
+        {
+          "name": "Anna - login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('the same userUid as at registration', () => {",
+                  "    pm.expect(pm.response.json().userUid).to.eql(pm.collectionVariables.get('annaUserUid'));",
+                  "});",
+                  "pm.collectionVariables.set('annaAccessToken', pm.response.json().accessToken);",
+                  "pm.collectionVariables.set('annaRefreshToken', pm.response.json().refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] },
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{annaEmail}}\",\n  \"password\": \"{{password}}\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Each token is its own user",
+      "item": [
+        {
+          "name": "Ivan's token still gives Ivan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Ivan, not the last one who logged in', () => {",
+                  "    pm.expect(pm.response.json().userUid).to.eql(pm.collectionVariables.get('ivanUserUid'));",
+                  "    pm.expect(pm.response.json().userUid).to.not.eql(pm.collectionVariables.get('annaUserUid'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ivanAccessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "me"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Failures",
+      "description": "Every error has the same shape: timestamp, path, status, error, message, traceId, details.",
+      "item": [
+        {
+          "name": "Register - confirmation does not match (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('VALIDATION_ERROR on confirmPassword', () => {",
+                  "    pm.expect(body.error).to.eql('VALIDATION_ERROR');",
+                  "    pm.expect(body.details.join(' ')).to.include('confirmPassword');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/registration", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "registration"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"mismatch@example.com\",\n  \"password\": \"Str0ngPass!\",\n  \"confirmPassword\": \"Different1!\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Register Ivan again (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('USER_ALREADY_EXISTS', () => pm.expect(pm.response.json().error).to.eql('USER_ALREADY_EXISTS'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/registration", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "registration"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{ivanEmail}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\"\n}"
+            },
+            "description": "person-service refuses first, so nothing is created in Keycloak."
+          }
+        },
+        {
+          "name": "Login - wrong password (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('INVALID_CREDENTIALS', () => pm.expect(pm.response.json().error).to.eql('INVALID_CREDENTIALS'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] },
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{annaEmail}}\",\n  \"password\": \"WrongPassword1!\"\n}" },
+            "description": "Keycloak answers 400 invalid_grant; we answer 401 - the caller is wrong, not us."
+          }
+        },
+        {
+          "name": "Refresh - broken refresh token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('REFRESH_TOKEN_INVALID, not a wrong password', () => {",
+                  "    pm.expect(pm.response.json().error).to.eql('REFRESH_TOKEN_INVALID');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/refresh-token", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "refresh-token"] },
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"not-a-real-token\"\n}" }
+          }
+        },
+        {
+          "name": "Who am I - no token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape, even from the security filter', () => {",
+                  "    pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details');",
+                  "});",
+                  "pm.test('AUTHENTICATION_REQUIRED', () => pm.expect(body.error).to.eql('AUTHENTICATION_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "me"] }
+          }
+        },
+        {
+          "name": "Who am I - forged token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('AUTHENTICATION_REQUIRED', () => pm.expect(pm.response.json().error).to.eql('AUTHENTICATION_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer not.a.jwt" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "me"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Metrics",
+      "item": [
         {
           "name": "Prometheus metrics",
           "event": [
@@ -340,8 +564,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/actuator/prometheus", "host": ["{{baseUrl}}"], "path": ["actuator", "prometheus"] },
-            "description": "All eight application meters, under the names Prometheus scrapes them by - a counter registered as auth.registration arrives here as auth_registration_total."
+            "url": { "raw": "{{baseUrl}}/actuator/prometheus", "host": ["{{baseUrl}}"], "path": ["actuator", "prometheus"] }
           }
         }
       ]

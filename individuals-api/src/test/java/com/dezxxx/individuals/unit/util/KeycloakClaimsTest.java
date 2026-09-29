@@ -11,14 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-/**
- * Every branch of {@link KeycloakClaims#realmRoles(Jwt)}.
- *
- * <p>No Spring context and no mocks: a Jwt is a value object, so the real thing
- * is built here. That is also what the resource server hands the application at
- * runtime, which makes these cases the actual contract rather than a stand-in
- * for it.
- */
+// Every branch of KeycloakClaims.realmRoles. A real Jwt, no mocks - it is a value object
 class KeycloakClaimsTest {
 
     @Test

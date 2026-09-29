@@ -1,0 +1,15 @@
+{
+  "priority": 1,
+  "scenarioName": "ivan.petrov",
+  "requiredScenarioState": "registered",
+  "request": {
+    "method": "POST",
+    "url": "/api/v1/persons/registration",
+    "bodyPatterns": [ { "matchesJsonPath": "$[?(@.email == 'ivan.petrov@example.com')]" } ]
+  },
+  "response": {
+    "status": 409,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "status": 409, "error": "PERSON_ALREADY_EXISTS", "message": "Email is already registered" }
+  }
+}

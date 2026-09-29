@@ -14,7 +14,7 @@ package "монорепозиторий payment-platform" {
   artifact "V001, V002\nмиграции Flyway" as MIG
 }
 
-database "Nexus\n(mavenLocal, пока не поднят)" as NEXUS
+database "Nexus" as NEXUS
 artifact "com.dezxxx:person-client:1.0.0-SNAPSHOT" as PCJ
 
 PS *-- PSY
@@ -25,7 +25,7 @@ PSY --> PC : openApiGenerate\nDTO + @HttpExchange
 IAY --> API : openApiGenerate\nтолько интерфейс AuthApi
 PC --> PCJ : публикация
 PCJ --> NEXUS
-NEXUS --> API : подключается по координатам Maven
+NEXUS --> API : подключается по координатам Maven\nпри сборке образа
 
 note bottom of API
   Никогда project(":person-client").

@@ -13,7 +13,7 @@ rectangle "REQUEST" as Req
 
 rectangle "Security filter chain\n(SecurityWebFilterChain)" as Sec <<stop>>
 
-rectangle "DispatcherHandler\nrouting, body binding, @Valid,\ncontroller, service, gateway" as Disp
+rectangle "DispatcherHandler\nrouting, body binding, @Valid,\ncontroller, service, client" as Disp
 
 rectangle "ROAD B\nApiAuthenticationEntryPoint  -> 401\nApiAccessDeniedHandler       -> 403" as RoadB <<road>>
 rectangle "SecurityErrorWriter\nserialises and writes bytes by hand" as Writer <<road>>
@@ -40,6 +40,13 @@ note right of Sec
   The watershed. Everything is decided
   by one question: did the filter chain
   let the request through?
+
+  The entry point is set twice in
+  SecurityConfig: in exceptionHandling
+  (no token) and in oauth2ResourceServer
+  (a token that fails to decode). Without
+  the second, a broken token got an empty
+  401 from Spring instead of our body.
 end note
 
 note right of Writer

@@ -13,7 +13,7 @@ rectangle "ЗАПРОС" as Req
 
 rectangle "Цепочка фильтров безопасности\n(SecurityWebFilterChain)" as Sec <<stop>>
 
-rectangle "DispatcherHandler\nмаршрутизация, разбор тела, @Valid,\nконтроллер, сервис, шлюз" as Disp
+rectangle "DispatcherHandler\nмаршрутизация, разбор тела, @Valid,\nконтроллер, сервис, клиент" as Disp
 
 rectangle "ДОРОГА B\nApiAuthenticationEntryPoint  -> 401\nApiAccessDeniedHandler       -> 403" as RoadB <<road>>
 rectangle "SecurityErrorWriter\nсам сериализует и пишет байты" as Writer <<road>>
@@ -40,6 +40,13 @@ note right of Sec
   Водораздел. Всё решает один вопрос:
   пропустила ли цепочка фильтров
   этот запрос?
+
+  Точка входа стоит в SecurityConfig
+  дважды: в exceptionHandling (токена
+  нет) и в oauth2ResourceServer (токен
+  не раскодировался). Без второй битый
+  токен получал от Spring пустой 401
+  вместо нашего тела.
 end note
 
 note right of Writer

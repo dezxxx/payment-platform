@@ -226,7 +226,7 @@ tasks.named<JacocoReport>("jacocoTestReport") {
 /**
  * Acceptance criterion 11: the main scenario, at 80% or better, on the key
  * services. The rule names that package and no other on purpose - a repository
- * wide average would hide a bare `RegistrationService` behind a well covered
+ * wide average would hide a bare `UserService` behind a well covered
  * `config`, which is the opposite of what the criterion is for.
  *
  * Measured at 100% when the rule was added, so the threshold is a floor that
@@ -253,4 +253,10 @@ tasks.check { dependsOn(tasks.named("jacocoTestCoverageVerification")) }
 
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
     archiveFileName.set("individuals-api.jar")
+}
+
+// Swagger UI shows the contract itself (descriptions, examples, error codes),
+// not what springdoc guesses from the code: the file is served at /openapi/
+tasks.processResources {
+    from(contract) { into("static/openapi") }
 }

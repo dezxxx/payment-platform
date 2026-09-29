@@ -40,7 +40,7 @@ volumes:
 ### `roles`
 
 `USER` здесь только объявлена и никому не выдаётся: ни одна настройка импорта
-не раздаёт роли realm'а. Выдаёт её `KeycloakAdminGateway.assignPlatformRole`,
+не раздаёт роли realm'а. Выдаёт её `KeycloakClient.assignPlatformRole`,
 третьим шагом регистрации.
 
 ### `clients`
@@ -119,9 +119,9 @@ Keycloak 24+ не сохраняет атрибут, который не объ�
 | имя realm | `realm` | `application.yml`: `individuals.keycloak.realm`, `issuer-uri` |
 | id клиента | `clientId` | `application.yml`: `individuals.keycloak.client-id` |
 | секрет клиента | `secret` (заглушка) | `.env`: `KEYCLOAK_CLIENT_SECRET` |
-| имя роли `USER` | `roles.realm[].name` | `KeycloakAdminGateway.PLATFORM_ROLE` |
+| имя роли `USER` | `roles.realm[].name` | `KeycloakClient.PLATFORM_ROLE` |
 | почта как логин | `registrationEmailAsUsername` | `KeycloakUserRequest`: `username = email` |
-| вход по паролю | `directAccessGrantsEnabled` | `KeycloakOidcGateway`: `grant_type=password` |
+| вход по паролю | `directAccessGrantsEnabled` | `KeycloakClient.login`: `grant_type=password` |
 | объявление атрибута | `components` | `KeycloakUserRequest`: `attributes` |
 
 Первые две пары — самые тихие: учётка создастся, токен будет действителен, а

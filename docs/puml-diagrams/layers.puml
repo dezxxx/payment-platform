@@ -1,5 +1,5 @@
 @startuml layers
-title individuals-api - target layer structure
+title individuals-api - layer structure
 
 skinparam shadowing false
 skinparam classAttributeIconSize 0
@@ -19,14 +19,13 @@ package rest {
 }
 
 package service {
-  class RegistrationService
-  class AuthenticationService
+  class UserService
+  class TokenService
 }
 
 package gateway {
-  class PersonServiceGateway <<@Component>>
-  class KeycloakAdminGateway <<@Component>>
-  class KeycloakOidcGateway <<@Component>>
+  class PersonClient <<@Component>>
+  class KeycloakClient <<@Component>>
 }
 
 package validation {
@@ -50,6 +49,7 @@ package config {
 
 package util {
   class KeycloakClaims
+  class GatewayErrors
 }
 
 package metrics {
@@ -57,22 +57,24 @@ package metrics {
 }
 
 AuthController ..|> AuthApi
-AuthController --> RegistrationService
-AuthController --> AuthenticationService
+AuthController --> UserService : register, /me
+AuthController --> TokenService : login, refresh
 
-RegistrationService --> PersonServiceGateway
-RegistrationService --> KeycloakAdminGateway
-RegistrationService --> KeycloakOidcGateway
-AuthenticationService --> KeycloakOidcGateway
+UserService --> PersonClient
+UserService --> KeycloakClient
+TokenService --> KeycloakClient
 
-RegistrationService --> AuthMetrics
-AuthenticationService --> AuthMetrics
-AuthenticationService --> KeycloakAdminGateway
-AuthenticationService --> KeycloakClaims
+UserService --> AuthMetrics
+TokenService --> AuthMetrics
+UserService --> KeycloakClaims
+TokenService --> KeycloakClaims
+
+PersonClient ..> GatewayErrors
+KeycloakClient ..> GatewayErrors
 
 note bottom of gateway
   individuals-api owns no data, so it has no
-  repository. The gateway takes that seat: one
+  repository. The client takes that seat: one
   class per external system, injected through
   the constructor. No interface in front of it -
   a second implementation would be the reason to

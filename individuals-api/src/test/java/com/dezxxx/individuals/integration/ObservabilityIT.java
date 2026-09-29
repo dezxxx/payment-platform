@@ -16,16 +16,8 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 
-/**
- * IT-OBS-001, IT-OBS-002 and IT-OBS-003: the three things the module promises
- * about observability, each checked where we are actually responsible for it.
- *
- * <p>Note what IT-OBS-002 does <b>not</b> do: it does not start Tempo. Whether
- * Tempo indexes what it receives is Tempo's promise, not ours, and a container
- * for it would make the test slower and flakier while proving someone else's
- * code. Our promise ends at the socket - the application must build spans and
- * push them over OTLP - and that is what is asserted.
- */
+// IT-OBS-001..003. No Tempo container: our job ends when spans leave over
+// OTLP (OpenTelemetry Protocol) - that is what is checked
 @DisplayName("Observability")
 class ObservabilityIT extends IntegrationTest {
 
@@ -33,7 +25,7 @@ class ObservabilityIT extends IntegrationTest {
 
     private static final String REGISTRATION_PATH = "/api/v1/auth/registration";
 
-    /** Registered in AuthMetrics, scraped with the suffixes Prometheus adds. */
+    // from AuthMetrics, with the suffixes Prometheus adds
     private static final List<String> SCRAPED_METER_NAMES = List.of(
             "auth_registration_total",
             "auth_registration_success_total",
@@ -122,7 +114,7 @@ class ObservabilityIT extends IntegrationTest {
         // given / when
         register(freshEmail("it-obs-003"));
 
-        // then - the line RegistrationService writes on success, which is the
+        // then - the line UserService writes on success, which is the
         // one an operator would follow from a dashboard into Tempo
         assertThat(capturedLogs.list)
                 .filteredOn(event -> event.getFormattedMessage().startsWith("Registered"))

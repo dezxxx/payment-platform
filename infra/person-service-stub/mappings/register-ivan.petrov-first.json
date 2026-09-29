@@ -1,0 +1,16 @@
+{
+  "priority": 1,
+  "scenarioName": "ivan.petrov",
+  "requiredScenarioState": "Started",
+  "newScenarioState": "registered",
+  "request": {
+    "method": "POST",
+    "url": "/api/v1/persons/registration",
+    "bodyPatterns": [ { "matchesJsonPath": "$[?(@.email == 'ivan.petrov@example.com')]" } ]
+  },
+  "response": {
+    "status": 201,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "userUid": "{{randomValue type='UUID'}}" }
+  }
+}

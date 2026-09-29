@@ -11,20 +11,13 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 
-/**
- * Reads Keycloak from the outside, the way a human would check the admin
- * console, so an assertion is never made against the code that wrote the data.
- *
- * <p>Deliberately not built on {@code KeycloakAdminGateway}: a test that used
- * our own gateway to verify what our own gateway wrote would pass just as
- * happily if both sides were wrong in the same way. This talks to the Admin
- * REST API directly, as the realm's own administrator.
- */
+// Reads Keycloak from outside, like a human in the admin console - not through
+// KeycloakClient, or a test would check our code with our own code
 public final class KeycloakAdminProbe {
 
     private static final String ADMIN_REALM = "master";
 
-    /** Keycloak's built-in client for administrative logins. */
+    // Keycloak's built-in admin client
     private static final String ADMIN_CLIENT_ID = "admin-cli";
 
     private static final Duration TIMEOUT = Duration.ofSeconds(20);
@@ -46,11 +39,7 @@ public final class KeycloakAdminProbe {
         this.adminPassword = adminPassword;
     }
 
-    /**
-     * The account Keycloak holds for this email, or empty when there is none.
-     * {@code exact=true} matters: without it Keycloak treats the value as an
-     * infix search and a different account could answer.
-     */
+    // the account for this email; exact=true, or Keycloak searches by substring
     public Optional<JsonNode> findUserByEmail(String email) {
         JsonNode users = parse(client.get()
                 .uri(builder -> builder.path("/admin/realms/{realm}/users")
@@ -65,10 +54,7 @@ public final class KeycloakAdminProbe {
         return users.isEmpty() ? Optional.empty() : Optional.of(users.get(0));
     }
 
-    /**
-     * Reads a single custom attribute. Keycloak returns every attribute as an
-     * array, even the ones that only ever hold one value.
-     */
+    // one custom attribute; Keycloak always returns attributes as arrays
     public Optional<String> attributeOf(JsonNode user, String name) {
         JsonNode values = user.path("attributes").path(name);
         return values.isArray() && !values.isEmpty()
@@ -97,13 +83,8 @@ public final class KeycloakAdminProbe {
         return response.get("access_token").asText();
     }
 
-    /**
-     * Bodies are taken as text and parsed here rather than decoded straight
-     * into a {@code JsonNode}. Boot 4 configures the reactive codecs around its
-     * own Jackson, which does not know this {@code JsonNode} type and answers
-     * with a codec error that says nothing about the request - reading a String
-     * keeps the parsing ours and the failure readable.
-     */
+    // read as String and parsed here: Boot 4's codecs do not know this JsonNode
+    // type and fail with an unreadable error
     private static JsonNode parse(String body) {
         try {
             return MAPPER.readTree(body == null ? "{}" : body);

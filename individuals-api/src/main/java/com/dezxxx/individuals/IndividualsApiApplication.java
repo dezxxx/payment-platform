@@ -4,13 +4,8 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import reactor.core.publisher.Hooks;
 
-/**
- * Entry point of the external entry layer of the payment platform.
- *
- * <p>This application owns no domain data. It orchestrates person-service,
- * the source of truth for the domain user, and Keycloak, the source of truth
- * for the account and its tokens.
- */
+// individuals-api owns no data: it orchestrates person-service (the person)
+// and Keycloak (the account and its tokens)
 @SpringBootApplication
 public class IndividualsApiApplication {
 

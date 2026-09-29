@@ -12,28 +12,14 @@ import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 import org.springframework.web.reactive.function.client.support.WebClientAdapter;
 import reactor.netty.http.client.HttpClient;
 
-/**
- * Outbound HTTP. The only place in the service that knows an address.
- *
- * <p>Both clients are built from the auto-configured {@link WebClient.Builder}
- * rather than from {@code WebClient.create()}: the builder Spring Boot hands
- * out already carries the observation instrumentation, so every outgoing call
- * becomes a child span of the request that caused it. A hand-made client would
- * silently break the trace at our own boundary.
- *
- * <p>Timeouts are set explicitly. A WebClient has none by default, and an
- * unanswered call to Keycloak would otherwise keep a caller waiting forever
- * instead of turning into the 503 the contract describes.
- */
+// Outbound HTTP - the only place that knows the addresses. Built from Boot's
+// WebClient.Builder, which already traces every call as a child span.
+// Timeouts are explicit: WebClient has none and would wait forever
 @Configuration
 @EnableConfigurationProperties({KeycloakProperties.class, PersonServiceProperties.class})
 public class HttpClientsConfig {
 
-    /**
-     * Connect timeout is separate from the response timeout: refusing to answer
-     * and refusing to accept a connection are different failures, and the
-     * second one should be reported quickly.
-     */
+    // "cannot connect" should fail fast, separately from "no answer"
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
 
     @Bean
@@ -52,11 +38,7 @@ public class HttpClientsConfig {
                 .build();
     }
 
-    /**
-     * The generated client interface is never implemented by hand: Spring
-     * builds a proxy from its {@code @HttpExchange} annotations, backed by the
-     * reactive WebClient, so every operation returns a Mono.
-     */
+    // Spring builds PersonsApi from its @HttpExchange annotations over WebClient
     @Bean
     PersonsApi personsApi(WebClient personWebClient) {
         return HttpServiceProxyFactory

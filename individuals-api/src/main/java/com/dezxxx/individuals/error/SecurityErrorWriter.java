@@ -15,18 +15,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-/**
- * Writes an {@link ErrorResponse} straight into the exchange.
- *
- * <p>Used by the two security handlers. Their failures happen inside the filter
- * chain, so no {@code @ExceptionHandler} will ever run for them and there is no
- * message converter in play either - the body has to be serialised and written
- * by hand.
- *
- * <p>The {@link ObjectMapper} is the one Spring Boot configured, so
- * {@code spring.jackson.default-property-inclusion} applies here exactly as it
- * does to a response produced by a controller.
- */
+// Writes ErrorResponse straight into the response, for the two security
+// handlers - in the filter chain there is no @ExceptionHandler to do it.
+// Boot's ObjectMapper, so JSON settings match the controllers'
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -49,21 +40,16 @@ public class SecurityErrorWriter {
         try {
             bytes = objectMapper.writeValueAsBytes(body);
         } catch (JacksonException ex) {
-            // Serialising our own model cannot realistically fail. If it ever
-            // does, the status is already set - close the exchange rather than
-            // fail the response with a second error.
+            // cannot really happen; the status is set - just close the response
             log.error("Failed to serialise the error response for {}", path, ex);
             return response.setComplete();
         }
 
         DataBuffer buffer = response.bufferFactory().wrap(bytes);
-        // The other road to an error answer, and it has to record the business
-        // code just as GlobalExceptionHandler does - a rejection from the
-        // filter chain never reaches an advice.
+        // same as GlobalExceptionHandler: record the business code
         RequestLog.errorCode(code.name());
         log.warn("{} {} -> {} {}", exchange.getRequest().getMethod(), path, code.getStatus().value(), code);
-        // A buffer that is never written has to be released by hand, or the
-        // pooled memory behind it leaks.
+        // an unwritten buffer must be released by hand, or pooled memory leaks
         return response.writeWith(Mono.just(buffer))
                 .doOnError(ex -> DataBufferUtils.release(buffer));
     }

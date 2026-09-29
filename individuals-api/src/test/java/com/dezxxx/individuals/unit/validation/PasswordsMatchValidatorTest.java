@@ -13,16 +13,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * Runs the rule through a real validator rather than calling
- * {@code isValid} directly.
- *
- * <p>Two things break silently and neither is visible from the method itself:
- * the annotation could stop reaching the generated class, and the violation
- * could end up on the object instead of on a field, which is what decides
- * whether the client is told which field was wrong. Both are exercised only by
- * validating a whole request.
- */
+// Through a real validator, not isValid() directly: checks the annotation
+// reaches the generated class and the error lands on a field
 @DisplayName("PasswordsMatch")
 class PasswordsMatchValidatorTest {
 
@@ -65,10 +57,7 @@ class PasswordsMatchValidatorTest {
         assertThat(violation.getMessage()).isEqualTo(MISMATCH_MESSAGE);
     }
 
-    /**
-     * The omission is already reported by {@code @NotNull}; this rule must stay
-     * quiet so one mistake does not produce two lines in the answer.
-     */
+    // @NotNull already reports it - one mistake, one line
     @Test
     @DisplayName("stays silent when a value is missing, leaving that to @NotNull")
     void ignoresMissingValues() {

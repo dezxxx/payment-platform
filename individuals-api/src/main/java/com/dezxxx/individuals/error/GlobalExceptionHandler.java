@@ -17,19 +17,9 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
 import org.springframework.web.bind.support.WebExchangeBindException;
 
-/**
- * Turns anything a handler raises into the contract's {@link ErrorResponse}.
- *
- * <p>Reactive stack: the request is a {@link ServerWebExchange}, not a servlet
- * request. Returning a plain {@code ResponseEntity} is allowed - WebFlux wraps
- * it for us, and nothing here does blocking work that would need a Mono of its
- * own.
- *
- * <p>Failures from the filter chain do not arrive here. WebFlux offers no
- * {@code handlerExceptionResolver} to delegate them into an advice, so
- * {@link ApiAuthenticationEntryPoint} and {@link ApiAccessDeniedHandler} write
- * their answers directly, sharing {@link ErrorResponseFactory} with this class.
- */
+// Turns any exception from a controller into our ErrorResponse.
+// Filter-chain errors never get here - ApiAuthenticationEntryPoint and
+// ApiAccessDeniedHandler answer those, sharing ErrorResponseFactory with us
 @Slf4j
 @RestControllerAdvice
 @RequiredArgsConstructor
@@ -42,12 +32,7 @@ public class GlobalExceptionHandler {
         return respond(ex.getErrorCode(), ex.getMessage(), ex.getDetails(), exchange, ex);
     }
 
-    /**
-     * Raised when a request body fails {@code @Valid}. The reactive counterpart
-     * of MethodArgumentNotValidException, and it carries the same BindingResult.
-     * The offending fields go into {@code details}, one line each, as the
-     * contract example shows.
-     */
+    // @Valid failed on the body; each bad field becomes one line in details
     @ExceptionHandler(WebExchangeBindException.class)
     public ResponseEntity<ErrorResponse> handleValidation(WebExchangeBindException ex,
                                                           ServerWebExchange exchange) {
@@ -58,23 +43,15 @@ public class GlobalExceptionHandler {
                 details, exchange, ex);
     }
 
-    /**
-     * Malformed or empty body, or a missing query parameter. The message of this
-     * exception names Java classes and stream positions, so it is logged rather
-     * than returned.
-     */
+    // broken or empty body. Its message names Java classes - logged, not returned
     @ExceptionHandler(ServerWebInputException.class)
     public ResponseEntity<ErrorResponse> handleUnreadableInput(ServerWebInputException ex,
                                                                ServerWebExchange exchange) {
         return respond(ErrorCode.VALIDATION_ERROR, "Malformed request body", List.of(), exchange, ex);
     }
 
-    /**
-     * Everything the dispatcher rejects before a handler is chosen - unknown
-     * path, wrong method, unsupported content type - reaches us as this one
-     * type, each instance already carrying its correct status. Without this the
-     * catch-all below would flatten all of them into 500.
-     */
+    // unknown path, wrong method, wrong content type - each already has its
+    // status; without this the catch-all would turn them all into 500
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<ErrorResponse> handleResponseStatus(ResponseStatusException ex,
                                                               ServerWebExchange exchange) {
@@ -82,11 +59,8 @@ public class GlobalExceptionHandler {
         return respond(code, code.getDefaultMessage(), List.of(), exchange, ex);
     }
 
-    /**
-     * Reached only when a handler itself rejects the caller, for example through
-     * method security. The same failure raised in the filter chain is answered
-     * by {@link ApiAuthenticationEntryPoint} instead.
-     */
+    // only when a controller itself rejects the caller; the filter chain
+    // case is answered by ApiAuthenticationEntryPoint
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex,
                                                               ServerWebExchange exchange) {
@@ -101,10 +75,8 @@ public class GlobalExceptionHandler {
                 List.of(), exchange, ex);
     }
 
-    /**
-     * Anything unforeseen. The client gets a bare message and the trace id;
-     * the stack trace stays in the log, where the same trace id leads to it.
-     */
+    // anything else: the client gets a plain message and the trace id,
+    // the stack trace stays in the log
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, ServerWebExchange exchange) {
         return respond(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.getDefaultMessage(),
@@ -120,8 +92,7 @@ public class GlobalExceptionHandler {
         String path = exchange.getRequest().getPath().value();
         ErrorResponse body = errorResponseFactory.create(code, message, details, path);
 
-        // Recorded before the line below, so this record and every later one
-        // carry the business code as a field rather than only inside the text.
+        // before the log line, so that line already carries the code as a field
         RequestLog.errorCode(code.name());
 
         if (status.is5xxServerError()) {
@@ -132,11 +103,7 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(status).body(body);
     }
 
-    /**
-     * Only the statuses the framework can produce on its own are named. A 4xx
-     * we did not foresee is still the caller's problem, so it is reported as a
-     * validation failure rather than as our own error.
-     */
+    // statuses the framework can produce; any other 4xx is the caller's
     private static ErrorCode fromStatus(HttpStatusCode status) {
         if (status.isSameCodeAs(HttpStatus.NOT_FOUND)) {
             return ErrorCode.NOT_FOUND;

@@ -46,6 +46,24 @@ services:
     ports:
       - "${KEYCLOAK_PORT}:8080"
 
+  # Stand-in for person-service until module 2 brings its code: WireMock
+  # answering POST /api/v1/persons/registration with a new userUid, and 409
+  # for the second registration of the Postman users. Mappings are plain JSON
+  # in infra/person-service-stub.
+  person-service:
+    image: ${WIREMOCK_IMAGE}
+    command: ["--port", "8082", "--global-response-templating"]
+    volumes:
+      - ./infra/person-service-stub:/home/wiremock:ro
+    # the image checks port 8080; we listen on 8082, the real service's port
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8082/__admin/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "${PERSON_SERVICE_PORT}:8082"
+
   person-postgres:
     image: ${POSTGRES_IMAGE}
     environment:
@@ -64,12 +82,18 @@ services:
 
   individuals-api:
     build:
-      # The module is the context: the image only packages a jar that was
-      # built beforehand. Each module is its own Gradle build, so nothing in a
-      # docker build can produce person-client - see individuals-api/Dockerfile.
-      context: ./individuals-api
-      dockerfile: Dockerfile
+      # The root is the context: the build needs gradle/libs.versions.toml.
+      # person-client comes from Nexus, so Nexus must be up first (make up).
+      context: .
+      dockerfile: individuals-api/Dockerfile
+      args:
+        NEXUS_PUBLIC_URL: http://host.docker.internal:${NEXUS_PORT}/repository/maven-public/
+      # host.docker.internal exists on Docker Desktop; this makes it exist on Linux too
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
     depends_on:
+      person-service:
+        condition: service_started
       # service_started, not service_healthy: Keycloak needs a while to finish
       # importing the realm, so the application must tolerate it not answering
       # for the first few seconds after start.
@@ -84,9 +108,7 @@ services:
       KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
-      # Defaults to the compose service that arrives in module 2. The
-      # walkthrough in docs/DEMO.md overrides it in .env to reach a stub
-      # running on the host.
+      # the stub below in module 1, the real service from module 2 on
       PERSON_SERVICE_URL: ${PERSON_SERVICE_URL:-http://person-service:8082}
     ports:
       - "${INDIVIDUALS_API_PORT}:8081"
@@ -193,6 +215,14 @@ services:
       - nexus-data:/nexus-data
     ports:
       - "${NEXUS_PORT}:8081"
+    # make up waits for this before building individuals-api, which downloads
+    # person-client from here. Nexus takes a minute or two to start.
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8081/service/rest/v1/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
 
 volumes:
   keycloak-postgres-data:

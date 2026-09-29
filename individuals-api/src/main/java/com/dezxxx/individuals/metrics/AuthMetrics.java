@@ -6,21 +6,9 @@ import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
-/**
- * Every meter this service publishes, and the only place their names are typed.
- *
- * <p>A metric name is a contract, the same way an {@code ErrorCode} is: a
- * Grafana panel and an alert rule are written against the string, and renaming
- * it silently empties a dashboard nobody is looking at right now. So the eight
- * names live in one file - a query that looks odd can be traced back here
- * instead of grepped for across the gateways and the services.
- *
- * <p>Micrometer's dotted convention, <b>not</b> the {@code _total} suffix the
- * handout's table shows. Prometheus appends {@code _total} to counters when it
- * scrapes, so a counter registered as {@code auth_registration_total} arrives
- * as {@code auth_registration_total_total}. The handout lists the scraped
- * names; what is registered here is what produces them.
- */
+// All our metrics, and the only place their names are written - a dashboard
+// depends on these strings. Dotted Micrometer names: Prometheus adds _total
+// itself, so auth.registration is scraped as auth_registration_total
 @Component
 public class AuthMetrics {
 
@@ -60,12 +48,7 @@ public class AuthMetrics {
                 "Time spent inside one call to person-service");
     }
 
-    /**
-     * Attempts, not requests that got past validation: a request rejected with
-     * <b>400 (Bad Request)</b> never reaches a service, so the ratio of this
-     * counter to the two below says what happens to the registrations we
-     * actually tried to carry out.
-     */
+    // attempts that passed validation - a 400 never reaches the service
     public void registrationStarted() {
         registrations.increment();
     }
@@ -82,12 +65,7 @@ public class AuthMetrics {
         logins.increment();
     }
 
-    /**
-     * Deliberately does not separate "wrong password" from "Keycloak is down".
-     * The distinction is already in the answer's {@code ErrorCode} and in the
-     * logs; a second dimension here would only invite an alert that fires on
-     * users mistyping their passwords.
-     */
+    // wrong password and Keycloak down count the same; the ErrorCode tells them apart
     public void loginFailed() {
         loginFailures.increment();
     }
@@ -96,26 +74,18 @@ public class AuthMetrics {
         refreshes.increment();
     }
 
-    /** Times one call to Keycloak - both its OIDC and its Admin API. */
+    // one call to Keycloak, OIDC and Admin API alike
     public <T> Mono<T> timeKeycloak(Mono<T> call) {
         return time(keycloakRequests, call);
     }
 
-    /** Times one call to person-service. */
+    // one call to person-service
     public <T> Mono<T> timePersonService(Mono<T> call) {
         return time(personServiceRequests, call);
     }
 
-    /**
-     * Wrapped in {@code defer} so the stopwatch starts when someone subscribes,
-     * not when the chain is assembled - otherwise a call that is built but
-     * never subscribed would still be timed, and a retried one would report the
-     * age of the chain rather than the duration of the attempt.
-     *
-     * <p>{@code doFinally} rather than {@code doOnSuccess}: a call that failed
-     * or was cancelled took time too, and leaving those out would make the
-     * timer flatter than reality exactly when something is wrong.
-     */
+    // defer: the stopwatch starts on subscribe, not when the chain is built.
+    // doFinally: failed and cancelled calls took time too
     private <T> Mono<T> time(Timer timer, Mono<T> call) {
         return Mono.defer(() -> {
             Timer.Sample sample = Timer.start(registry);

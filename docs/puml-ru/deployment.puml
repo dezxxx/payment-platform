@@ -1,5 +1,5 @@
 @startuml deployment
-title Локальный стенд - docker compose, десять сервисов
+title Локальный стенд - docker compose, одиннадцать сервисов
 
 skinparam shadowing false
 
@@ -12,6 +12,7 @@ node "сеть docker compose" {
   database "keycloak-postgres\nхост 5433 -> 5432" as KCDB
   database "person-postgres\nхост 5434 -> 5432" as PSDB
   node "nexus\nхост 8083 -> 8081" as NEXUS
+  node "person-service\nзаглушка WireMock, хост 8082" as PS
   node "prometheus\nхост 9090 -> 9090" as PROM
   node "alloy\nхост 12345 -> 12345" as ALLOY
   database "loki\nхост 3100 -> 3100" as LOKI
@@ -19,11 +20,9 @@ node "сеть docker compose" {
   node "grafana\nхост 3000 -> 3000" as GRAF
 }
 
-node "person-service\n8082 - появится в модуле 2" as PS
-
 Client --> API : POST /api/v1/auth/...
 API --> KC : Admin REST API\nи точка выдачи токенов OIDC
-API ..> PS : HTTP, пока не запущен
+API --> PS : POST /api/v1/persons/registration
 KC --> KCDB : JDBC
 
 PROM --> API : опрос /actuator/prometheus
@@ -35,8 +34,8 @@ GRAF --> PROM
 GRAF --> LOKI
 GRAF --> TEMPO
 
-Developer --> NEXUS : ./gradlew :person-client:publish
-API ..> NEXUS : разрешается при сборке,\nникогда во время работы
+Developer --> NEXUS : make publish\n(person-client)
+API ..> NEXUS : сборка образа скачивает person-client\nчерез host.docker.internal:8083
 
 note right of PROM
   Prometheus забирает, приложение отправляет.
@@ -46,15 +45,23 @@ note right of PROM
 end note
 
 note bottom of NEXUS
-  Не участвует в работе сервиса. Сборка Gradle
-  на машине публикует сюда person-client и
+  Не участвует в работе сервиса. Сюда публикуется
+  person-client, а сборка образа individuals-api
   подключает его по координатам Maven - именно
   это не даёт модулям зависеть друг от друга
-  через project(":...").
+  через project(":..."). make up поднимает Nexus
+  и ждёт его до этой сборки.
 
   Порт 8083, потому что методичка отдаёт 8081
   под individuals-api, и съезжает со своего
   порта по умолчанию именно Nexus.
+end note
+
+note right of PS
+  Замещает person-service до модуля 2:
+  новый userUid на каждую регистрацию, 409 на
+  повторную регистрацию пользователей Postman.
+  Маппинги в infra/person-service-stub.
 end note
 
 note bottom of PSDB

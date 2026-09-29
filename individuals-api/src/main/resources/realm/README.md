@@ -40,7 +40,7 @@ JSON carries no comments, which is why this file is described here instead.
 ### `roles`
 
 `USER` is declared here and granted nowhere: no import setting hands out a
-realm role. `KeycloakAdminGateway.assignPlatformRole` grants it as the third
+realm role. `KeycloakClient.assignPlatformRole` grants it as the third
 step of registration.
 
 ### `clients`
@@ -118,9 +118,9 @@ Nothing enforces these pairs. They drift silently.
 | realm name | `realm` | `application.yml`: `individuals.keycloak.realm`, `issuer-uri` |
 | client id | `clientId` | `application.yml`: `individuals.keycloak.client-id` |
 | client secret | `secret` (placeholder) | `.env`: `KEYCLOAK_CLIENT_SECRET` |
-| role name `USER` | `roles.realm[].name` | `KeycloakAdminGateway.PLATFORM_ROLE` |
+| role name `USER` | `roles.realm[].name` | `KeycloakClient.PLATFORM_ROLE` |
 | email as username | `registrationEmailAsUsername` | `KeycloakUserRequest`: `username = email` |
-| password grant | `directAccessGrantsEnabled` | `KeycloakOidcGateway`: `grant_type=password` |
+| password grant | `directAccessGrantsEnabled` | `KeycloakClient.login`: `grant_type=password` |
 | attribute declaration | `components` | `KeycloakUserRequest`: `attributes` |
 
 A mismatch in the first two is the quiet one: the account is still created, the

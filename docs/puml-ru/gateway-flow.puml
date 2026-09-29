@@ -6,32 +6,31 @@ autonumber
 
 actor "Пользователь" as U
 participant "AuthController" as Ctl
-participant "AuthenticationService" as Auth
-participant "RegistrationService" as Reg
+participant "TokenService" as Tok
+participant "UserService" as Usr
 box "gateway" #F7F7F7
-  participant "PersonServiceGateway" as PG
-  participant "KeycloakOidcGateway" as OG
-  participant "KeycloakAdminGateway" as AG
+  participant "PersonClient" as PC
+  participant "KeycloakClient" as KC
 end box
 participant "person-service" as PS
-participant "Keycloak" as KC
+participant "Keycloak" as K
 
 == Пробует войти, но учётки у него ещё нет ==
 
 U -> Ctl : POST /api/v1/auth/login\n{ "email": "ivan@dezxxx.com",\n  "password": "Str0ngP@ssw0rd" }
-Ctl -> Auth : login(request)
-Auth -> OG : login(email, password)
-OG -> KC : POST /realms/{realm}/protocol/openid-connect/token\nформа: grant_type=password
-KC --> OG : 400 { "error": "invalid_grant",\n       "error_description": "Invalid user credentials" }
+Ctl -> Tok : login(email, password)
+Tok -> KC : login(email, password)
+KC -> K : POST /realms/{realm}/protocol/openid-connect/token\nформа: grant_type=password
+K --> KC : 400 { "error": "invalid_grant",\n       "error_description": "Invalid user credentials" }
 
-note right of OG
+note right of KC
   Keycloak отвечает 400. Наш контракт говорит 401.
-  KeycloakErrorTranslator перечитывает:
+  KeycloakClient.translate перечитывает:
   invalid_grant -> INVALID_CREDENTIALS.
 end note
 
-OG --> Auth : ApiException(INVALID_CREDENTIALS)
-Auth --> Ctl : (ошибка поднимается по цепочке)
+KC --> Tok : ApiException(INVALID_CREDENTIALS)
+Tok --> Ctl : (ошибка поднимается по цепочке)
 Ctl --> U : 401 Unauthorized\n{ "error": "INVALID_CREDENTIALS",\n  "message": "Email or password is incorrect" }
 
 note over U
@@ -54,40 +53,38 @@ note right of Ctl
   на каждое неверное поле.
 end note
 
-Ctl -> Reg : register(request)
-activate Reg
+Ctl -> Usr : register(request)
+activate Usr
 
-Reg -> PG : createPerson(email, firstName, lastName)
-PG -> PS : POST /api/v1/persons/registration
-PS --> PG : 201 { "userUid": "6f1d2a4e-..." }
-PG --> Reg : UUID
-note right of PG
+Usr -> PC : createPerson(email, firstName, lastName)
+PC -> PS : POST /api/v1/persons/registration
+PS --> PC : 201 { "userUid": "6f1d2a4e-..." }
+PC --> Usr : UUID
+note right of PC
   Пароль сюда не отправляется.
   Профиль принадлежит person-service,
   учётные данные - Keycloak.
 end note
 
-Reg -> AG : createUser(email, firstName, lastName, userUid)
-AG -> OG : serviceAccountToken()
-OG -> KC : POST /token  grant_type=client_credentials
-KC --> OG : 200 { access_token }
-OG --> AG : служебный токен
-AG -> KC : POST /admin/realms/{realm}/users\nBearer <служебный токен>
-KC --> AG : 201 Created\nLocation: .../users/0b7a5f2c-...
-AG --> Reg : keycloakUserId
+Usr -> KC : createAccount(email, firstName, lastName, userUid)
+KC -> K : POST /token  grant_type=client_credentials\n(только если служебный токен в кеше устарел)
+K --> KC : 200 { access_token }
+KC -> K : POST /admin/realms/{realm}/users\nBearer <служебный токен>
+K --> KC : 201 Created\nLocation: .../users/0b7a5f2c-...
+KC --> Usr : keycloakUserId
 
-Reg -> AG : setPassword(keycloakUserId, password)
-AG -> KC : PUT /admin/realms/{realm}/users/{id}/reset-password\n{ "type":"password", "value":"...", "temporary": false }
-KC --> AG : 204 No Content
-AG --> Reg : готово
+Usr -> KC : resetUserPassword(keycloakUserId, password)
+KC -> K : PUT /admin/realms/{realm}/users/{id}/reset-password\n{ "type":"password", "value":"...", "temporary": false }
+K --> KC : 204 No Content
+KC --> Usr : готово
 
-Reg -> AG : assignPlatformRole(keycloakUserId)
-AG -> KC : GET /admin/realms/{realm}/roles/USER
-KC --> AG : 200 { id, name }
-AG -> KC : POST /admin/realms/{realm}/users/{id}/role-mappings/realm\n[ { id, name } ]
-KC --> AG : 204 No Content
-AG --> Reg : готово
-note right of AG
+Usr -> KC : assignPlatformRole(keycloakUserId)
+KC -> K : GET /admin/realms/{realm}/roles/USER
+K --> KC : 200 { id, name }
+KC -> K : POST /admin/realms/{realm}/users/{id}/role-mappings/realm\n[ { id, name } ]
+K --> KC : 204 No Content
+KC --> Usr : готово
+note right of KC
   Роль выдаётся здесь, а не импортом realm:
   Keycloak принимает realmRoles в теле
   создания и молча их игнорирует.
@@ -95,13 +92,13 @@ note right of AG
   а id известен только после чтения роли.
 end note
 
-Reg -> OG : login(email, password)
-OG -> KC : POST /token  grant_type=password
-KC --> OG : 200 { access_token, refresh_token,\n       expires_in, token_type }
-OG --> Reg : TokenResponse
-Reg -> Reg : tokens.userUid(userUid)
-Reg --> Ctl : TokenResponse
-deactivate Reg
+Usr -> KC : login(email, password)
+KC -> K : POST /token  grant_type=password
+K --> KC : 200 { access_token, refresh_token,\n       expires_in, token_type }
+KC --> Usr : TokenResponse
+Usr -> Usr : tokens.userUid(userUid)
+Usr --> Ctl : TokenResponse
+deactivate Usr
 
 Ctl --> U : 201 Created\n{ accessToken, refreshToken,\n  expiresIn, tokenType, userUid }
 
@@ -116,112 +113,90 @@ note right of Ctl
   обращений по сети за ними не нужно.
 end note
 
-Ctl -> Auth : currentUser(jwt)
-Auth -> AG : findRegisteredAt(sub)
-AG -> KC : GET /admin/realms/{realm}/users/{sub}
-KC --> AG : 200 { ..., "createdTimestamp": 1755600000000 }
-AG --> Auth : OffsetDateTime (UTC)
-Auth --> Ctl : CurrentUserResponse
+Ctl -> Usr : currentUser(jwt)
+Usr -> KC : findRegisteredAt(sub)
+KC -> K : GET /admin/realms/{realm}/users/{sub}
+K --> KC : 200 { ..., "createdTimestamp": 1755600000000 }
+KC --> Usr : OffsetDateTime (UTC)
+Usr --> Ctl : CurrentUserResponse
 Ctl --> U : 200 { userUid, keycloakUserId, email,\n     firstName, lastName, emailVerified,\n     roles, registeredAt }
 
 @enduml
 
 
 @startuml gateway-structure
-title Слой шлюзов - кто что знает
+title Пакет gateway - по клиенту на внешнюю систему
 
 skinparam shadowing false
 skinparam classAttributeIconSize 0
 
 package "service (только оркестрация)" #FDFDF0 {
-  class RegistrationService
-  class AuthenticationService
+  class UserService
+  class TokenService
 }
 
 package gateway {
 
+  package "gateway.person" {
+    class PersonClient <<@Component>> {
+      + Mono<UUID> createPerson(email, firstName, lastName)
+      - translate(error)
+    }
+  }
+
+  package "gateway.keycloak.client" {
+    class KeycloakClient <<@Component>> {
+      + login, refresh, adminLogin
+      + createAccount, resetUserPassword,
+        assignPlatformRole, rollbackAccountWithError,
+        findRegisteredAt
+      - translate(response)
+    }
+    class KeycloakUserRequest <<record>>
+    class KeycloakTokenResponse <<record>>
+    note bottom of KeycloakClient
+      Приватные record внутри него:
+      KeycloakCredential, KeycloakRealmRole,
+      KeycloakUserRepresentation, CachedToken,
+      KeycloakError - обе формы ошибки Keycloak:
+      { error, error_description }  (OIDC)
+      { errorMessage }              (Admin)
+    end note
+  }
+}
+
+package util {
   class GatewayErrors <<утиль>> {
     + transportFailures(dependency, baseUrl)
   }
   note right of GatewayErrors
-    Общий для КАЖДОГО шлюза.
+    Общий для обоих клиентов.
     "Никто вообще не ответил" ->
     503 DEPENDENCY_UNAVAILABLE.
   end note
-
-  package "gateway.person" {
-    class PersonServiceGateway <<@Component>> {
-      + Mono<UUID> createPerson(email, firstName, lastName)
-    }
-    class PersonErrorTranslator <<утиль>>
-  }
-
-  package "gateway.keycloak" {
-
-    class KeycloakErrorTranslator <<утиль>> {
-      + Mono<Throwable> translate(response)
-    }
-    class KeycloakErrorResponse <<record>>
-    note bottom of KeycloakErrorResponse
-      Две формы в одной записи:
-      { error, error_description }  (OIDC)
-      { errorMessage }              (Admin)
-    end note
-
-    package "gateway.keycloak.oidc" {
-      class KeycloakOidcGateway <<@Component>> {
-        + Mono<TokenResponse> login(email, password)
-        + Mono<TokenResponse> refresh(token)
-        + Mono<String> serviceAccountToken()
-      }
-      class KeycloakTokenResponse <<record>>
-    }
-
-    package "gateway.keycloak.admin" {
-      class KeycloakAdminGateway <<@Component>> {
-        + Mono<String> createUser(email, firstName,\n                         lastName, userUid)
-        + Mono<Void> setPassword(id, password)
-        + Mono<Void> assignPlatformRole(id)
-        + Mono<Void> deleteUser(id)
-        + Mono<OffsetDateTime> findRegisteredAt(id)
-      }
-      class KeycloakUserRequest <<record>>
-      class KeycloakUserRepresentation <<record>>
-      class KeycloakCredential <<record>>
-      class KeycloakRealmRole <<record>>
-    }
-  }
 }
 
-RegistrationService --> PersonServiceGateway
-RegistrationService --> KeycloakAdminGateway
-RegistrationService --> KeycloakOidcGateway
-AuthenticationService --> KeycloakOidcGateway
-AuthenticationService --> KeycloakAdminGateway
+UserService --> PersonClient
+UserService --> KeycloakClient
+TokenService --> KeycloakClient
 
-KeycloakAdminGateway --> KeycloakOidcGateway : нужен служебный токен
-
-PersonServiceGateway ..> PersonErrorTranslator
-PersonServiceGateway ..> GatewayErrors
-KeycloakOidcGateway ..> KeycloakErrorTranslator
-KeycloakOidcGateway ..> GatewayErrors
-KeycloakAdminGateway ..> KeycloakErrorTranslator
-KeycloakAdminGateway ..> GatewayErrors
-KeycloakErrorTranslator ..> KeycloakErrorResponse
+PersonClient ..> GatewayErrors
+KeycloakClient ..> GatewayErrors
+KeycloakClient ..> KeycloakUserRequest
+KeycloakClient ..> KeycloakTokenResponse
 
 legend bottom
-  Правило слоёв, одной строкой:
-  **общий код живёт на том уровне, который накрывает всех, кто им пользуется.**
-  GatewayErrors            -> все шлюзы
-  KeycloakErrorTranslator  -> admin + oidc
-  записи (record)          -> по одной на операцию
+  Как на компонентной диаграмме преподавателя:
+  AuthController -> UserService / TokenService -> по клиенту на систему.
+  Каждый клиент сам переводит ошибки своей системы (private translate);
+  то, что нужно обоим, лежит в util.
 endlegend
 
 @enduml
 
 
 @startuml gateway-translation
-title Зачем нужен шлюз - один и тот же сбой, рассказанный дважды
+title Зачем нужен клиент - один и тот же сбой, рассказанный дважды
 
 skinparam shadowing false
 

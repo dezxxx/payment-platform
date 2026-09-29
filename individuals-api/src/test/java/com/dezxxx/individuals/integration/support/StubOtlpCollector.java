@@ -7,22 +7,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import reactor.netty.DisposableServer;
 import reactor.netty.http.server.HttpServer;
 
-/**
- * Tempo, reduced to the only thing a test can actually check about it.
- *
- * <p>Running Tempo itself in a test would prove something we do not control -
- * that Tempo stores and indexes what it is given. What we do control ends at
- * the socket: the application has to build spans and push them over OTLP to the
- * configured endpoint. This receives that push and remembers it, so the
- * assertion is about our export rather than about someone else's database.
- *
- * <p>It answers <b>200 (OK)</b> with an empty body, which is a valid empty
- * {@code ExportTraceServiceResponse} - the OTLP exporter accepts it and does
- * not retry.
- */
+// Stands in for Tempo: receives the OTLP push and remembers it. Answers 200
+// with an empty body - a valid empty answer, so the exporter does not retry
 public final class StubOtlpCollector {
 
-    /** The path the OTLP/HTTP exporter posts traces to. */
+    // where the OTLP/HTTP exporter posts traces
     private static final String TRACES_PATH = "/v1/traces";
 
     private final List<Integer> exportedPayloadSizes = new CopyOnWriteArrayList<>();
@@ -57,10 +46,7 @@ public final class StubOtlpCollector {
         return "http://localhost:" + server.port() + TRACES_PATH;
     }
 
-    /**
-     * Size in bytes of every export received. A count says traces were pushed;
-     * a non-zero size says they carried spans rather than an empty batch.
-     */
+    // size of each export: non-zero means it carried spans, not an empty batch
     public List<Integer> exportedPayloadSizes() {
         return List.copyOf(exportedPayloadSizes);
     }

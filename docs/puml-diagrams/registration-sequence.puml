@@ -6,43 +6,40 @@ skinparam shadowing false
 
 actor Client
 participant "AuthController" as Ctl
-participant "RegistrationService" as Svc
-participant "PersonServiceGateway" as PGw
+participant "UserService" as Svc
+participant "PersonClient" as PCl
 participant "person-service" as Per
-participant "KeycloakAdminGateway" as AGw
-participant "KeycloakOidcGateway" as OGw
+participant "KeycloakClient" as KCl
 participant "Keycloak" as Kc
 
 Client -> Ctl : POST /api/v1/auth/registration
 activate Ctl
+note right of Ctl : @Valid already checked\nformat and password confirmation
 Ctl -> Svc : register
 activate Svc
 
-Svc -> Svc : validate format and\npassword confirmation
-
-Svc -> PGw : create domain user
-activate PGw
-PGw -> Per : POST /api/v1/persons/registration
-Per --> PGw : user_uid
-PGw --> Svc : user_uid
-deactivate PGw
+Svc -> PCl : createPerson
+activate PCl
+PCl -> Per : POST /api/v1/persons/registration
+Per --> PCl : user_uid
+PCl --> Svc : user_uid
+deactivate PCl
 
 group Domain user already exists past this line
-  Svc -> AGw : create account
-  activate AGw
-  AGw -> Kc : POST /admin/realms/REALM/users\nno password, plus user_uid attribute
-  Kc --> AGw : keycloak user id
-  AGw -> Kc : PUT .../users/{id}/reset-password\ntemporary false
-  AGw -> Kc : GET .../roles/USER\nPOST .../users/{id}/role-mappings/realm
-  AGw --> Svc : keycloak user id
-  deactivate AGw
-
-  Svc -> OGw : log in
-  activate OGw
-  OGw -> Kc : POST /realms/REALM/protocol/openid-connect/token
-  Kc --> OGw : access, refresh, expiresIn
-  OGw --> Svc : tokens
-  deactivate OGw
+  Svc -> KCl : createAccount
+  activate KCl
+  KCl -> Kc : POST /admin/realms/REALM/users\nno password, plus user_uid attribute
+  Kc --> KCl : keycloak user id (Location header)
+  KCl --> Svc : keycloak user id
+  Svc -> KCl : resetUserPassword
+  KCl -> Kc : PUT .../users/{id}/reset-password\ntemporary false
+  Svc -> KCl : assignPlatformRole
+  KCl -> Kc : GET .../roles/USER\nPOST .../users/{id}/role-mappings/realm
+  Svc -> KCl : login
+  KCl -> Kc : POST /realms/REALM/protocol/openid-connect/token
+  Kc --> KCl : access, refresh, expiresIn
+  KCl --> Svc : tokens
+  deactivate KCl
 end
 
 Svc --> Ctl : TokenResponse
@@ -57,8 +54,9 @@ note over Svc, Kc
 
   Three admin calls, not one: Keycloak takes the
   password through its own endpoint and hands out no
-  role on import. An account left between them is
-  removed again - see keycloak-admin-gateway.puml.
+  role on import. If the password or the role fails,
+  rollbackAccountWithError deletes the account again -
+  see keycloak-client.puml.
 
   The inverse is the open window. Any failure inside
   the group leaves an orphaned domain user, and the

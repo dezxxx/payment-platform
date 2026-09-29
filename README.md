@@ -21,7 +21,7 @@ Java 25 · Spring Boot 4.1 · WebFlux · Keycloak 26.7 · Gradle 9.5.1 · Docker
               accounts & tokens          the domain user
                       ▼                        ▼
              Keycloak      :8080       person-service  :8082
-             (OIDC + Admin REST)       (module 2 — migrations only for now)
+             (OIDC + Admin REST)       (module 2; a WireMock stub for now)
 ```
 
 Two systems, two identifiers, and they are not interchangeable:
@@ -68,7 +68,8 @@ cp .env.example .env
 # individuals-api/src/main/resources/realm/realm-export.json
 ```
 
-**2. Everything at once.** One command builds the jar and starts the stack:
+**2. Everything at once.** One command starts Nexus, builds the image and starts
+the stack:
 
 ```bash
 make
@@ -76,9 +77,8 @@ make
 
 `make help` lists the rest — `make test`, `make it`, `make down`, `make logs`.
 Requires make, which ships with Linux and macOS; on Windows install it once
-with `winget install ezwinports.make` and **run it from Git Bash** — started
-from PowerShell it runs every recipe through cmd, which has no `sh`. The steps
-behind it, if you would rather run them by hand, are below.
+with `winget install ezwinports.make`; it runs from Git Bash, PowerShell or the
+IDE. The steps behind it, if you would rather run them by hand, are below.
 
 **3. Build by hand.** This folder is a Git root, not a Gradle project: every
 module is an independent build with its own wrapper, and they reach each other
@@ -96,18 +96,23 @@ start a Keycloak and a PostgreSQL of their own, and the stack itself should be
 down, or the two compete for memory. For the fast loop use `./gradlew test`
 inside `individuals-api`, which is unit tests only and needs nothing.
 
-**4. Start the stack by hand.** Images are pinned in `.env`, so the stack is
-reproducible and an upgrade is one deliberate edit in one file. The image only
-packages the jar built in step 3, so build the jar first when the code changed:
+**4. Start the stack by hand.** Images are pinned in `.env`. The individuals-api
+image builds the application itself and downloads `person-client` from Nexus,
+so Nexus goes first (it must already hold the artifact - `make publish`):
 
 ```bash
-cd individuals-api && ./gradlew bootJar && cd ..
+docker compose up -d --wait nexus
 docker compose up -d --build
 ```
+
+person-service has no code in module 1, so compose runs a WireMock stub under
+its name (`infra/person-service-stub`): every registration gets a new
+`userUid`, and the two Postman users get **409** on a second registration.
 
 | | URL |
 |---|---|
 | individuals-api | http://localhost:8081 |
+| Swagger UI (our contract) | http://localhost:8081/swagger-ui.html |
 | Keycloak | http://localhost:8080 |
 | Grafana | http://localhost:3000 |
 | Prometheus | http://localhost:9090 |
@@ -122,7 +127,8 @@ payment-platform/
 ├── individuals-api/      the orchestrator — module 1's deliverable
 ├── person-client/        generated DTOs + HTTP client, published to Nexus
 ├── person-service/       contract + Flyway migrations only (module 2)
-├── infra/                prometheus, tempo, loki, alloy, grafana provisioning
+├── infra/                prometheus, tempo, loki, alloy, grafana provisioning,
+│                         person-service stub
 ├── docs/                 PlantUML diagrams + two cheatsheets
 ├── postman/
 └── docker-compose.yml
@@ -133,9 +139,11 @@ contracts travel as artifacts, exactly as they would between separately
 deployed services.
 
 Inside `individuals-api`, one rule decides where a class lives: **shared code
-sits at the level that covers everyone who uses it.** `gateway` is the only
-door to the outside world, `service` decides what happens and what to do when
-it breaks, and nothing above a gateway ever holds a foreign payload.
+sits at the level that covers everyone who uses it.** `gateway` holds one client
+per external system (`KeycloakClient`, `PersonClient`) and is the only door to
+the outside world, `service` (`UserService`, `TokenService`) decides what happens
+and what to do when it breaks, and nothing above a client ever holds a foreign
+payload.
 
 ## Documentation
 
@@ -143,8 +151,8 @@ it breaks, and nothing above a gateway ever holds a foreign payload.
 |---|---|
 | [`CONTEXT.md`](CONTEXT.md) | The working document: decisions, rules, the registration flow, progress. The long read. |
 | [`CONTEXT.ru.md`](CONTEXT.ru.md) | Russian mirror. English wins if the two disagree. |
-| [`docs/puml-diagrams/`](docs/puml-diagrams) | Diagrams: registration and its rollback, `/me`, the gateway layer, how a failure becomes a response — and [`observability.puml`](docs/puml-diagrams/observability.puml), which is the one to open first if the metrics, logs and traces blur into one thing. A Russian mirror of all of them lives in [`docs/puml-ru`](docs/puml-ru). |
-| [`postman/`](postman) | Postman collection: every endpoint plus its failures, with the tokens carried between requests for you. Import it, press Run. |
+| [`docs/puml-diagrams/`](docs/puml-diagrams) | Diagrams: registration and its rollback, `/me`, the clients, how a failure becomes a response — and [`observability.puml`](docs/puml-diagrams/observability.puml), which is the one to open first if the metrics, logs and traces blur into one thing. A Russian mirror of all of them lives in [`docs/puml-ru`](docs/puml-ru). |
+| [`postman/`](postman) | Postman collection: two users through every endpoint, the failures, Swagger and metrics, with the tokens carried between requests for you. Import it, press Run on a fresh stack. |
 
 ## Status
 
@@ -152,11 +160,11 @@ Module 1 is not finished. What is honest as of today:
 
 | | |
 |---|---|
-| ✅ Working | Contract, Gradle build, Keycloak realm, all three gateways, `RegistrationService` with compensation, `AuthenticationService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — all eight meters, and JSON logs carrying every field the module requires |
-| 🐳 Compose | `docker compose up` brings up nine services and the app runs inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
-| 🧪 Tests | **33 tests, green: 22 unit and 11 integration.** Every test case the handout lists is covered, and each carries its code — `UT-REG-001`, `IT-KC-001` — in its display name. Integration runs against a real Keycloak and a real PostgreSQL in containers. Coverage on the key services is **100%**, with the build failing below 80% |
-| 📮 Postman | `postman/individuals-api.postman_collection.json` — ten requests, tokens captured automatically, 31 assertions |
+| ✅ Working | Contract, Gradle build, Keycloak realm, `KeycloakClient` and `PersonClient`, `UserService` with compensation, `TokenService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — all eight meters, and JSON logs carrying every field the module requires |
+| 🐳 Compose | `make up` brings up eleven services and builds the app inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
+| 🧪 Tests | **51 tests, green: 35 unit and 16 integration.** Every test case the handout lists is covered, and each carries its code — `UT-REG-001`, `IT-KC-001` — in its display name. Integration runs against a real Keycloak and a real PostgreSQL in containers. Coverage on the key services is **100%**, with the build failing below 80% |
+| 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, 20 requests, tokens captured automatically, 52 assertions |
 | 📦 Nexus | In the compose file, and `person-client` is resolved from it rather than from the local Maven repository |
-| 🚧 Missing | `person-service` itself is module 2 — migrations only — so registration reaches it and stops there with **503** unless something answers in its place |
+| 🚧 Missing | `person-service` itself is module 2 — migrations only. Until then a WireMock stub answers in its place |
 
 The ordered to-do list lives in §8 of `CONTEXT.md` and is kept current.

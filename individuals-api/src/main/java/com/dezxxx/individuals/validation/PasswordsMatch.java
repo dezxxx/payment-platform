@@ -8,27 +8,9 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/**
- * The password and its confirmation must be the same string.
- *
- * <p>The one registration rule OpenAPI cannot express: its keywords describe a
- * field on its own - type, length, format - and never one field against
- * another. Everything else on {@code RegistrationRequest} is generated from the
- * contract; this is what is left over.
- *
- * <p>Placed on the type, not on a field, because the check needs both values at
- * once. A field constraint is handed a single value and could not see the other
- * one.
- *
- * <p>Not written on the class by hand - the class is generated. The contract
- * carries {@code x-class-extra-annotation} on the schema and the generator
- * stamps this annotation on, so the rule stays in the contract and is applied
- * by the same {@code @Valid} that runs everything else.
- *
- * <p>The default message reads as the second half of a sentence: the exception
- * handler prints it as {@code "confirmPassword: must match password"}, which is
- * the line the contract's <b>400 (Bad Request)</b> example promises.
- */
+// password == confirmPassword. The one rule OpenAPI cannot express (it checks
+// fields one by one), so it sits on the whole class. The generator puts it on
+// RegistrationRequest via x-class-extra-annotation in the contract
 @Documented
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
@@ -37,9 +19,9 @@ public @interface PasswordsMatch {
 
     String message() default "must match password";
 
-    /** Required by the Bean Validation spec; unused - we validate in one group. */
+    // required by Bean Validation, unused
     Class<?>[] groups() default {};
 
-    /** Required by the Bean Validation spec; unused - nothing reads metadata off this rule. */
+    // required by Bean Validation, unused
     Class<? extends Payload>[] payload() default {};
 }

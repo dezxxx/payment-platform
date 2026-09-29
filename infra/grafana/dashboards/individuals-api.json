@@ -76,7 +76,7 @@
       "id": 5,
       "type": "timeseries",
       "title": "Registration outcome",
-      "description": "The three counters of the registration flow. Attempts counts requests that reached RegistrationService, so a body rejected by @Valid with 400 (Bad Request) never appears here - this panel is the health of the orchestration, not the quality of the input. Attempts standing above success plus failure means registrations are hanging: started, and finished as neither.",
+      "description": "The three counters of the registration flow. Attempts counts requests that reached UserService, so a body rejected by @Valid with 400 (Bad Request) never appears here - this panel is the health of the orchestration, not the quality of the input. Attempts standing above success plus failure means registrations are hanging: started, and finished as neither.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

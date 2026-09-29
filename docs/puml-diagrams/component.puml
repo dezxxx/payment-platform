@@ -14,7 +14,7 @@ package "payment-platform monorepo" {
   artifact "V001, V002\nFlyway migrations" as MIG
 }
 
-database "Nexus\n(mavenLocal until it is up)" as NEXUS
+database "Nexus" as NEXUS
 artifact "com.dezxxx:person-client:1.0.0-SNAPSHOT" as PCJ
 
 PS *-- PSY
@@ -25,7 +25,8 @@ PSY --> PC : openApiGenerate\nDTOs + @HttpExchange
 IAY --> API : openApiGenerate\nAuthApi interface only
 PC --> PCJ : publish
 PCJ --> NEXUS
-NEXUS --> API : resolved by Maven coordinates
+NEXUS --> API : resolved by Maven coordinates\ninside the image build
+inside the image build
 
 note bottom of API
   Never project(":person-client").

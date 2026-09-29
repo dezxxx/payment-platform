@@ -46,6 +46,11 @@ individuals:
     # Never hardcoded - the confidential client's secret comes from .env.
     client-secret: ${KEYCLOAK_CLIENT_SECRET:}
 
+springdoc:
+  swagger-ui:
+    # our contract, copied into the jar by processResources
+    url: /openapi/individuals-api.yaml
+
 management:
   metrics:
     distribution:

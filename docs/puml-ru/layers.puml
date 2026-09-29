@@ -1,5 +1,5 @@
 @startuml layers
-title individuals-api - целевая структура слоёв
+title individuals-api - структура слоёв
 
 skinparam shadowing false
 skinparam classAttributeIconSize 0
@@ -19,14 +19,13 @@ package rest {
 }
 
 package service {
-  class RegistrationService
-  class AuthenticationService
+  class UserService
+  class TokenService
 }
 
 package gateway {
-  class PersonServiceGateway <<@Component>>
-  class KeycloakAdminGateway <<@Component>>
-  class KeycloakOidcGateway <<@Component>>
+  class PersonClient <<@Component>>
+  class KeycloakClient <<@Component>>
 }
 
 package validation {
@@ -50,6 +49,7 @@ package config {
 
 package util {
   class KeycloakClaims
+  class GatewayErrors
 }
 
 package metrics {
@@ -57,22 +57,24 @@ package metrics {
 }
 
 AuthController ..|> AuthApi
-AuthController --> RegistrationService
-AuthController --> AuthenticationService
+AuthController --> UserService : регистрация, /me
+AuthController --> TokenService : логин, refresh
 
-RegistrationService --> PersonServiceGateway
-RegistrationService --> KeycloakAdminGateway
-RegistrationService --> KeycloakOidcGateway
-AuthenticationService --> KeycloakOidcGateway
+UserService --> PersonClient
+UserService --> KeycloakClient
+TokenService --> KeycloakClient
 
-RegistrationService --> AuthMetrics
-AuthenticationService --> AuthMetrics
-AuthenticationService --> KeycloakAdminGateway
-AuthenticationService --> KeycloakClaims
+UserService --> AuthMetrics
+TokenService --> AuthMetrics
+UserService --> KeycloakClaims
+TokenService --> KeycloakClaims
+
+PersonClient ..> GatewayErrors
+KeycloakClient ..> GatewayErrors
 
 note bottom of gateway
   У individuals-api нет своих данных, поэтому
-  нет и репозитория. Его место занимает шлюз:
+  нет и репозитория. Его место занимает клиент:
   по классу на каждую внешнюю систему, внедряется
   через конструктор. Интерфейса перед ним нет -
   его стоило бы завести ради второй реализации,

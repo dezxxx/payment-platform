@@ -14,15 +14,8 @@ import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 
-/**
- * IT-KC-001, IT-KC-002 and IT-KC-003: registration and login against a real
- * Keycloak, through the real HTTP stack, with nothing of ours mocked.
- *
- * <p>What is stubbed is person-service, and only because module 1 does not
- * contain it. Everything the module is judged on - the admin calls, the
- * password write, the token request, the mapper that carries {@code user_uid}
- * into the token - runs for real against the realm that docker-compose imports.
- */
+// IT-KC-001..003: registration and login against a real Keycloak through real
+// HTTP. Only person-service is a stub
 @DisplayName("Registration against a real Keycloak")
 class AuthControllerIT extends IntegrationTest {
 
@@ -32,7 +25,7 @@ class AuthControllerIT extends IntegrationTest {
 
     private static final String PASSWORD = "Str0ngPass!";
 
-    /** The same bean the resource server uses for inbound tokens. */
+    // the same decoder the app uses for incoming tokens
     @Autowired
     private ReactiveJwtDecoder jwtDecoder;
 
@@ -111,13 +104,7 @@ class AuthControllerIT extends IntegrationTest {
         assertThat(accessToken.getExpiresAt()).isNotNull();
     }
 
-    /**
-     * The other half of UT-REG-002. {@code PasswordsMatchValidatorTest} proves
-     * the rule fires; only a running application can show what the caller is
-     * answered and that nothing downstream was touched - the request is
-     * rejected by {@code @Valid} on the controller, so it never reaches a
-     * service a unit test could mock.
-     */
+    // UT-REG-002 end to end: @Valid rejects the request, nothing downstream is called
     @Test
     @DisplayName("UT-REG-002: given the confirmation does not match, then it answers 400 and Keycloak is never called")
     void rejectsAMismatchedConfirmationWithoutTouchingKeycloak() {

@@ -200,31 +200,39 @@ generated code.
 |---|---|---|
 | `rest` | accepts and returns DTOs, implements the generated `AuthApi` | business logic; direct calls to Keycloak or person-service |
 | `service` | orchestration of the registration and login scenarios | HTTP, JSON, Keycloak or person-client types |
-| `gateway` | every outbound call, one gateway per external system | domain decisions |
+| `gateway` | every outbound call, one client per external system | domain decisions |
 | `validation`, `error`, `config`, `metrics` | validation rules, error mapping, security wiring, meters | anything belonging to another layer |
 
-Three gateways, no exceptions:
+As in the teacher's component diagram: `AuthController` calls two services,
+and each external system has exactly one client.
 
-- `PersonServiceGateway` — wraps the generated `PersonsApi`
-- `KeycloakAdminGateway` — account creation, password, attributes
-- `KeycloakOidcGateway` — token endpoint: login and refresh
+- `UserService` — registration and `/me`
+- `TokenService` — login and refresh
+- `KeycloakClient` — everything Keycloak: the token endpoint (login, refresh,
+  the service-account token, cached) and the Admin API (account, password,
+  role, rollback, registration date)
+- `PersonClient` — wraps the generated `PersonsApi`: create the person, get
+  its `user_uid`
+
+Each client turns the other side's errors into our `ApiException` itself, in a
+private `translate` method - there are no separate translator classes.
+`util/GatewayErrors` is shared by both: "the other side did not answer at
+all" becomes **503**.
 
 **Identifiers.** The business layer knows only the domain `user_uid`. The
 Keycloak `sub` is stored as a technical link (`keycloak_user_id`) and never
 becomes the platform's primary identifier. Nothing above the gateway layer is
 allowed to address a user by it.
 
-**Why gateways rather than repositories.** individuals-api owns no data, so it
-has no repository. The gateway takes that seat in the layer chain: an
-interface out front, an implementation behind it, injected into the service
-through the constructor as a reference type. The rule that Service and
+**Why clients rather than repositories.** individuals-api owns no data, so it
+has no repository. The client takes that seat in the layer chain and is
+injected into the service through the constructor. The rule that Service and
 Controller never get invented interfaces of their own still holds.
 
-Patterns in play: `PersonServiceGateway` is an **Adapter** - it translates the
-generated client's types into domain types so generated code never leaks
-upwards. `KeycloakAdminGateway` is a **Facade** - one method hides the three
-Admin API calls that create an account, set its password and write the
-`user_uid` attribute.
+Patterns in play: `PersonClient` and `KeycloakClient` are **Adapters** - they
+translate the other side's types and errors into ours, so nothing above them
+holds a foreign payload. `KeycloakClient` is also a **Facade** over Keycloak's
+two APIs.
 
 ### Compensation policy
 
@@ -370,7 +378,7 @@ Checked end to end after a `down -v` and a fresh import:
 
 Two consequences for the gateway code:
 
-- Keycloak answers a bad password with **400**, not 401. `KeycloakOidcGateway`
+- Keycloak answers a bad password with **400**, not 401. `KeycloakClient`
   translates it: our contract says 401, and the client must never see 400 here.
 - `400 invalid_grant` covers both a wrong password and a not-fully-set-up
   account. The status code alone cannot tell them apart — only
@@ -423,7 +431,7 @@ Step 6 body — note what is *not* in it:
 ```
 
 The account is created with **201** and an empty body; the new id exists only in
-the `Location` header, and parsing it out is `KeycloakAdminGateway`'s job.
+the `Location` header, and parsing it out is `KeycloakClient`'s job.
 
 Step 7 body:
 
@@ -460,7 +468,7 @@ caller can log in normally.
 
 **Compensation.** A failure at step 7 leaves an account that can never be logged
 into while its address stays taken, so registering it again would answer **409**
-for good. `RegistrationService` deletes that account, which frees the address.
+for good. `UserService` has `KeycloakClient.rollbackAccountWithError` delete that account, which frees the address.
 The domain user is **not** rolled back — person-service exposes no delete — so
 the split is logged with the `user_uid` and reported as
 `REGISTRATION_INCONSISTENT`. That is module 1's accepted limit, and the handout
@@ -471,10 +479,9 @@ sequenceDiagram
     autonumber
     actor Client
     participant Ctl as AuthController
-    participant Svc as RegistrationService
-    participant PGw as PersonServiceGateway
-    participant AGw as KeycloakAdminGateway
-    participant OGw as KeycloakOidcGateway
+    participant Svc as UserService
+    participant PGw as PersonClient
+    participant AGw as KeycloakClient
     participant Ps as person-service
     participant Kc as Keycloak
 
@@ -486,19 +493,21 @@ sequenceDiagram
     Ps-->>PGw: 201 user_uid
     PGw-->>Svc: user_uid
     Svc->>AGw: create account
-    AGw->>OGw: service account token
-    OGw->>Kc: POST token client_credentials
-    Kc-->>OGw: access token
+    AGw->>Kc: POST token client_credentials<br/>(cached until 10 s before expiry)
+    Kc-->>AGw: access token
     AGw->>Kc: POST /admin/realms/REALM/users<br/>user_uid attribute, no password
     Kc-->>AGw: 201 Location header
     AGw-->>Svc: keycloak user id
     Svc->>AGw: set password
     AGw->>Kc: PUT /admin/realms/REALM/users/ID/reset-password
     Kc-->>AGw: 204
-    Svc->>OGw: log in
-    OGw->>Kc: POST token grant_type=password
-    Kc-->>OGw: access, refresh, expiresIn
-    OGw-->>Svc: tokens
+    Svc->>AGw: assign role USER
+    AGw->>Kc: POST .../role-mappings/realm
+    Kc-->>AGw: 204
+    Svc->>AGw: log in
+    AGw->>Kc: POST token grant_type=password
+    Kc-->>AGw: access, refresh, expiresIn
+    AGw-->>Svc: tokens
     Svc-->>Ctl: TokenResponse plus user_uid
     Ctl-->>Client: 201
 ```
@@ -534,7 +543,7 @@ are fresh. `200` on success; an expired or revoked token is `401`.
 
 **`GET /auth/me`** — protected. Spring Security validates the JWT against the
 realm's JWKS, then the service reads `sub` from it and calls
-`GET /admin/realms/{realm}/users/{id}` through `KeycloakAdminGateway`.
+`GET /admin/realms/{realm}/users/{id}` through `KeycloakClient`.
 
 The call to Keycloak is deliberate, not laziness about parsing the token. A JWT
 is a snapshot from the moment it was issued and stays valid for its lifetime, so
@@ -559,11 +568,11 @@ facts about the account. The contract says as much on both fields, so a client
 is not misled in the meantime.
 
 `registeredAt` is declared in `CurrentUserResponse` and comes from Keycloak's
-`createdTimestamp`, which is epoch milliseconds. `KeycloakAdminGateway` converts
+`createdTimestamp`, which is epoch milliseconds. `KeycloakClient` converts
 it to UTC and its method is `findRegisteredAt`, returning `Mono<OffsetDateTime>`
-— no layer above the gateway sees the raw number, and none of them holds a
+— no layer above the client sees the raw number, and none of them holds a
 Keycloak payload either. The record it is parsed into,
-`KeycloakUserRepresentation`, is package-private and carries that one field;
+`KeycloakUserRepresentation`, is a private record inside `KeycloakClient` with that one field;
 it is named after Keycloak's own model so the name can be looked up in their
 reference.
 
@@ -603,12 +612,12 @@ payment-platform/              a Git root, NOT a Gradle project
 ├── gradle/libs.versions.toml  every version - a plain file each module reads
 ├── docker-compose.yml
 ├── .env                       image tags, ports, credentials (not in git)
-├── infra/                     prometheus, tempo, grafana provisioning
+├── infra/                     prometheus, tempo, grafana provisioning,
+│                              and the person-service stub (WireMock)
 ├── postman/                   collection: every endpoint and its failures
 ├── docs/puml-diagrams/        PlantUML: component, deployment, registration
 │                              sequence, layers, gateways, errors, observability
 ├── docs/puml-ru/              the same diagrams in Russian
-├── docs/demo/                 the person-service stub the walkthrough uses
 ├── person-client/             generated DTOs + HTTP clients -> Nexus
 ├── individuals-api/           the orchestrator
 └── person-service/            contract + Flyway migrations only (module 2)
@@ -627,10 +636,9 @@ without making the folder a build.
 
 ## 7. Build order
 
-`make` does all of it: `make` alone builds the jar and starts the stack, and
-`make help` lists the rest. The `Makefile` exists because there is no root
-build to hang the order on - it is the one place that knows a module is built
-in its own folder before compose runs in this one.
+`make` does all of it: `make` alone starts Nexus, builds the image and starts
+the stack, and `make help` lists the rest. The `Makefile` exists because there
+is no root build to hang the order on.
 
 What it runs, for when it is not installed:
 
@@ -644,15 +652,21 @@ cd individuals-api && ./gradlew build
 cd person-service  && ./gradlew check      # validates the contract
 ```
 
-The image packages the jar built above rather than building it:
+**The image builds individuals-api itself**, as in the teacher's reference: a
+JDK stage runs `bootJar`, a JRE stage runs the jar. The build context is the
+repository root, because the module reads `gradle/libs.versions.toml` from
+there. `person-client` is downloaded from Nexus through
+`host.docker.internal:8083` - a docker build runs outside the compose network,
+so it reaches Nexus through the host's port. That is why Nexus must be up and
+hold the artifact first:
 
 ```bash
-cd individuals-api && ./gradlew bootJar
-docker compose build individuals-api
+docker compose up -d --wait nexus     # healthcheck on /service/rest/v1/status
+docker compose up -d --build
 ```
 
-A docker build cannot produce `person-client` - it resolves by coordinates, and
-neither Nexus nor the local Maven repository is reachable from inside one.
+Nexus allows anonymous reads, so no password enters the image. Tests do not
+run in the image - `make test` and `make it` do that.
 
 ---
 
@@ -695,7 +709,7 @@ rather than whether it works, which no test can fail for us.
 | 3 | individuals-api stores no domain data of the user | ✅ no database at all - see §1, and the `/me` debt in §5 |
 | 4 | person-service is named as the source of domain truth | ✅ §1, first table |
 | 5 | `user_uid` runs end to end and is never replaced by `sub` | ✅ enforced by IT-KC-002, which compares against the value person-service issued |
-| 6 | every outbound call is inside a gateway | ✅ `gateway/` is the only package holding a foreign payload |
+| 6 | every outbound call is inside a client | ✅ `gateway/` is the only package holding a foreign payload |
 | 7 | metrics reachable through `/actuator/prometheus` | ✅ IT-OBS-001 |
 | 8 | traces leave over OTLP to Tempo | ✅ IT-OBS-002 asserts the push; Tempo's own indexing verified by hand on the live stack |
 | 9 | logs are JSON and carry correlation | ✅ ECS to stdout, `traceId` and `spanId` on every record - IT-OBS-003 |
@@ -772,10 +786,9 @@ neither task and fails silently by never running at all.
 - [x] `infra/` — prometheus, tempo, loki, alloy, grafana provisioning
 - [x] `error/` — 7 classes, both roads (advice and security handlers)
 - [x] `config/` — security, HTTP clients, Keycloak and person-service properties
-- [x] `gateway/` — all three gateways required by the handout, plus the two
-      error translators and `GatewayErrors`
-- [x] `RegistrationService` — the eight-step scenario with compensation
-- [x] `AuthenticationService` — login, refresh, `/me`
+- [x] `gateway/` — `KeycloakClient` and `PersonClient`, one per external system
+- [x] `UserService` — registration with compensation, and `/me`
+- [x] `TokenService` — login and refresh
 - [x] `README.md` — first version: what it is, the four endpoints, how to run
       it, and an honest status table
 - [x] `validation/` — `PasswordsMatch` and its validator, attached to the
@@ -791,7 +804,7 @@ neither task and fails silently by never running at all.
       `confirmPassword: must match password`; a well-formed registration
       **503**, having reached person-service, which is not running; an unknown
       login **401**, translated from Keycloak's `invalid_grant`
-- [x] `RegistrationServiceTest` — six cases, given/when/then. Found a real
+- [x] `UserServiceTest` (then `RegistrationServiceTest`) — six cases, given/when/then. Found a real
       defect on the first run: `then(login(...))` evaluates its argument while
       the chain is assembled, so the gateway was called before the password
       was set and even on registrations that failed. Harmless only because the
@@ -830,7 +843,7 @@ neither task and fails silently by never running at all.
       had claimed the application already did all of this; it did not, and
       there was no MDC call anywhere in `main`
 - [x] **Every test case the handout requires - all fifteen codes, 22 unit and
-      11 integration, green.** `AuthenticationServiceTest` closes UT-LOG-001,
+      11 integration, green.** `TokenServiceTest` and `UserServiceTest` close UT-LOG-001,
       UT-LOG-002, UT-REF-001 and UT-ME-001; `AuthControllerIT`,
       `ObservabilityIT` and `PersonSchemaMigrationIT` close the seven IT codes.
       person-service is stubbed on reactor-netty, since module 1 does not
@@ -853,7 +866,7 @@ neither task and fails silently by never running at all.
       way while saying nothing. Both suites feed the report, because a gateway
       is exercised only by the integration tests. The 80% rule is scoped to
       `com.dezxxx.individuals.service` on purpose: a repository-wide average
-      would hide a bare `RegistrationService` behind a well covered `config`.
+      would hide a bare `UserService` behind a well covered `config`.
       What the report showed beyond the criterion: `gateway.keycloak` is at
       **0%** - its error translator only runs when Keycloak answers with a
       failure, and no test of ours makes it do that
@@ -881,7 +894,7 @@ neither task and fails silently by never running at all.
       declarative routes were tried and neither works: Keycloak builds its own
       `default-roles-<realm>` composite before it reads ours and keeps its own,
       and `realmRoles` in the create-user body is accepted with **201** and
-      ignored. So `KeycloakAdminGateway.assignPlatformRole` grants it - two
+      ignored. So `KeycloakClient.assignPlatformRole` grants it - two
       calls, because Keycloak resolves a role mapping by id and the id is known
       only after reading the role. Granted after the password, inside the block
       that compensates, so a failure there removes the half-made account like
@@ -897,17 +910,26 @@ neither task and fails silently by never running at all.
       handout's error example shows one, and a client that checks the length
       before reading `details[0]` then behaves the same on every error instead
       of telling an absent field from an empty one.
-- [x] **Postman collection** - required by the handout's artifact list, which
-      the acceptance criteria do not mention. Ten requests: the four endpoints
-      in the order a person walks them, four failures, and the two actuator
-      paths the module is judged on. Nothing is copied by hand - registration
-      generates a fresh address and stores the tokens, so the whole run is one
-      click. Verified with `newman`: 31 assertions, green.
-
-The Dockerfile still uses `publishToMavenLocal` rather than Nexus, and that is
-deliberate: `docker build` has no route to `localhost:8083`, which inside the
-builder means the builder itself. The image stays self-contained, and Nexus is
-what the build on the host resolves through.
+- [x] **Postman collection** - required by the handout's artifact list. Two
+      users, Ivan and Anna, each registered, asked `/me`, refreshed and logged
+      in, then a check that each token still answers for its own user; six
+      failures; health, Swagger, the contract file and the metrics. Nothing is
+      copied by hand. Verified with `newman`: 52 assertions, green.
+- [x] **Reworked to the teacher's component diagram.** `AuthController` ->
+      `UserService` / `TokenService` -> one `KeycloakClient`, plus `PersonClient`.
+      The three gateways, both error translators and the Keycloak records
+      folded into those two clients; Javadoc replaced by short `//` comments.
+      The ten error-translation cases moved into `KeycloakClientTest`.
+- [x] **The image builds the application itself** (section 7), and compose
+      runs a WireMock stub as `person-service`, so registration works end to
+      end in module 1.
+- [x] **Swagger UI shows the contract**, not a spec springdoc guesses from
+      the code: `openapi/individuals-api.yaml` is copied into the jar and
+      served at `/openapi/individuals-api.yaml`.
+- [x] **A broken token answers in our error shape.** A present but
+      undecodable token was rejected by the resource server's own entry point
+      - an empty 401 with the decoder's message in `WWW-Authenticate`. Ours is
+      now set on `oauth2ResourceServer` as well; `ErrorContractIT` pins it.
 
 ### Two failures share 401, and the code is what tells them apart
 
@@ -920,7 +942,7 @@ flow, and nothing else.
 
 `REFRESH_TOKEN_INVALID` - the refresh token is spent: expired, already used,
 or revoked. Keycloak answers `invalid_grant` to this and to a wrong password
-alike, so the gateway cannot tell them apart; `AuthenticationService.refresh`
+alike, so `KeycloakClient` cannot tell them apart; `TokenService.refresh`
 can, because no password reached it. A client reads this one as "the session
 ended, show the login form".
 
@@ -970,9 +992,13 @@ spans.
 ticked, and every artifact the handout asks for exists.** What is left is not
 required by it:
 
-- [ ] A test for `KeycloakErrorTranslator`, which JaCoCo reports at 0%. Not a
-      criterion either, but it is the one piece of our own code that nothing
-      has ever executed
+- [ ] Named spans on the client and service methods, so a trace reads
+      `userService.register` -> `personClient.createPerson` -> ... instead of
+      bare `http post`. `@WithSpan` needs a second tracing library and
+      `@Observed` does not handle `Mono`, so the plan is Reactor's
+      `.name(...).tap(Micrometer.observation(...))`
+- [ ] Open questions for the teacher: path prefix `/api/v1` vs `/v1`, role
+      name `USER` vs `individual.user`
 
 ### Working agreements
 

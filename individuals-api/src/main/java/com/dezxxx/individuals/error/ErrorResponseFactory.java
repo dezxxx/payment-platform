@@ -8,23 +8,12 @@ import java.time.ZoneOffset;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
-/**
- * Builds the contract's {@link ErrorResponse}.
- *
- * <p>On the reactive stack a failure is reported from two different places: the
- * advice, for anything a handler raises, and the security handlers, for what
- * the filter chain rejects before a handler is ever chosen. WebFlux has no
- * equivalent of the servlet {@code handlerExceptionResolver}, so the second
- * path cannot be delegated into the first. This class is what keeps them from
- * drifting apart - the body is assembled here and nowhere else.
- */
+// Builds our ErrorResponse - the one place, so the two roads to an error
+// (GlobalExceptionHandler and the security handlers) give the same body
 @Component
 public class ErrorResponseFactory {
 
-    /**
-     * Returned as the trace id when there is no active span - the field is
-     * required by the contract, so it always carries a value.
-     */
+    // traceId is required by the contract, so there is always a value
     private static final String NO_TRACE = "unavailable";
 
     private final Tracer tracer;
@@ -33,12 +22,7 @@ public class ErrorResponseFactory {
         this.tracer = tracer;
     }
 
-    /**
-     * @param code    business code; carries the HTTP status as well
-     * @param message text meant for the client, never an exception message
-     * @param details field-level failures, may be empty
-     * @param path    request path, taken from the exchange
-     */
+    // message is for the client - never an exception message
     public ErrorResponse create(ErrorCode code, String message, List<String> details, String path) {
         ErrorResponse body = new ErrorResponse()
                 .timestamp(OffsetDateTime.now(ZoneOffset.UTC))
@@ -47,10 +31,7 @@ public class ErrorResponseFactory {
                 .error(code.name())
                 .message(message);
         body.setTraceId(currentTraceId());
-        // Always an array, empty when there is nothing to report, because the
-        // handout's error example shows one. A client that reads details[0]
-        // after checking the length then behaves the same on every error,
-        // instead of having to tell an absent field from an empty one.
+        // always an array, possibly empty, as in the handout's example
         body.setDetails(details == null ? List.of() : List.copyOf(details));
         return body;
     }

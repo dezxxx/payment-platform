@@ -7,13 +7,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-/**
- * Reports an authenticated caller who is not allowed through.
- *
- * <p>The counterpart of {@link ApiAuthenticationEntryPoint}: the token is
- * valid, the authorities are not sufficient. Same reason for existing - the
- * decision is taken in a web filter, where no advice can reach it.
- */
+// 403: the token is valid but its roles are not enough. Needed because the
+// decision is made in a web filter, out of GlobalExceptionHandler's reach
 @Component
 @RequiredArgsConstructor
 public class ApiAccessDeniedHandler implements ServerAccessDeniedHandler {

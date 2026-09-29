@@ -19,32 +19,22 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-/**
- * IT-DB-001: person-service's migrations, applied to a real PostgreSQL.
- *
- * <p>The scripts belong to person-service, which ships no code in module 1 and
- * therefore has nothing to run them. They still have to be proven: a migration
- * that only ever ran on the developer's machine is a deployment that fails on
- * the first real environment. Flyway is driven here directly, against the same
- * PostgreSQL image docker-compose uses.
- *
- * <p>Gradle hands over where the scripts live - see {@code integrationTest} in
- * {@code individuals-api/build.gradle.kts}. A test that guessed a relative path
- * to a sibling module would break the moment anything moved.
- */
+// IT-DB-001: person-service's Flyway migrations on a real PostgreSQL (same image
+// as docker-compose). Gradle passes the scripts' location - see integrationTest
+// in build.gradle.kts
 @Testcontainers
 @DisplayName("person-service migrations")
 class PersonSchemaMigrationIT {
 
-    /** Kept in step with {@code POSTGRES_IMAGE} in .env by hand - see CONTEXT §10. */
+    // keep equal to POSTGRES_IMAGE in .env by hand
     private static final String POSTGRES_IMAGE = "postgres:18.2";
 
     private static final String MIGRATIONS_DIR_PROPERTY = "person.migrations.dir";
 
-    /** V001 creates this schema; every table of the domain lives inside it. */
+    // created by V001; all domain tables live here
     private static final String SCHEMA = "person";
 
-    /** Rows V002 seeds - the full ISO 3166-1 list, countries and territories. */
+    // rows seeded by V002: the full ISO 3166-1 list
     private static final int ISO_3166_1_ENTRIES = 249;
 
     // Testcontainers 2.x moved this class to org.testcontainers.postgresql and
@@ -54,11 +44,7 @@ class PersonSchemaMigrationIT {
 
     private static Path migrations;
 
-    /**
-     * One container serves both tests, so each has to start from nothing.
-     * Without this the second test to run would find the schema already there,
-     * migrate nothing, and pass while proving nothing.
-     */
+    // one container for both tests - start each from an empty database
     @BeforeEach
     void emptyTheDatabase() throws SQLException {
         try (Connection connection = connect();
@@ -140,10 +126,7 @@ class PersonSchemaMigrationIT {
         }
     }
 
-    /**
-     * The table name is a constant of this class, never anything a caller
-     * supplies, so string concatenation here cannot become an injection.
-     */
+    // the table name is our constant, so concatenation is safe here
     private static int rowCount(Connection connection, String table) throws SQLException {
         try (Statement statement = connection.createStatement();
                 ResultSet rows = statement.executeQuery("SELECT count(*) FROM " + SCHEMA + "." + table)) {

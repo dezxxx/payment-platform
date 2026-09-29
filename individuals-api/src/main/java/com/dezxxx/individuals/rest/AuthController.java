@@ -8,8 +8,8 @@ import com.dezxxx.individuals.api.model.RegistrationRequest;
 import com.dezxxx.individuals.api.model.TokenResponse;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
-import com.dezxxx.individuals.service.AuthenticationService;
-import com.dezxxx.individuals.service.RegistrationService;
+import com.dezxxx.individuals.service.TokenService;
+import com.dezxxx.individuals.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,38 +18,22 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-/**
- * The four endpoints of the external API, and nothing else.
- *
- * <p>Implements the generated {@link AuthApi} rather than declaring its own
- * mappings: paths, methods, status codes and the {@code @Valid} on every body
- * all come from the contract, so the code cannot drift away from it. A renamed
- * path in the OpenAPI file breaks this class at compile time.
- *
- * <p>Every method does the same three things - unwrap the request, hand it to a
- * service, wrap the answer in its HTTP status. No decisions are made here: what
- * happens and what to do when it breaks belongs to the services, failures are
- * turned into the error body by {@code GlobalExceptionHandler}, and the request
- * has already been validated before any of this runs.
- */
+// The four endpoints. Implements the generated AuthApi: paths, statuses and
+// @Valid come from the contract. No logic here - unwrap, call a service, wrap
 @RestController
 @RequiredArgsConstructor
 public class AuthController implements AuthApi {
 
-    private final RegistrationService registrationService;
+    private final UserService userService;
 
-    private final AuthenticationService authenticationService;
+    private final TokenService tokenService;
 
-    /**
-     * <b>201 (Created)</b>, because an account and a domain user now exist that
-     * did not before. The other three answer <b>200 (OK)</b> - they only read
-     * or exchange what is already there.
-     */
+    // 201: an account and a person now exist; the other three answer 200
     @Override
     public Mono<ResponseEntity<TokenResponse>> register(Mono<RegistrationRequest> registrationRequest,
                                                         ServerWebExchange exchange) {
         return registrationRequest
-                .flatMap(registrationService::register)
+                .flatMap(userService::register)
                 .map(tokens -> ResponseEntity.status(HttpStatus.CREATED).body(tokens));
     }
 
@@ -57,7 +41,7 @@ public class AuthController implements AuthApi {
     public Mono<ResponseEntity<TokenResponse>> login(Mono<LoginRequest> loginRequest,
                                                      ServerWebExchange exchange) {
         return loginRequest
-                .flatMap(request -> authenticationService.login(request.getEmail(), request.getPassword()))
+                .flatMap(request -> tokenService.login(request.getEmail(), request.getPassword()))
                 .map(ResponseEntity::ok);
     }
 
@@ -65,31 +49,17 @@ public class AuthController implements AuthApi {
     public Mono<ResponseEntity<TokenResponse>> refreshToken(Mono<RefreshTokenRequest> refreshTokenRequest,
                                                             ServerWebExchange exchange) {
         return refreshTokenRequest
-                .flatMap(request -> authenticationService.refresh(request.getRefreshToken()))
+                .flatMap(request -> tokenService.refresh(request.getRefreshToken()))
                 .map(ResponseEntity::ok);
     }
 
-    /**
-     * The only protected endpoint, so it is the only one that needs the caller.
-     *
-     * <p>The token is read from the exchange rather than from a static holder:
-     * on the reactive stack a request is not bound to a thread, so there is no
-     * thread-local security context to read. The filter chain has already
-     * verified the signature, the issuer and the expiry by the time this runs -
-     * what arrives here cannot be a forged token.
-     *
-     * <p>The empty case should be unreachable, since the chain rejects an
-     * unauthenticated caller with <b>401 (Unauthorized)</b> before any handler
-     * is chosen. Should the route ever be made public by mistake, this answers
-     * 401 as well instead of a body with every field left empty.
-     */
     @Override
     public Mono<ResponseEntity<CurrentUserResponse>> getCurrentUser(ServerWebExchange exchange) {
         return exchange.getPrincipal()
                 .cast(JwtAuthenticationToken.class)
                 .map(JwtAuthenticationToken::getToken)
                 .switchIfEmpty(Mono.error(() -> new ApiException(ErrorCode.AUTHENTICATION_REQUIRED)))
-                .flatMap(authenticationService::currentUser)
+                .flatMap(userService::currentUser)
                 .map(ResponseEntity::ok);
     }
 }

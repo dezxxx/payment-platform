@@ -1,0 +1,308 @@
+@startuml keycloak-registration
+title Регистрация - шаги сценария из методички
+
+autonumber
+skinparam shadowing false
+
+participant "AuthController" as Ctl
+participant "UserService" as Svc
+participant "PersonClient\n(над сгенерированным PersonsApi)" as Person
+participant "KeycloakClient" as Kcl
+participant "person-service" as Ps
+participant "Keycloak" as Kc
+
+Ctl -> Svc : register(RegistrationRequest)
+activate Svc
+
+== 1. сначала создаётся доменный пользователь ==
+
+Svc -> Person : createPerson(email, firstName, lastName)
+activate Person
+Person -> Ps : POST /api/v1/persons/registration\n{ "email", "firstName", "lastName" }
+Ps --> Person : 201 { "userUid": "6f1d2a4e-..." }
+Person --> Svc : userUid
+deactivate Person
+
+note right of Svc
+  Пароль сюда не едет никогда.
+  Профиль принадлежит person-service,
+  учётные данные - Keycloak.
+
+  Этот шаг идёт первым намеренно:
+  если он не удастся, учётка в Keycloak
+  ещё не создана, и ничего
+  недоделанного не остаётся.
+end note
+
+== 2. сервис представляется сам за себя ==
+
+Svc -> Kcl : createAccount(email, firstName, lastName, userUid)
+activate Kcl
+
+Kcl -> Kcl : adminLogin()
+note right of Kcl
+  Служебный токен (client_credentials),
+  в кеше до 10 с до истечения, так что
+  чаще всего этого запроса нет вовсе.
+end note
+Kcl -> Kc : POST /realms/{realm}/protocol/openid-connect/token\nформа: grant_type=client_credentials\n       client_id, client_secret
+Kc --> Kcl : 200 { access_token, expires_in }
+
+== 3. учётка, пока без пароля ==
+
+Kcl -> Kc : POST /admin/realms/{realm}/users\nAuthorization: Bearer <служебный токен>
+activate Kc
+note right of Kc
+  {
+    "username": "user@dezxxx.com",
+    "email":    "user@dezxxx.com",
+    "firstName": "Ivan",
+    "lastName":  "Ivanov",
+    "enabled": true,
+    "emailVerified": false,
+    "attributes": { "user_uid": ["6f1d2a4e-..."] }
+  }
+
+  Учётных данных здесь нет - по методичке
+  пароль ставится отдельно.
+  user_uid едет рядом как пользовательский
+  атрибут.
+end note
+Kc --> Kcl : 201 Created\nLocation: .../users/0b7a5f2c-19d4-...\n(тела нет вообще)
+deactivate Kc
+
+note right of Kcl
+  Новый id приходит только в заголовке
+  Location. Вынуть его оттуда - работа
+  этого клиента.
+end note
+
+Kcl --> Svc : keycloakUserId
+deactivate Kcl
+
+== 4. пароль ==
+
+Svc -> Kcl : resetUserPassword(keycloakUserId, password)
+activate Kcl
+Kcl -> Kc : PUT /admin/realms/{realm}/users/{id}/reset-password\n{ "type": "password",\n  "value": "Str0ngP@ssw0rd",\n  "temporary": false }
+Kc --> Kcl : 204 No Content
+Kcl --> Svc : готово
+deactivate Kcl
+
+note over Kcl, Kc
+  temporary ОБЯЗАН быть false. Со значением
+  Keycloak по умолчанию учётка создаётся успешно,
+  а первый же вход падает с
+  400 (Bad Request) / invalid_grant
+  "Account is not fully set up".
+end note
+
+== 5. роль платформы ==
+
+Svc -> Kcl : assignPlatformRole(keycloakUserId)
+activate Kcl
+Kcl -> Kc : GET /admin/realms/{realm}/roles/USER
+Kc --> Kcl : 200 { id, name }
+Kcl -> Kc : POST /admin/realms/{realm}/users/{id}/role-mappings/realm\n[ { id, name } ]
+Kc --> Kcl : 204 No Content
+Kcl --> Svc : готово
+deactivate Kcl
+
+note over Kcl, Kc
+  Импорт realm роль не раздаёт: ни роль по
+  умолчанию, ни realmRoles в теле создания
+  не работают - Keycloak принимает и молча
+  игнорирует. Два вызова, потому что привязка
+  идёт по id, а id известен только после
+  чтения роли.
+end note
+
+== 6. обычный вход, ничего особенного ==
+
+Svc -> Kcl : login(email, password)
+activate Kcl
+Kcl -> Kc : POST /realms/{realm}/protocol/openid-connect/token\nформа: grant_type=password
+Kc --> Kcl : 200 { access_token, refresh_token, expires_in, token_type }
+Kcl --> Svc : TokenResponse
+deactivate Kcl
+
+== 7. ответ ==
+
+Svc -> Svc : response.userUid(userUid)
+Svc --> Ctl : 201 { accessToken, refreshToken,\n     expiresIn, tokenType, userUid }
+deactivate Svc
+
+@enduml
+
+
+@startuml keycloak-rollback
+title Что происходит, когда падает шаг с паролем или ролью
+
+skinparam shadowing false
+
+start
+
+:person-service создал доменного пользователя;
+:Keycloak создал учётку
+(пароля пока нет);
+
+if (пароль поставлен и роль выдана?) then (да)
+  :войти и ответить клиенту;
+  stop
+else (нет)
+  note right
+    Учётка существует, но войти в неё
+    нельзя никогда, а адрес уже занят:
+    каждая следующая попытка
+    зарегистрировать его отвечает
+    409 (Conflict) - навсегда.
+  end note
+  :KeycloakClient.rollbackAccountWithError
+  DELETE /admin/realms/{realm}/users/{id};
+  note right
+    Компенсирующее действие. Адрес снова
+    свободен, вызывающий может просто
+    попробовать ещё раз.
+
+    Доменный пользователь в person-service
+    НЕ откатывается - в его контракте нет
+    операции удаления. Записано как известное
+    ограничение в CONTEXT.md.
+  end note
+  :ответить клиенту исходной ошибкой
+  (как REGISTRATION_INCONSISTENT);
+  stop
+endif
+
+@enduml
+
+
+@startuml keycloak-me
+title GET /api/v1/auth/me - зачем здесь тоже нужен Admin API
+
+skinparam shadowing false
+
+rectangle "Access-токен (уже проверен)" as Tok {
+  card "sub            -> keycloakUserId" as c1
+  card "email          -> email" as c2
+  card "given_name     -> firstName" as c3
+  card "family_name    -> lastName" as c4
+  card "email_verified -> emailVerified" as c5
+  card "realm_access.roles -> roles" as c6
+  card "user_uid       -> userUid" as c7
+}
+
+rectangle "Admin API\nGET /admin/realms/{realm}/users/{sub}" as Adm {
+  card "createdTimestamp -> registeredAt" as c8
+}
+
+rectangle "CurrentUserResponse\n8 обязательных полей" as Out
+
+Tok --> Out : семь полей, без обращений по сети
+Adm --> Out : восьмое\n(KeycloakClient.findRegisteredAt)
+
+note bottom of Tok
+  user_uid есть в токене потому, что realm
+  объявляет для него протокольный маппер.
+  Без маппера за этим полем понадобился бы
+  второй вызов в Admin API.
+end note
+
+note bottom of Adm
+  registeredAt нет ни в одном claim, поэтому
+  /me стоит одного чтения через Admin API.
+  Альтернатива - хранить это у себя, а своей
+  базы у сервиса нет.
+end note
+
+@enduml
+
+
+@startuml keycloak-classes
+title Где стоит KeycloakClient
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+package service {
+  class UserService
+  class TokenService
+}
+
+package "gateway.person" {
+  class PersonClient <<@Component>> {
+    + Mono<UUID> createPerson(email,\n                       firstName, lastName)
+    - translate(error)
+  }
+}
+
+package "gateway.keycloak.client" {
+  class KeycloakClient <<@Component>> {
+    .. token endpoint ..
+    + Mono<TokenResponse> login(email, password)
+    + Mono<TokenResponse> refresh(refreshToken)
+    + Mono<String> adminLogin()
+    .. Admin API ..
+    + Mono<String> createAccount(email, firstName,\n                         lastName, userUid)
+    + Mono<Void> resetUserPassword(id, password)
+    + Mono<Void> assignPlatformRole(id)
+    + Mono<T> rollbackAccountWithError(id, cause)
+    + Mono<OffsetDateTime> findRegisteredAt(id)
+    .. ошибки ..
+    - translate(response)
+  }
+  class KeycloakUserRequest <<record>> {
+    username, email, firstName, lastName,
+    enabled, emailVerified, attributes
+  }
+  class KeycloakTokenResponse <<record>> {
+    accessToken, refreshToken,
+    expiresIn, tokenType
+  }
+}
+
+package util {
+  class GatewayErrors <<static>> {
+    + transportFailures(dependency, baseUrl)
+  }
+}
+
+package config {
+  class KeycloakProperties <<record>> {
+    tokenUri()
+    usersUri()
+    rolesUri()
+  }
+  class HttpClientsConfig {
+    keycloakWebClient
+    personsApi
+  }
+}
+
+UserService --> PersonClient : шаг 1, user_uid
+UserService --> KeycloakClient : учётка, пароль,\nроль, откат, логин, /me
+TokenService --> KeycloakClient : логин, refresh
+
+KeycloakClient ..> KeycloakUserRequest : тело POST /users
+KeycloakClient ..> KeycloakTokenResponse : ответ token endpoint
+KeycloakClient ..> GatewayErrors
+PersonClient ..> GatewayErrors
+KeycloakClient --> KeycloakProperties : tokenUri(), usersUri()
+HttpClientsConfig --> KeycloakClient : keycloakWebClient
+
+note right of KeycloakClient
+  Один класс на всё про Keycloak, как на
+  компонентной диаграмме преподавателя.
+  Мелкие тела живут внутри него приватными
+  record: KeycloakCredential, KeycloakRealmRole,
+  KeycloakUserRepresentation, KeycloakError,
+  CachedToken.
+
+  translate() переводит ответы-ошибки Keycloak
+  в наш ApiException: invalid_grant -> 401,
+  неверный секрет клиента -> 500,
+  409 -> USER_ALREADY_EXISTS, 5xx -> 503.
+  Одна таблица для обоих API.
+end note
+
+@enduml

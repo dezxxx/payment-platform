@@ -4,13 +4,7 @@ import java.io.Serial;
 import java.util.List;
 import lombok.Getter;
 
-/**
- * Every failure this service reports to the client.
- *
- * <p>One class covers all cases because the case is carried by the
- * {@link ErrorCode}, not by the type. A subclass is only worth adding when
- * some code needs to catch that single case and no other.
- */
+// Every failure we report to the client. One class: the case is in the ErrorCode
 @Getter
 public class ApiException extends RuntimeException {
 
@@ -19,10 +13,10 @@ public class ApiException extends RuntimeException {
 
     private final ErrorCode errorCode;
 
-    /** Field-level failures, one readable line each. Never null. */
+    // field-level failures, one line each; never null
     private final transient List<String> details;
 
-    /** Uses the message the code carries. The common case. */
+    // uses the code's own message - the common case
     public ApiException(ErrorCode errorCode) {
         this(errorCode, errorCode.getDefaultMessage(), List.of(), null);
     }
@@ -31,7 +25,7 @@ public class ApiException extends RuntimeException {
         this(errorCode, message, List.of(), null);
     }
 
-    /** Wraps a failure from an external system. The cause carries its stack trace. */
+    // wraps a failure from another system; the cause keeps its stack trace
     public ApiException(ErrorCode errorCode, String message, Throwable cause) {
         this(errorCode, message, List.of(), cause);
     }
