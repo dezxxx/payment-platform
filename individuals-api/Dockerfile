@@ -1,18 +1,11 @@
-# Builds individuals-api inside the image, then runs it on a bare JRE.
-#
-# Build context is the repository root (see docker-compose.yml): the module
-# needs the shared version catalog in gradle/, which lives outside its folder.
-#
-# person-client is not built here - it is downloaded from Nexus by its
-# coordinates, so Nexus must be running and hold it before this build starts
-# (make up takes care of both). Nexus allows anonymous reads, so no password
-# enters the image.
+# Builds individuals-api on a JDK, runs it on a JRE.
+# Context is the repo root (needs gradle/libs.versions.toml). person-client
+# comes from Nexus - it must be up first (make up); anonymous read, no password.
 
 # --- build ---
 FROM eclipse-temurin:25-jdk AS build
 
-# The build runs outside the compose network, so Nexus is reached through the
-# host's published port.
+# the build runs outside the compose network - Nexus via the host port
 ARG NEXUS_PUBLIC_URL=http://host.docker.internal:8083/repository/maven-public/
 
 WORKDIR /workspace
@@ -22,8 +15,7 @@ COPY individuals-api/ individuals-api/
 
 WORKDIR /workspace/individuals-api
 
-# Tests are not run here: make test and make it do that, the image only packages.
-# The cache mount keeps downloaded dependencies between builds.
+# no tests here (make test / make it); the cache keeps dependencies between builds
 RUN --mount=type=cache,target=/root/.gradle \
     ./gradlew bootJar --no-daemon -PnexusPublicUrl=${NEXUS_PUBLIC_URL}
 

@@ -1,20 +1,9 @@
-# Commands for the whole platform, from one place.
-#
-# This folder is a Git root, not a Gradle project: every module is its own
-# build. individuals-api is built inside its Docker image and downloads
-# person-client from Nexus, so Nexus has to be up first - make up does that.
-#
-#   make            everything: start Nexus, build the image, start the stack
-#   make help       the list of targets
-#
-# Requires make. It ships with Linux and macOS; on Windows install it once:
-#   winget install ezwinports.make
-#
-# Runs from anywhere: Git Bash, PowerShell, cmd, or the green arrow in the IDE.
-# That is why no recipe uses a shell built-in, a pipe or a POSIX tool - on
-# Windows make hands recipes to cmd, which has none of them. The wrapper is
-# picked per platform for the same reason: gradlew is a shell script and
-# gradlew.bat is its batch twin.
+# Commands for the whole platform. Every module is its own Gradle build.
+#   make        start Nexus, build the image, start the stack
+#   make help   the list of targets
+# On Windows install make once: winget install ezwinports.make
+# Works from Git Bash, PowerShell, cmd and the IDE, so recipes use no shell
+# built-ins or pipes (on Windows make runs them through cmd).
 
 ifeq ($(OS),Windows_NT)
     WRAPPER := gradlew.bat
@@ -22,14 +11,12 @@ else
     WRAPPER := gradlew
 endif
 
-# Absolute, with forward slashes: the one spelling both shells accept. A bare
-# gradlew.bat is not found by cmd, which does not search the current directory,
-# and .\gradlew.bat is not found by sh, which reads the backslash as an escape.
+# absolute paths with forward slashes - the only form both cmd and sh accept
 API      := $(CURDIR)/individuals-api
 CLIENT   := $(CURDIR)/person-client
 CONTRACT := $(CURDIR)/person-service
 
-# One name for the tool, in case a machine only has the old docker-compose.
+# one place to switch to the old docker-compose if needed
 DOCKER_COMPOSE := docker compose
 
 .DEFAULT_GOAL := all
