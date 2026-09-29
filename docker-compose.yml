@@ -1,12 +1,5 @@
-# Local infrastructure for the payment platform.
-#
-# No image tag, port or credential is written here - they all come from .env,
-# so the stack is reproducible and an upgrade is one deliberate edit in one
-# file. Copy .env.example to .env before the first run.
-#
-#   docker compose up -d
-#
-# Port map lives in CONTEXT.md.
+# Local stack of the payment platform. Start it with: make
+# Images, ports and passwords come from .env (copy .env.example first).
 
 services:
 
@@ -33,8 +26,7 @@ services:
       keycloak-postgres:
         condition: service_healthy
     environment:
-      # Renamed in Keycloak 26; the old KEYCLOAK_ADMIN / KEYCLOAK_ADMIN_PASSWORD
-      # still work but are deprecated.
+      # Keycloak 26 names (KEYCLOAK_ADMIN* are deprecated)
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KC_DB: postgres
@@ -46,10 +38,8 @@ services:
     ports:
       - "${KEYCLOAK_PORT}:8080"
 
-  # Stand-in for person-service until module 2 brings its code: WireMock
-  # answering POST /api/v1/persons/registration with a new userUid, and 409
-  # for the second registration of the Postman users. Mappings are plain JSON
-  # in infra/person-service-stub.
+  # WireMock stub for person-service until module 2: a new userUid per
+  # registration, 409 on a repeat for the Postman users (infra/person-service-stub)
   person-service:
     image: ${WIREMOCK_IMAGE}
     command: ["--port", "8082", "--global-response-templating"]
@@ -82,8 +72,8 @@ services:
 
   individuals-api:
     build:
-      # The root is the context: the build needs gradle/libs.versions.toml.
-      # person-client comes from Nexus, so Nexus must be up first (make up).
+      # root as context: the build needs gradle/libs.versions.toml;
+      # person-client comes from Nexus, so Nexus must be up first (make up)
       context: .
       dockerfile: individuals-api/Dockerfile
       args:
@@ -94,9 +84,7 @@ services:
     depends_on:
       person-service:
         condition: service_started
-      # service_started, not service_healthy: Keycloak needs a while to finish
-      # importing the realm, so the application must tolerate it not answering
-      # for the first few seconds after start.
+      # not service_healthy: the app copes with Keycloak still importing the realm
       keycloak:
         condition: service_started
       prometheus:
@@ -117,12 +105,7 @@ services:
     image: ${PROMETHEUS_IMAGE}
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      # Named on purpose. The image declares VOLUME /prometheus itself, so
-      # without this line Docker creates an anonymous one - the data survives
-      # all the same, but it is a volume named after a hash, indistinguishable
-      # from junk in `docker volume ls` and the first thing `docker volume
-      # prune` takes. Every other service here is named; this one was the
-      # exception by accident.
+      # named, or Docker makes an anonymous volume that `volume prune` deletes
       - prometheus-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT}:9090"
@@ -148,28 +131,22 @@ services:
 
   alloy:
     image: ${ALLOY_IMAGE}
-    # run means "start with this config"; the storage path is where Alloy keeps
-    # how far it has read each container log, so a restart does not replay
-    # everything from the beginning.
     command:
       - run
+      # remembers how far each log was read, so a restart does not replay it all
       - --storage.path=/var/lib/alloy/data
-      # Its own UI shows the pipeline: which containers were discovered, how
-      # many lines each stage read and forwarded. Bound to 0.0.0.0 because the
-      # default is 127.0.0.1, which inside a container means the container
-      # itself and is invisible from outside.
+      # its UI shows the log pipeline; 0.0.0.0 so it is reachable from the host
       - --server.http.listen-addr=0.0.0.0:12345
       - /etc/alloy/config.alloy
     depends_on:
       - loki
     ports:
       - "${ALLOY_PORT}:12345"
-    # The Docker socket is root-owned, and the image runs as an unprivileged
-    # user that cannot read it. Acceptable for a local stack only.
+    # root: needed to read the Docker socket - local stack only
     user: root
     volumes:
       - ./infra/alloy/config.alloy:/etc/alloy/config.alloy:ro
-      # Read-only: the agent only ever lists containers and reads their logs.
+      # read-only: Alloy only lists containers and reads their logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy-data:/var/lib/alloy/data
 
@@ -189,34 +166,21 @@ services:
     ports:
       - "${GRAFANA_PORT}:3000"
 
-  # The platform's artifact repository, not a module 1 detail: every service of
-  # the course publishes its generated client here and resolves everyone else's
-  # by coordinates. That is what lets modules stay independent instead of
-  # depending on each other through project(":...").
-  #
-  # Nothing in this file consumes Nexus at run time - the Gradle build on the
-  # host does, at http://localhost:${NEXUS_PORT}. The container's own port stays
-  # 8081 internally; only the published one moves, because individuals-api owns
-  # 8081 on the host.
-  #
-  # The three repositories the build expects - maven-releases, maven-snapshots
-  # and the maven-public group - exist in a fresh Nexus, so there is nothing to
-  # create by hand.
+  # Artifact repository: person-client is published here, and the
+  # individuals-api image build downloads it. Host port 8083, because
+  # individuals-api owns 8081.
   nexus:
     image: ${NEXUS_IMAGE}
     environment:
-      # Known admin password on first start instead of a random one written to
-      # a file inside the container. Local development only.
+      # known admin password instead of a random one - local only
       NEXUS_SECURITY_RANDOMPASSWORD: "false"
-      # Nexus asks for 2.7 GB by default, which is more than this stack has to
-      # spare next to Keycloak and two databases.
+      # less memory than the default 2.7 GB
       INSTALL4J_ADD_VM_PARAMS: "-Xms1200m -Xmx1200m -XX:MaxDirectMemorySize=2g -Djava.util.prefs.userRoot=/nexus-data/javaprefs"
     volumes:
       - nexus-data:/nexus-data
     ports:
       - "${NEXUS_PORT}:8081"
-    # make up waits for this before building individuals-api, which downloads
-    # person-client from here. Nexus takes a minute or two to start.
+    # make up waits for this before the image build; Nexus starts in 1-2 minutes
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:8081/service/rest/v1/status"]
       interval: 10s

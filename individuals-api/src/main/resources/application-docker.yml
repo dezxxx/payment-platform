@@ -1,8 +1,5 @@
-# Overrides for SPRING_PROFILES_ACTIVE=docker.
-#
-# Only addresses change. On the compose network a service is reached by its
-# service name and its container port - the host port mapping is irrelevant
-# here, which is why Keycloak is 8080 and not whatever .env published it as.
+# Profile "docker": only the addresses change. Inside compose a service is
+# reached by its name and container port, not by the host port.
 
 spring:
   security:
@@ -13,12 +10,8 @@ spring:
 
 individuals:
   person-service:
-    # person-service itself arrives in module 2; only its database runs today,
-    # so any call through this address fails until then. That is expected.
-    #
-    # Overridable because the walkthrough in docs/DEMO.md points it at a stub
-    # running on the host - without something answering here, registration
-    # stops at its first step and there is nothing to demonstrate.
+    # the compose service person-service: a WireMock stub in module 1,
+    # the real service from module 2 on. PERSON_SERVICE_URL overrides it.
     base-url: ${PERSON_SERVICE_URL:http://person-service:8082}
   keycloak:
     base-url: http://keycloak:8080

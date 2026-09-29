@@ -1,28 +1,17 @@
 # individuals-api - base configuration.
-#
-# Everything environment-specific is an environment variable with a local
-# default, so this file works unchanged when running from the IDE. Only the
-# addresses differ inside the compose network, and application-docker.yml
-# overrides exactly those.
+# Environment variables with local defaults, so it runs from the IDE as is;
+# application-docker.yml overrides only the addresses.
 
 spring:
   application:
-    # Also becomes the ECS service.name in the structured logs - the ECS
-    # formatter defaults to this property, so it is not repeated below.
+    # also service.name in the JSON logs
     name: individuals-api
   jackson:
-    # Jackson serialises nulls by default, which would put "details": null into
-    # every error response. The contract marks details optional, so an absent
-    # field is the correct wire form.
+    # no "details": null in error bodies - an absent field instead
     default-property-inclusion: non_null
   reactor:
-    # What carries traceId and spanId into every log record. A reactive chain
-    # hops threads on every external call, and MDC is thread-local, so without
-    # this the trace context is whatever the last thread happened to hold -
-    # usually nothing. ReactorAutoConfiguration installs Reactor's propagation
-    # hook only when this is exactly "auto", so it is set rather than left to a
-    # default: an integration test proved the log records come out without a
-    # trace id when it is not.
+    # carries traceId/spanId and our MDC fields across thread hops;
+    # only exactly "auto" switches it on
     context-propagation: auto
   security:
     oauth2:
@@ -31,11 +20,10 @@ spring:
           issuer-uri: ${KEYCLOAK_URL:http://localhost:8080}/realms/${KEYCLOAK_REALM:payment-platform}
 
 server:
-  # Fixed by the handout port map: the container listens on 8081 and compose
-  # maps 8081:8081.
+  # fixed by the handout's port map
   port: 8081
 
-# Outbound targets. Only the gateway layer is allowed to read these.
+# outbound addresses - read only by the clients in gateway
 individuals:
   person-service:
     base-url: ${PERSON_SERVICE_URL:http://localhost:8082}
@@ -43,7 +31,7 @@ individuals:
     base-url: ${KEYCLOAK_URL:http://localhost:8080}
     realm: ${KEYCLOAK_REALM:payment-platform}
     client-id: ${KEYCLOAK_CLIENT_ID:individuals-api}
-    # Never hardcoded - the confidential client's secret comes from .env.
+    # comes from .env, never hardcoded
     client-secret: ${KEYCLOAK_CLIENT_SECRET:}
 
 springdoc:
@@ -54,25 +42,14 @@ springdoc:
 management:
   metrics:
     distribution:
-      # Buckets for the built-in HTTP timer, so a percentile can be computed.
-      # Off by default: Boot publishes count, sum and max, and nothing else -
-      # which is enough for an average and useless for a percentile, because
-      # histogram_quantile has no buckets to read. The dashboard's 95th
-      # percentile panel was drawing from data nobody had switched on.
-      #
-      # An average is the wrong answer here: nine fast requests and one slow
-      # one average out to "fine", and the slow one is the whole reason the
-      # panel exists. A percentile keeps the tail visible.
-      #
-      # The cost is size - each bucket is its own line in the scrape. Limited
-      # to this one meter rather than enabled globally for that reason.
+      # histogram buckets for the HTTP timer, so Grafana can draw the 95th
+      # percentile; only this one meter, buckets cost scrape size
       percentiles-histogram:
         http.server.requests: true
   endpoints:
     web:
       exposure:
-        # Actuator publishes only health over HTTP by default; prometheus has
-        # to be named explicitly or the scrape job gets a 404.
+        # prometheus must be listed, or the scrape gets 404
         include: "health,info,prometheus"
   endpoint:
     health:
@@ -80,18 +57,13 @@ management:
         enabled: true
   tracing:
     sampling:
-      # Everything is sampled. Fine for a local stack, never for production.
+      # every request is traced - fine locally, not for production
       probability: 1.0
   otlp:
     metrics:
       export:
-        # Turned off deliberately. The OpenTelemetry starter brings an OTLP
-        # meter registry along with the tracing it is here for, and that
-        # registry pushes metrics on its own - to nowhere, since Prometheus
-        # collects ours by scraping /actuator/prometheus instead. Left on it
-        # logs a failed push, stack trace and all, once a minute forever.
-        # Traces still leave over OTLP; only this second copy of the metrics
-        # stops.
+        # off: Prometheus scrapes our metrics; this OTLP copy would only log
+        # a failed push every minute. Traces still go over OTLP
         enabled: false
   opentelemetry:
     tracing:
@@ -102,9 +74,6 @@ management:
 logging:
   structured:
     format:
-      # JSON to stdout, in Elastic Common Schema. service.name comes from
-      # spring.application.name and traceId/spanId from Boot's own tracing;
-      # the path, method, status, business error code and user_uid are put
-      # into the MDC by RequestLogFilter, which is also what makes them
-      # survive a thread hop - see com.dezxxx.individuals.logging.
+      # JSON logs in ECS (Elastic Common Schema) format; the request fields
+      # come from RequestLogFilter
       console: ecs
