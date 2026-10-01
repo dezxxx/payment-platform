@@ -33,8 +33,18 @@ services:
       KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/${KEYCLOAK_DB_NAME}
       KC_DB_USERNAME: ${KEYCLOAK_DB_USER}
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      # /health/ready on the management port 9000, for the healthcheck below
+      KC_HEALTH_ENABLED: "true"
     volumes:
       - ./individuals-api/src/main/resources/realm/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    # healthy only once the realm is imported and HTTP answers, so up --wait
+    # really waits. No curl in the image - bash talks to the port directly
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1.0 200' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     ports:
       - "${KEYCLOAK_PORT}:8080"
 

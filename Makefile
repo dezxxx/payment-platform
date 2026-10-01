@@ -19,8 +19,11 @@ CONTRACT := $(CURDIR)/person-service
 # one place to switch to the old docker-compose if needed
 DOCKER_COMPOSE := docker compose
 
+# compose names volumes <folder>_<volume>
+PROJECT := $(notdir $(CURDIR))
+
 .DEFAULT_GOAL := all
-.PHONY: all help build jar publish-local publish test it check up down restart rebuild logs ps clean
+.PHONY: all help build jar publish-local publish test it check up down restart rebuild reset-db logs ps clean
 
 # all: start the stack - the image builds itself; the one command
 all: up
@@ -39,6 +42,7 @@ help:
 	@echo make down         stop the stack, keep the volumes
 	@echo make restart      down, then up
 	@echo make rebuild      rebuild the image from scratch, then start
+	@echo make reset-db     wipe both databases - Keycloak users and persons - then start
 	@echo make logs         follow the application log
 	@echo make ps           what is running
 	@echo make clean        remove build output of every module
@@ -71,10 +75,11 @@ it: down
 check:
 	cd $(CONTRACT) && $(CONTRACT)/$(WRAPPER) check
 
-# up: Nexus first - the image build downloads person-client from it - then the rest
+# up: Nexus first - the image build downloads person-client from it - then the rest;
+# --wait returns only when every container with a healthcheck reports healthy
 up:
 	$(DOCKER_COMPOSE) up -d --wait nexus
-	$(DOCKER_COMPOSE) up -d --build
+	$(DOCKER_COMPOSE) up -d --build --wait
 
 # down: stop the stack, keep the volumes
 down:
@@ -88,6 +93,13 @@ rebuild:
 	@$(DOCKER_COMPOSE) up -d --wait nexus
 	@$(DOCKER_COMPOSE) build --no-cache individuals-api
 	@$(DOCKER_COMPOSE) up -d
+
+# reset-db: empty Keycloak and person databases, then start again. Keycloak
+# re-imports the realm; the person-service stub forgets who registered.
+# Nexus, metrics, traces and logs are kept
+reset-db: down
+	docker volume rm $(PROJECT)_keycloak-postgres-data $(PROJECT)_person-postgres-data
+	$(MAKE) up
 
 # logs: follow the application log
 logs:
