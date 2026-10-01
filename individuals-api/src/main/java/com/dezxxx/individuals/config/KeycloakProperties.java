@@ -1,17 +1,21 @@
 package com.dezxxx.individuals.config;
 
+import jakarta.validation.constraints.NotBlank;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.validation.annotation.Validated;
 
-// Keycloak settings from individuals.keycloak.*, checked at startup.
+// Keycloak settings from individuals.keycloak.*, checked at startup:
+// a missing or blank value stops the app, not the first request.
 // clientSecret comes from .env, never from a committed file
+@Validated
 @ConfigurationProperties(prefix = "individuals.keycloak")
 public record KeycloakProperties(
-        String baseUrl,
-        String realm,
-        String clientId,
-        String clientSecret,
+        @NotBlank String baseUrl,
+        @NotBlank String realm,
+        @NotBlank String clientId,
+        @NotBlank String clientSecret,
         @DefaultValue("5s") Duration responseTimeout) {
 
     // token endpoint: login, refresh, service-account token
