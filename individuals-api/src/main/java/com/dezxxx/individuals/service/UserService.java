@@ -23,7 +23,8 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-// The user: registration and /me.
+// The one entry point for AuthController: registration, login, refresh and /me.
+// Login and refresh are TokenService's work; the controller reaches it only through here.
 // Registration spans two systems with no shared transaction, so the order is
 // fixed: person-service first (it issues user_uid), then Keycloak, then login.
 @Slf4j
@@ -99,6 +100,16 @@ public class UserService {
     private Mono<TokenResponse> login(RegistrationRequest request) {
         return tokenService.issueTokens(request.getEmail(), request.getPassword())
                 .transform(span("registration.login"));
+    }
+
+    // --- login and refresh: TokenService does the work ---
+
+    public Mono<TokenResponse> login(String email, String password) {
+        return tokenService.login(email, password);
+    }
+
+    public Mono<TokenResponse> refresh(String refreshToken) {
+        return tokenService.refresh(refreshToken);
     }
 
     // --- /me ---

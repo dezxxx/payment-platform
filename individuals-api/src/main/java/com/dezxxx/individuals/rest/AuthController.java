@@ -8,7 +8,6 @@ import com.dezxxx.individuals.api.model.RegistrationRequest;
 import com.dezxxx.individuals.api.model.TokenResponse;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
-import com.dezxxx.individuals.service.TokenService;
 import com.dezxxx.individuals.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -19,14 +18,13 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 // The four endpoints. Implements the generated AuthApi: paths, statuses and
-// @Valid come from the contract. No logic here - unwrap, call a service, wrap
+// @Valid come from the contract. No logic here - unwrap, call UserService, wrap.
+// UserService is its only dependency, as on the component diagram
 @RestController
 @RequiredArgsConstructor
 public class AuthController implements AuthApi {
 
     private final UserService userService;
-
-    private final TokenService tokenService;
 
     // 201: an account and a person now exist; the other three answer 200
     @Override
@@ -41,7 +39,7 @@ public class AuthController implements AuthApi {
     public Mono<ResponseEntity<TokenResponse>> login(Mono<LoginRequest> loginRequest,
                                                      ServerWebExchange exchange) {
         return loginRequest
-                .flatMap(request -> tokenService.login(request.getEmail(), request.getPassword()))
+                .flatMap(request -> userService.login(request.getEmail(), request.getPassword()))
                 .map(ResponseEntity::ok);
     }
 
@@ -49,7 +47,7 @@ public class AuthController implements AuthApi {
     public Mono<ResponseEntity<TokenResponse>> refreshToken(Mono<RefreshTokenRequest> refreshTokenRequest,
                                                             ServerWebExchange exchange) {
         return refreshTokenRequest
-                .flatMap(request -> tokenService.refresh(request.getRefreshToken()))
+                .flatMap(request -> userService.refresh(request.getRefreshToken()))
                 .map(ResponseEntity::ok);
     }
 

@@ -57,12 +57,11 @@ package metrics {
 }
 
 AuthController ..|> AuthApi
-AuthController --> UserService : регистрация, /me
-AuthController --> TokenService : логин, refresh
+AuthController --> UserService : все четыре эндпоинта
 
 UserService --> PersonClient
 UserService --> KeycloakClient
-UserService --> TokenService : токены в конце\nрегистрации
+UserService --> TokenService : логин, refresh,\nтокены в конце регистрации
 TokenService --> KeycloakClient
 
 UserService --> AuthMetrics

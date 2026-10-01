@@ -190,7 +190,7 @@ KeycloakClient ..> KeycloakTokenResponse
 
 legend bottom
   Как на компонентной диаграмме преподавателя:
-  AuthController -> UserService / TokenService -> по клиенту на систему.
+  AuthController -> UserService -> TokenService -> по клиенту на систему.
   Каждый клиент сам переводит ошибки своей системы (private translate);
   то, что нужно обоим, лежит в util.
 endlegend

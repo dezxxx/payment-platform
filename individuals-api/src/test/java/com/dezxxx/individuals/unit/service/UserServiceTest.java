@@ -264,4 +264,36 @@ class UserServiceTest {
                 })
                 .verify();
     }
+
+    // login and refresh pass straight through: the controller reaches TokenService only via UserService
+    @Test
+    @DisplayName("given valid credentials, when logging in, then TokenService answers and nothing else is touched")
+    void loginGoesThroughTokenService() {
+        // given
+        TokenResponse tokens = new TokenResponse().userUid(USER_UID);
+        when(tokenService.login(EMAIL, PASSWORD)).thenReturn(Mono.just(tokens));
+
+        // when / then
+        StepVerifier.create(userService.login(EMAIL, PASSWORD))
+                .expectNext(tokens)
+                .verifyComplete();
+
+        // then - no registration side effects
+        verifyNoInteractions(personClient, keycloakClient);
+    }
+
+    @Test
+    @DisplayName("given a refresh token, when refreshing, then TokenService answers with the new pair")
+    void refreshGoesThroughTokenService() {
+        // given
+        TokenResponse tokens = new TokenResponse().userUid(USER_UID);
+        when(tokenService.refresh("refresh-token")).thenReturn(Mono.just(tokens));
+
+        // when / then
+        StepVerifier.create(userService.refresh("refresh-token"))
+                .expectNext(tokens)
+                .verifyComplete();
+
+        verifyNoInteractions(personClient, keycloakClient);
+    }
 }

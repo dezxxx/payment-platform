@@ -191,7 +191,7 @@ KeycloakClient ..> KeycloakTokenResponse
 
 legend bottom
   As in the teacher's component diagram:
-  AuthController -> UserService / TokenService -> one client per system.
+  AuthController -> UserService -> TokenService -> one client per system.
   Each client translates its own system's errors (private translate);
   what both need lives in util.
 endlegend
