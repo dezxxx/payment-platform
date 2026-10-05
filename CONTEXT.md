@@ -1042,6 +1042,10 @@ of its "implementation steps".
 | Migrations | one per step: schema → tables → indexes and constraints → countries; Envers audit tables as V005 |
 | Indexes | where a query or a foreign key needs one, and never twice: a UNIQUE constraint already is an index |
 | Audit | Hibernate Envers writes the history, Spring Data Envers reads it; modified flags at least on User and Individual |
+| Entities | `UserEntity` is the aggregate root: address (`@OneToOne`, owner) and individual (`@OneToOne`, `mappedBy`) are saved and deleted through it by cascade; all associations LAZY |
+| Time | `TIMESTAMP` columns as `LocalDateTime`, always UTC (`hibernate.jdbc.time_zone`); the JSON carries a `Z` |
+| Local port | 8092 (`SERVER_PORT=8092 ./gradlew bootRun`): the WireMock stub keeps 8082 until the real service replaces it in compose |
+| Flyway history | `person.flyway_schema_history`, next to the tables (`spring.flyway.default-schema: person`). Left to `search_path`, it moved: the database user is also called `person`, so `"$user"` pointed to `public` before V001 and to `person` after it, and the second start failed |
 | Client | `person-service-client` replaces `person-client`; individuals-api moves to it and gains the registration compensation - DELETE the person when the Keycloak part fails |
 
 ### Done
@@ -1065,11 +1069,15 @@ of its "implementation steps".
       address row of their own, so moving one never moves the other; the
       handout's `idx_individuals_user_id` and `idx_users_address_id` were
       dropped as duplicates of those UNIQUE constraints
+- [x] JPA entities `UserEntity`, `AddressEntity`, `IndividualEntity`,
+      `CountryEntity`, and a minimal `application.yml` (`ddl-auto: validate`,
+      UTC, `open-in-view: false`). Checked against the compose database:
+      Flyway applies V001-V004 and Hibernate accepts every entity
 
 ### Next, in this order
 
-- [ ] JPA entities → service and transactions → Envers (V005) → RFC 9457 errors
-      → observability and JSON logs → Nexus publishing
+- [ ] `UserMapper` (entity ↔ DTO, by hand) → service and transactions → Envers (V005)
+      → RFC 9457 errors → observability and JSON logs → Nexus publishing
 - [ ] Dockerfile and compose in place of the WireMock stub
 - [ ] individuals-api on the new client, with the compensation step
 - [ ] Unit and integration tests, coverage 80% or more

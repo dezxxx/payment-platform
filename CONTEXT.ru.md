@@ -994,6 +994,10 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 | Миграции | по одной на шаг: схема → таблицы → индексы и ограничения → страны; аудитные таблицы Envers — V005 |
 | Индексы | там, где они нужны запросу или внешнему ключу, и никогда дважды: UNIQUE уже сам является индексом |
 | Аудит | Hibernate Envers пишет историю, Spring Data Envers её читает; флаги изменённых полей минимум у User и Individual |
+| Сущности | `UserEntity` — корень агрегата: адрес (`@OneToOne`, владелец) и individual (`@OneToOne`, `mappedBy`) сохраняются и удаляются через него каскадом; все связи LAZY |
+| Время | колонки `TIMESTAMP` — это `LocalDateTime`, всегда в UTC (`hibernate.jdbc.time_zone`); в JSON — с `Z` |
+| Локальный порт | 8092 (`SERVER_PORT=8092 ./gradlew bootRun`): заглушка WireMock держит 8082, пока настоящий сервис не заменит её в compose |
+| История Flyway | `person.flyway_schema_history`, рядом с таблицами (`spring.flyway.default-schema: person`). Если оставить её на `search_path`, она «переезжает»: пользователь БД тоже зовётся `person`, поэтому `"$user"` до V001 указывал на `public`, а после — на `person`, и второй старт падал |
 | Клиент | `person-service-client` заменяет `person-client`; individuals-api переходит на него и получает компенсацию регистрации — DELETE персоны, если шаг в Keycloak упал |
 
 ### Сделано
@@ -1017,11 +1021,15 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
       адреса, и переезд одного никогда не переселяет другого; индексы
       `idx_individuals_user_id` и `idx_users_address_id` из задания убраны как
       дубли этих UNIQUE
+- [x] JPA-сущности `UserEntity`, `AddressEntity`, `IndividualEntity`,
+      `CountryEntity` и минимальный `application.yml` (`ddl-auto: validate`,
+      UTC, `open-in-view: false`). Проверено на compose-базе: Flyway применяет
+      V001–V004, Hibernate принимает все сущности
 
 ### Дальше, в этом порядке
 
-- [ ] JPA-сущности → сервис и транзакции → Envers (V005) → ошибки RFC 9457
-      → наблюдаемость и JSON-логи → публикация в Nexus
+- [ ] `UserMapper` (сущность ↔ DTO, руками) → сервис и транзакции → Envers (V005)
+      → ошибки RFC 9457 → наблюдаемость и JSON-логи → публикация в Nexus
 - [ ] Dockerfile и compose вместо заглушки WireMock
 - [ ] individuals-api на новом клиенте, с шагом компенсации
 - [ ] Unit- и интеграционные тесты, покрытие от 80%

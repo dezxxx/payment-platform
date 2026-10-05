@@ -1,0 +1,23 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: person-service
+  datasource:
+    url: jdbc:postgresql://${PERSON_DB_HOST:localhost}:${PERSON_DB_PORT:5434}/${PERSON_DB_NAME:person}
+    username: ${PERSON_DB_USER:person}
+    password: ${PERSON_DB_PASSWORD:person}
+  flyway:
+    # the history lives next to the tables; without it Flyway follows search_path,
+    # and "$user" = person points to public before V001 and to person after it
+    default-schema: person
+  jpa:
+    # entities are loaded only inside service transactions, never while the response is written
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks that the entities match it
+      ddl-auto: validate
+    properties:
+      # TIMESTAMP columns carry no zone - every time is written and read as UTC
+      hibernate.jdbc.time_zone: UTC
