@@ -1003,6 +1003,9 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 - [x] Контракт переписан по заданию и проходит валидацию
 - [x] Серверные интерфейсы генерируются в `build/generated/openapi`
       (`interfaceOnly` + `delegatePattern` + `useSpringBoot4`, `@Nullable` из JSpecify)
+- [x] Flow-диаграмма внутри модуля, `person-service/docs/puml-diagrams/person-service-flow.puml`
+      (русская копия в `puml-ru/`): клиент → individuals-api → person-service
+      → Keycloak → клиент, с компенсацией `DELETE`, если Keycloak упал
 - [x] `person-service-client` генерируется своей задачей (`spring-http-interface`,
       реактивный — для WebFlux в individuals-api) в свой source set и свой jar;
       в `person-service.jar` из него ничего не попадает

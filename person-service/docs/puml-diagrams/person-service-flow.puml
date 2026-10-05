@@ -1,0 +1,60 @@
+@startuml person-service-flow
+title person-service - creating a user, and the compensation
+
+skinparam shadowing false
+skinparam sequenceMessageAlign left
+
+actor "Client" as CL
+participant "individuals-api\n(orchestrator)" as IA
+participant "UsersApi /\nUserController" as C
+participant "UserService\n@Transactional" as S
+participant "UserMapper" as M
+participant "CountryRepository" as CR
+participant "UserRepository" as UR
+database "PostgreSQL\nschema person" as DB
+participant "Keycloak" as KC
+
+CL -> IA : POST /api/v1/auth/registration
+
+== Create ==
+
+IA -> C : POST /api/v1/users\nCreateUserRequest
+C -> S : create(request)
+note right of C : DTO in, DTO out - no logic
+
+S -> UR : email taken? (lower(email))
+UR -> DB : SELECT
+alt email already exists
+  S --> C : conflict
+  C --> IA : 409 ProblemResponse
+  IA --> CL : 409 - the email is already registered
+end
+
+S -> M : CreateUserRequest -> UserEntity\n+ AddressEntity + IndividualEntity
+S -> CR : country by alpha3 / alpha2
+CR -> DB : SELECT
+S -> UR : save(user)
+UR -> DB : INSERT addresses, users, individuals\n(cascade, one transaction)
+S -> M : UserEntity -> UserResponse
+S --> C : UserResponse
+C --> IA : 201 UserResponse\n(id = the future user_uid)
+
+== The orchestrator goes on ==
+
+IA -> KC : create the account with user_uid = id
+alt Keycloak succeeded
+  IA -> KC : log in
+  KC --> IA : access_token, refresh_token
+  IA --> CL : 201 tokens + user_uid
+else Keycloak failed
+  == Compensation ==
+  IA -> C : DELETE /api/v1/users/{id}
+  C -> S : delete(id)
+  S -> UR : delete(user)
+  UR -> DB : DELETE individuals, users, addresses\n(cascade, one transaction)
+  C --> IA : 204
+  IA --> CL : error response\n(individuals-api's existing error handler)
+  note over IA : neither a person nor an account is left behind
+end
+
+@enduml
