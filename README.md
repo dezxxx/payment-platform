@@ -168,6 +168,6 @@ Module 1 is not finished. What is honest as of today:
 | 🧪 Tests | **53 tests, green: 36 unit and 17 integration.** Every test case the handout lists is covered, and each carries its code — `UT-REG-001`, `IT-KC-001` — in its display name. Integration runs against a real Keycloak and a real PostgreSQL in containers. Coverage on the key services is **100%**, with the build failing below 80% |
 | 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, 20 requests, tokens captured automatically, 52 assertions |
 | 📦 Nexus | In the compose file, and `person-client` is resolved from it rather than from the local Maven repository |
-| 🚧 In progress | **Module 2 — `person-service`.** The build, the contract (`/api/v1/users`, five operations, RFC 9457 errors), the generated `person-service-client`, the Flyway migrations and the JPA entities are in; the mapper, the service and Envers come next. Until it runs, a WireMock stub answers in its place |
+| 🚧 In progress | **Module 2 — `person-service`.** The build, the contract (`/api/v1/users`, five operations, RFC 9457 errors), the generated `person-service-client`, the Flyway migrations, the JPA entities and the mapper are in; the service and Envers come next. Until it runs, a WireMock stub answers in its place |
 
 The ordered to-do lists live in §8 (module 1) and §8a (module 2) of `CONTEXT.md` and are kept current.

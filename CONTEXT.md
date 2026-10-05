@@ -1073,11 +1073,17 @@ of its "implementation steps".
       `CountryEntity`, and a minimal `application.yml` (`ddl-auto: validate`,
       UTC, `open-in-view: false`). Checked against the compose database:
       Flyway applies V001-V004 and Hibernate accepts every entity
+- [x] Three mappers by hand, one per entity as in the teacher's project:
+      `AddressMapper`, `IndividualMapper`, and `UserMapper` for the aggregate,
+      which delegates to the other two. Entity ↔ generated DTO and nothing else -
+      no database calls, no business decisions. The country is looked up by the
+      service and handed in; on PATCH a null field means "leave as is". The UTC
+      conversion both mappers need lives in `util/DateTimeUtil`
 
 ### Next, in this order
 
-- [ ] `UserMapper` (entity ↔ DTO, by hand) → service and transactions → Envers (V005)
-      → RFC 9457 errors → observability and JSON logs → Nexus publishing
+- [ ] Service and transactions → Envers (V005) → RFC 9457 errors
+      → observability and JSON logs → Nexus publishing
 - [ ] Dockerfile and compose in place of the WireMock stub
 - [ ] individuals-api on the new client, with the compensation step
 - [ ] Unit and integration tests, coverage 80% or more
