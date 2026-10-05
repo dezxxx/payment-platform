@@ -988,6 +988,7 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 | Веб-стек | Spring MVC поверх JPA — блокирующий, в отличие от individuals-api |
 | Маппинг DTO ↔ сущность | руками, без MapStruct |
 | API | `/api/v1/users`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204. Поля ровно как в примерах запроса и ответа из задания |
+| Создание | адрес и individual **обязательны**: строка ТЗ про создание — «транзакционное создание users, individuals, addresses», агрегат рождается целиком, а PATCH меняет только то, что уже есть. Неизвестный код страны → 400 |
 | Идентификатор | `users.id` (UUID) — доменный идентификатор; individuals-api кладёт его в Keycloak как `user_uid`. person-service о Keycloak ничего не знает |
 | Email | уникален без учёта регистра (индекс `lower(email)`); через PATCH не меняется |
 | Ошибки | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) плюс общие для курса `timestamp`, `error`, `traceId`, `details` как доп. поля — одно тело устраивает оба задания |

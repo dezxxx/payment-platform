@@ -1036,6 +1036,7 @@ of its "implementation steps".
 | Web stack | Spring MVC over JPA - blocking, unlike individuals-api |
 | DTO ↔ entity mapping | written by hand, no MapStruct |
 | API | `/api/v1/users`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204. Fields exactly as the handout's request and response examples |
+| Create | address and individual are **required**: the handout's create row says "transactional creation of users, individuals, addresses", so the aggregate is born whole and PATCH only ever changes what exists. Unknown country code → 400 |
 | Identifier | `users.id` (UUID) is the domain identifier; individuals-api stores it in Keycloak as `user_uid`. person-service knows nothing about Keycloak |
 | Email | unique regardless of case (`lower(email)` index); not changed by PATCH |
 | Errors | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) plus the course-wide `timestamp`, `error`, `traceId`, `details` as extension members - one body satisfies both handouts |

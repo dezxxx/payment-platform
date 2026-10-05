@@ -176,7 +176,7 @@ components:
 
     CreateUserRequest:
       type: object
-      required: [email, firstName, lastName]
+      required: [email, firstName, lastName, address, individual]
       properties:
         email:
           type: string
