@@ -3,16 +3,9 @@ openapi: 3.0.3
 info:
   title: person-service
   description: |
-    Source of truth for the domain user of the dezxxx payment platform.
-
-    Owns the user, the address and the individual data. Knows nothing about
-    Keycloak, tokens or roles - the account lives in Keycloak and is linked
-    back here only by keycloakUserId.
-
-    This contract is consumed by individuals-api through person-client, which
-    is generated from this file and published to Nexus. The operation ids and
-    paths below are frozen: renaming them breaks every consumer.
-  version: 1.0.0
+    Source of truth for the user aggregate: user + address + individual data.
+    Create, update and delete are atomic for the whole aggregate.
+  version: 2.0.0
   contact:
     name: dezxxx
     email: web7tudio@gmail.com
@@ -27,48 +20,45 @@ servers:
     description: Docker network
 
 tags:
-  - name: persons
-    description: Domain users
+  - name: users
+    description: User aggregate
 
 paths:
 
-  /api/v1/persons/registration:
+  /api/v1/users:
     post:
-      tags: [persons]
-      operationId: registerPerson
-      summary: Create a domain user
-      description: |
-        Creates the domain user and returns its user_uid. This is the first
-        step of registration: individuals-api calls it before creating the
-        Keycloak account, so a failure here leaves no orphaned account behind.
-
-        The profile is created incomplete - `filled` stays false until the
-        individual data and the address are supplied.
+      tags: [users]
+      operationId: createUser
+      summary: Create a user with address and individual data in one transaction
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PersonRegistrationRequest"
+              $ref: "#/components/schemas/CreateUserRequest"
             examples:
-              valid:
-                summary: Everything individuals-api collected at registration
+              full:
                 value:
-                  email: user@dezxxx.com
+                  email: ivan.petrov@example.org
                   firstName: Ivan
-                  lastName: Ivanov
+                  lastName: Petrov
+                  address:
+                    countryAlpha3: UKR
+                    countryAlpha2: UA
+                    city: Kyiv
+                    state: Kyiv
+                    zipCode: "01001"
+                    addressLine: 1 Example St.
+                  individual:
+                    passportNumber: "123456789"
+                    phoneNumber: "+380441234567"
       responses:
         "201":
-          description: Domain user created
+          description: User created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonRegistrationResponse"
-              examples:
-                created:
-                  summary: Newly created domain user
-                  value:
-                    userUid: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+                $ref: "#/components/schemas/UserResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "409":
@@ -76,38 +66,65 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/persons/{userUid}:
+  /api/v1/users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
     get:
-      tags: [persons]
-      operationId: getPersonByUserUid
-      summary: Get a domain user by its identifier
-      parameters:
-        - name: userUid
-          in: path
-          required: true
-          description: Domain user identifier issued at registration
-          schema:
-            type: string
-            format: uuid
-          example: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+      tags: [users]
+      operationId: getUserById
+      summary: Get the whole user aggregate
       responses:
         "200":
-          description: Domain user
+          description: User
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonResponse"
-              examples:
-                incomplete:
-                  summary: Right after registration - named, but no address or individual data yet
-                  value:
-                    userUid: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
-                    email: user@dezxxx.com
-                    firstName: Ivan
-                    lastName: Ivanov
-                    filled: false
-                    createdAt: "2026-08-19T12:34:56Z"
-                    updatedAt: "2026-08-19T12:34:56Z"
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      tags: [users]
+      operationId: updateUser
+      summary: Partially update the aggregate - only the fields sent are changed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+            examples:
+              rename-and-move:
+                value:
+                  firstName: Ivan
+                  lastName: Petrov-Senior
+                  address:
+                    city: Lviv
+      responses:
+        "200":
+          description: User after the update
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags: [users]
+      operationId: deleteUser
+      summary: Delete the whole aggregate in one transaction
+      responses:
+        "204":
+          description: User deleted
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -115,14 +132,11 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/persons/by-email:
+  /api/v1/users/by-email:
     get:
-      tags: [persons]
-      operationId: getPersonByEmail
-      summary: Get a domain user by email
-      description: |
-        Used by individuals-api to detect a duplicate registration before it
-        touches Keycloak. Email is unique across the domain.
+      tags: [users]
+      operationId: getUserByEmail
+      summary: Find a user by email, case-insensitive
       parameters:
         - name: email
           in: query
@@ -131,14 +145,14 @@ paths:
             type: string
             format: email
             maxLength: 1024
-          example: user@dezxxx.com
+          example: ivan.petrov@example.org
       responses:
         "200":
-          description: Domain user
+          description: User
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonResponse"
+                $ref: "#/components/schemas/UserResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -148,22 +162,27 @@ paths:
 
 components:
 
+  parameters:
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: 6c8ec4d0-6fd5-4db8-bf4d-7bcbdb2f6c02
+
   schemas:
 
-    PersonRegistrationRequest:
+    CreateUserRequest:
       type: object
-      description: |
-        Everything needed to create the domain user. All three fields are
-        required: person.users declares first_name and last_name NOT NULL, and
-        the external registration form collects them, so there is no case where
-        a user arrives here without a name.
       required: [email, firstName, lastName]
       properties:
         email:
           type: string
           format: email
           maxLength: 1024
-          example: user@dezxxx.com
+          example: ivan.petrov@example.org
         firstName:
           type: string
           minLength: 1
@@ -173,203 +192,236 @@ components:
           type: string
           minLength: 1
           maxLength: 64
-          example: Ivanov
+          example: Petrov
+        address:
+          type: object
+          required: [city, addressLine]
+          properties:
+            countryAlpha3:
+              type: string
+              minLength: 3
+              maxLength: 3
+              example: UKR
+            countryAlpha2:
+              type: string
+              minLength: 2
+              maxLength: 2
+              example: UA
+            city:
+              type: string
+              minLength: 1
+              maxLength: 64
+              example: Kyiv
+            state:
+              type: string
+              maxLength: 64
+              example: Kyiv
+            zipCode:
+              type: string
+              maxLength: 32
+              example: "01001"
+            addressLine:
+              type: string
+              minLength: 1
+              maxLength: 128
+              example: 1 Example St.
+        individual:
+          type: object
+          properties:
+            passportNumber:
+              type: string
+              maxLength: 32
+              example: "123456789"
+            phoneNumber:
+              type: string
+              maxLength: 32
+              example: "+380441234567"
 
-    PersonRegistrationResponse:
+    # email is not here: it is the user's login and is not changed by PATCH
+    UpdateUserRequest:
       type: object
-      required: [userUid]
       properties:
-        userUid:
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: Ivan
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: Petrov-Senior
+        address:
+          type: object
+          properties:
+            countryAlpha3:
+              type: string
+              minLength: 3
+              maxLength: 3
+              example: UKR
+            countryAlpha2:
+              type: string
+              minLength: 2
+              maxLength: 2
+              example: UA
+            city:
+              type: string
+              minLength: 1
+              maxLength: 64
+              example: Lviv
+            state:
+              type: string
+              maxLength: 64
+              example: Kyiv
+            zipCode:
+              type: string
+              maxLength: 32
+              example: "01001"
+            addressLine:
+              type: string
+              minLength: 1
+              maxLength: 128
+              example: 1 Example St.
+        individual:
+          type: object
+          properties:
+            passportNumber:
+              type: string
+              maxLength: 32
+              example: "123456789"
+            phoneNumber:
+              type: string
+              maxLength: 32
+              example: "+380441234567"
+
+    UserResponse:
+      type: object
+      required: [id, email, firstName, lastName, filled, createdAt, updatedAt]
+      properties:
+        id:
           type: string
           format: uuid
-          description: Domain identifier of the created user
-          example: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
-
-    PersonResponse:
-      type: object
-      required: [userUid, email, firstName, lastName, filled, createdAt, updatedAt]
-      properties:
-        userUid:
-          type: string
-          format: uuid
-          example: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
+          example: 6c8ec4d0-6fd5-4db8-bf4d-7bcbdb2f6c02
         email:
           type: string
           format: email
-          example: user@dezxxx.com
+          example: ivan.petrov@example.org
         firstName:
           type: string
-          maxLength: 64
-          example: Sergey
+          example: Ivan
         lastName:
           type: string
-          maxLength: 64
-          example: Zatulsky
+          example: Petrov
         filled:
           type: boolean
-          description: True once the profile carries individual data and an address
-          example: false
-        keycloakUserId:
-          type: string
-          maxLength: 64
-          description: Link back to the Keycloak account, set after the account exists
-          example: 0b7a5f2c-19d4-4a8e-9c3b-77e1a0d4f5b6
+          example: true
         createdAt:
           type: string
           format: date-time
-          example: "2026-08-19T12:34:56Z"
+          example: "2026-06-08T10:15:30Z"
         updatedAt:
           type: string
           format: date-time
-          example: "2026-08-19T12:34:56Z"
+          example: "2026-06-08T10:15:30Z"
         address:
-          $ref: "#/components/schemas/AddressResponse"
+          type: object
+          required: [id, city, addressLine]
+          properties:
+            id:
+              type: string
+              format: uuid
+              example: 6e6d5e5e-5c7d-4f0e-9f9a-34a0b3f8d101
+            countryAlpha3:
+              type: string
+              example: UKR
+            countryAlpha2:
+              type: string
+              example: UA
+            city:
+              type: string
+              example: Kyiv
+            state:
+              type: string
+              example: Kyiv
+            zipCode:
+              type: string
+              example: "01001"
+            addressLine:
+              type: string
+              example: 1 Example St.
         individual:
-          $ref: "#/components/schemas/IndividualResponse"
+          type: object
+          required: [id, status]
+          properties:
+            id:
+              type: string
+              format: uuid
+              example: 7fd6212d-0f71-42a0-bf6e-7dbce6cf04fb
+            passportNumber:
+              type: string
+              example: "123456789"
+            phoneNumber:
+              type: string
+              example: "+380441234567"
+            status:
+              type: string
+              example: NEW
+            verifiedAt:
+              type: string
+              format: date-time
+              nullable: true
+              example: null
+            archivedAt:
+              type: string
+              format: date-time
+              nullable: true
+              example: null
 
-    AddressResponse:
+    # RFC 9457 Problem Details
+    ProblemResponse:
       type: object
-      required: [id, addressLine, city]
+      required: [type, title, status]
       properties:
-        id:
+        type:
           type: string
-          format: uuid
-          example: 2c9a1f30-5b6d-4e71-8a02-9d3f7c1e4b58
-        country:
-          $ref: "#/components/schemas/CountryResponse"
-        addressLine:
+          format: uri
+          example: https://example.org/problems/email-already-exists
+        title:
           type: string
-          maxLength: 128
-          example: Nezavisimosti Ave 4
-        zipCode:
-          type: string
-          maxLength: 32
-          example: "220030"
-        city:
-          type: string
-          maxLength: 64
-          example: Minsk
-        state:
-          type: string
-          maxLength: 64
-          example: Minsk Region
-
-    CountryResponse:
-      type: object
-      required: [id, name, alpha2, alpha3, status]
-      properties:
-        id:
-          type: integer
-          format: int32
-          example: 112
-        name:
-          type: string
-          maxLength: 64
-          example: Belarus
-        alpha2:
-          type: string
-          minLength: 2
-          maxLength: 2
-          example: BY
-        alpha3:
-          type: string
-          minLength: 3
-          maxLength: 3
-          example: BLR
-        status:
-          $ref: "#/components/schemas/CountryStatus"
-
-    CountryStatus:
-      type: string
-      enum: [ACTIVE, INACTIVE]
-      example: ACTIVE
-
-    IndividualResponse:
-      type: object
-      required: [id, status]
-      properties:
-        id:
-          type: string
-          format: uuid
-          example: 8e4b6d21-3c7a-4f95-b1e0-6a2d9f3c8b74
-        passportNumber:
-          type: string
-          maxLength: 32
-          example: MP1234567
-        phoneNumber:
-          type: string
-          maxLength: 32
-          example: "+375291234567"
-        verifiedAt:
-          type: string
-          format: date-time
-          description: Empty until verification actually happened
-          example: "2026-08-19T12:34:56Z"
-        status:
-          $ref: "#/components/schemas/IndividualStatus"
-
-    IndividualStatus:
-      type: string
-      enum: [NEW, VERIFIED, REJECTED, ARCHIVED]
-      example: NEW
-
-    # Single error model shared by every service of the platform.
-    ErrorResponse:
-      type: object
-      required: [timestamp, path, status, error, message, traceId]
-      properties:
-        timestamp:
-          type: string
-          format: date-time
-          example: "2026-08-19T12:34:56Z"
-        path:
-          type: string
-          example: /api/v1/persons/registration
+          example: Data conflict
         status:
           type: integer
           format: int32
-          example: 400
-        error:
+          example: 409
+        detail:
           type: string
-          description: Stable machine-readable error code
-          example: VALIDATION_ERROR
-        message:
+          example: A user with this email already exists
+        instance:
           type: string
-          example: Email is already registered
-        traceId:
-          type: string
-          description: Correlates the response with the trace stored in Tempo
-          example: 4bf92f3577b34da6a3ce929d0e0e4736
-        details:
-          type: array
-          description: Field-level failures, one readable line each
-          items:
-            type: string
-          example:
-            - "email: must be a well-formed email address"
+          example: /api/v1/users
 
   responses:
     BadRequest:
-      description: Request failed validation
+      description: Invalid format or failed validation
       content:
-        application/json:
+        application/problem+json:
           schema:
-            $ref: "#/components/schemas/ErrorResponse"
+            $ref: "#/components/schemas/ProblemResponse"
     NotFound:
-      description: No such domain user
+      description: User not found
       content:
-        application/json:
+        application/problem+json:
           schema:
-            $ref: "#/components/schemas/ErrorResponse"
+            $ref: "#/components/schemas/ProblemResponse"
     Conflict:
-      description: Email is already registered
+      description: Email already taken, or the user was changed by someone else meanwhile
       content:
-        application/json:
+        application/problem+json:
           schema:
-            $ref: "#/components/schemas/ErrorResponse"
+            $ref: "#/components/schemas/ProblemResponse"
     InternalServerError:
       description: Unexpected error
       content:
-        application/json:
+        application/problem+json:
           schema:
-            $ref: "#/components/schemas/ErrorResponse"
+            $ref: "#/components/schemas/ProblemResponse"
