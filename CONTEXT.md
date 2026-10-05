@@ -92,10 +92,10 @@ These are settled. Do not change them without an explicit decision.
 | Base package | `com.dezxxx.individuals` | — |
 | Maven group | `com.dezxxx` | each module's `gradle.properties` |
 | Java | 25 (Gradle toolchain, ignores `JAVA_HOME`) | each module's `gradle.properties` |
-| Spring Boot | 4.1.0 | `gradle/libs.versions.toml` |
+| Spring Boot | 4.1.0 | `gradle/libs.versions.toml`; person-service: its `build.gradle.kts` |
 | Gradle | 9.5.1 via Wrapper | `gradle/wrapper/` |
 | Lombok | yes — 1.18.46 | root `build.gradle.kts` |
-| OpenAPI Generator | 7.14.0 | `gradle/libs.versions.toml` |
+| OpenAPI Generator | 7.25.0 in person-service (the first line with `useSpringBoot4`); still 7.14.0 in individuals-api and person-client until they are next touched | person-service: its `build.gradle.kts`; the others: `gradle/libs.versions.toml` |
 | Build tool | Gradle Kotlin DSL only | — |
 | Keycloak image | 26.7.2 | `.env` |
 | Testcontainers | 2.0.5, inherited from the Boot BOM | artifact ids differ from 1.x — see section 9 |
@@ -105,11 +105,13 @@ at is irrelevant to the build and must not be "fixed" to make it work.
 
 ### Version policy
 
-**No version is ever hardcoded in a build script.** Three layers hold them:
+**One version of each tool across all modules.** Nobody should have to work out
+which module runs which Gradle, Boot or generator.
 
 | File | Holds |
 |---|---|
-| `gradle/libs.versions.toml` | every library, plugin and container tag used by the build |
+| person-service `build.gradle.kts` | its three plugin versions; library versions come from the Spring Boot BOM, so no dependency line carries one |
+| `gradle/libs.versions.toml` | the same for individuals-api and person-client, until they follow person-service - then the file goes |
 | `gradle.properties` | coordinates, toolchain, Nexus URLs |
 | `.env` | image tags, ports and credentials for docker-compose |
 
@@ -622,7 +624,7 @@ payment-platform/              a Git root, NOT a Gradle project
 ├── docs/puml-ru/              the same diagrams in Russian
 ├── person-client/             generated DTOs + HTTP clients -> Nexus
 ├── individuals-api/           the orchestrator
-└── person-service/            contract + Flyway migrations only (module 2)
+└── person-service/            Spring Boot service over the user aggregate (module 2)
 ```
 
 Each module is an independent Gradle build: its own `settings.gradle.kts`,
@@ -630,9 +632,9 @@ Each module is an independent Gradle build: its own `settings.gradle.kts`,
 root is not a Maven/Gradle project, it is a package that plays the role of a
 Git root", and every cross-module dependency travels as a published artifact.
 
-The only thing shared is `gradle/libs.versions.toml`, read by each module as
-`from(files("../gradle/libs.versions.toml"))`. It keeps versions aligned
-without making the folder a build.
+individuals-api and person-client still read `gradle/libs.versions.toml` as
+`from(files("../gradle/libs.versions.toml"))`. person-service reads nothing from
+outside its folder: plugin versions are in its own `build.gradle.kts`.
 
 ---
 
@@ -1020,6 +1022,55 @@ required by it:
 - Communication in Russian, code and comments in English.
 - `CONTEXT.md` and `CONTEXT.ru.md` are edited together; English is the source
   of truth if the two ever disagree.
+---
+
+## 8a. Progress — module 2 (person-service)
+
+The module 2 practice handout is the script, followed step by step in the order
+of its "implementation steps".
+
+### Decisions
+
+| Decision | Value |
+|---|---|
+| Web stack | Spring MVC over JPA - blocking, unlike individuals-api |
+| DTO ↔ entity mapping | written by hand, no MapStruct |
+| API | `/api/v1/users`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204. Fields exactly as the handout's request and response examples |
+| Identifier | `users.id` (UUID) is the domain identifier; individuals-api stores it in Keycloak as `user_uid`. person-service knows nothing about Keycloak |
+| Email | unique regardless of case (`lower(email)` index); not changed by PATCH |
+| Errors | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) plus the course-wide `timestamp`, `error`, `traceId`, `details` as extension members - one body satisfies both handouts |
+| Migrations | one per step: schema → tables → indexes and constraints → countries; Envers audit tables as V005 |
+| Indexes | where a query or a foreign key needs one, and never twice: a UNIQUE constraint already is an index |
+| Audit | Hibernate Envers writes the history, Spring Data Envers reads it; modified flags at least on User and Individual |
+| Client | `person-service-client` replaces `person-client`; individuals-api moves to it and gains the registration compensation - DELETE the person when the Keycloak part fails |
+
+### Done
+
+- [x] Build: Spring MVC, JPA, Flyway, Envers, actuator, OTLP; plugin versions in
+      its own `build.gradle.kts`, no shared catalog
+- [x] Contract rewritten per the handout and validated
+- [x] Server interfaces generated into `build/generated/openapi`
+      (`interfaceOnly` + `delegatePattern` + `useSpringBoot4`, JSpecify `@Nullable`)
+- [x] `person-service-client` generated by its own task (`spring-http-interface`,
+      reactive for WebFlux individuals-api) into its own source set and jar;
+      `person-service.jar` carries none of it
+- [x] Migrations V001-V004 from the handout's DDL, with these changes:
+      `countries.name` is `VARCHAR(64)`, not 32 (seven ISO names are longer);
+      unique and foreign-key constraints live in V003 next to the indexes, not
+      in the tables; `addresses.country_id` got its index; `users.address_id`
+      is UNIQUE - two users may live at the same address, but each has an
+      address row of their own, so moving one never moves the other; the
+      handout's `idx_individuals_user_id` and `idx_users_address_id` were
+      dropped as duplicates of those UNIQUE constraints
+
+### Next, in this order
+
+- [ ] JPA entities → service and transactions → Envers (V005) → RFC 9457 errors
+      → observability and JSON logs → Nexus publishing
+- [ ] Dockerfile and compose in place of the WireMock stub
+- [ ] individuals-api on the new client, with the compensation step
+- [ ] Unit and integration tests, coverage 80% or more
+
 ---
 
 ## 9. First build run — what it cost

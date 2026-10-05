@@ -34,7 +34,7 @@ class PersonSchemaMigrationIT {
     // created by V001; all domain tables live here
     private static final String SCHEMA = "person";
 
-    // rows seeded by V002: the full ISO 3166-1 list
+    // rows seeded by V004: the full ISO 3166-1 list
     private static final int ISO_3166_1_ENTRIES = 249;
 
     // Testcontainers 2.x moved this class to org.testcontainers.postgresql and
@@ -77,7 +77,7 @@ class PersonSchemaMigrationIT {
         // then
         assertThat(result.success).isTrue();
         assertThat(result.migrations).isNotEmpty();
-        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("002");
+        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("004");
 
         // and the schema is not merely recorded as migrated - it is there
         try (Connection connection = connect()) {
@@ -87,7 +87,7 @@ class PersonSchemaMigrationIT {
             assertThat(tableExists(connection, "addresses")).isTrue();
             assertThat(tableExists(connection, "countries")).isTrue();
 
-            // V002 seeds every ISO 3166-1 entry; an empty table would mean the
+            // V004 seeds every ISO 3166-1 entry; an empty table would mean the
             // script ran and inserted nothing, which Flyway reports as success
             assertThat(rowCount(connection, "countries")).isEqualTo(ISO_3166_1_ENTRIES);
         }

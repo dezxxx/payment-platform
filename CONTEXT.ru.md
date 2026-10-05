@@ -93,10 +93,10 @@
 | Базовый пакет | `com.dezxxx.individuals` | — |
 | Maven group | `com.dezxxx` | `gradle.properties` каждого модуля |
 | Java | 25 (Gradle toolchain, игнорирует `JAVA_HOME`) | `gradle.properties` каждого модуля |
-| Spring Boot | 4.1.0 | `gradle/libs.versions.toml` |
+| Spring Boot | 4.1.0 | `gradle/libs.versions.toml`; person-service — свой `build.gradle.kts` |
 | Gradle | 9.5.1 через Wrapper | `gradle/wrapper/` |
 | Lombok | да — 1.18.46 | корневой `build.gradle.kts` |
-| OpenAPI Generator | 7.14.0 | `gradle/libs.versions.toml` |
+| OpenAPI Generator | 7.25.0 в person-service (первая линейка с `useSpringBoot4`); в individuals-api и person-client пока 7.14.0, до следующей правки этих модулей | person-service — свой `build.gradle.kts`; остальные — `gradle/libs.versions.toml` |
 | Инструмент сборки | только Gradle Kotlin DSL | — |
 | Образ Keycloak | 26.7.2 | `.env` |
 | Testcontainers | 2.0.5, из Boot BOM | id артефактов отличаются от 1.x — см. раздел 9 |
@@ -106,11 +106,13 @@ Gradle toolchain сам подтягивает JDK 25, поэтому на чт�
 
 ### Политика версий
 
-**Ни одна версия никогда не пишется прямо в build-скрипт.** Их держат три слоя:
+**У каждого инструмента одна версия во всех модулях.** Никто не должен
+выяснять, на каком Gradle, Boot или генераторе работает какой модуль.
 
 | Файл | Держит |
 |---|---|
-| `gradle/libs.versions.toml` | все библиотеки, плагины и теги контейнеров сборки |
+| `build.gradle.kts` person-service | версии трёх его плагинов; версии библиотек приходят из BOM Spring Boot, поэтому ни в одной строке зависимостей версии нет |
+| `gradle/libs.versions.toml` | то же для individuals-api и person-client, пока они не перейдут на схему person-service — потом файл уйдёт |
 | `gradle.properties` | координаты, toolchain, URL Nexus |
 | `.env` | теги образов, порты и учётные данные для docker-compose |
 
@@ -586,7 +588,7 @@ payment-platform/              Git root, а НЕ проект Gradle
 ├── docs/puml-ru/              те же диаграммы на русском
 ├── person-client/             сгенерированные DTO + HTTP-клиенты -> Nexus
 ├── individuals-api/           оркестратор
-└── person-service/            только контракт + миграции Flyway (модуль 2)
+└── person-service/            Spring Boot сервис над агрегатом пользователя (модуль 2)
 ```
 
 Каждый модуль — самостоятельная сборка Gradle: свой `settings.gradle.kts`,
@@ -595,9 +597,9 @@ payment-platform/              Git root, а НЕ проект Gradle
 роль Git root», а межмодульные зависимости идут только через опубликованные
 артефакты.
 
-Общий остаётся один файл — `gradle/libs.versions.toml`, каждый модуль
-подключает его как `from(files("../gradle/libs.versions.toml"))`. Версии
-держатся вместе, а папка проектом не становится.
+individuals-api и person-client пока подключают `gradle/libs.versions.toml` как
+`from(files("../gradle/libs.versions.toml"))`. person-service ничего не читает за
+пределами своей папки: версии плагинов — в его собственном `build.gradle.kts`.
 
 ---
 
@@ -972,6 +974,54 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 - Сообщения коммитов на английском, `type: short description`.
 - Общение по-русски, код и комментарии на английском.
 - `CONTEXT.md` и `CONTEXT.ru.md` правятся вместе; английский — основной.
+
+---
+
+## 8a. Прогресс — модуль 2 (person-service)
+
+Сценарий — практика модуля 2, шаг за шагом, в порядке её «шагов реализации».
+
+### Решения
+
+| Решение | Значение |
+|---|---|
+| Веб-стек | Spring MVC поверх JPA — блокирующий, в отличие от individuals-api |
+| Маппинг DTO ↔ сущность | руками, без MapStruct |
+| API | `/api/v1/users`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204. Поля ровно как в примерах запроса и ответа из задания |
+| Идентификатор | `users.id` (UUID) — доменный идентификатор; individuals-api кладёт его в Keycloak как `user_uid`. person-service о Keycloak ничего не знает |
+| Email | уникален без учёта регистра (индекс `lower(email)`); через PATCH не меняется |
+| Ошибки | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) плюс общие для курса `timestamp`, `error`, `traceId`, `details` как доп. поля — одно тело устраивает оба задания |
+| Миграции | по одной на шаг: схема → таблицы → индексы и ограничения → страны; аудитные таблицы Envers — V005 |
+| Индексы | там, где они нужны запросу или внешнему ключу, и никогда дважды: UNIQUE уже сам является индексом |
+| Аудит | Hibernate Envers пишет историю, Spring Data Envers её читает; флаги изменённых полей минимум у User и Individual |
+| Клиент | `person-service-client` заменяет `person-client`; individuals-api переходит на него и получает компенсацию регистрации — DELETE персоны, если шаг в Keycloak упал |
+
+### Сделано
+
+- [x] Сборка: Spring MVC, JPA, Flyway, Envers, actuator, OTLP; версии плагинов в
+      собственном `build.gradle.kts`, без общего каталога
+- [x] Контракт переписан по заданию и проходит валидацию
+- [x] Серверные интерфейсы генерируются в `build/generated/openapi`
+      (`interfaceOnly` + `delegatePattern` + `useSpringBoot4`, `@Nullable` из JSpecify)
+- [x] `person-service-client` генерируется своей задачей (`spring-http-interface`,
+      реактивный — для WebFlux в individuals-api) в свой source set и свой jar;
+      в `person-service.jar` из него ничего не попадает
+- [x] Миграции V001–V004 по DDL из задания, с отличиями:
+      `countries.name` — `VARCHAR(64)`, а не 32 (семь названий ISO длиннее);
+      ограничения уникальности и внешние ключи — в V003 рядом с индексами, а не
+      в таблицах; у `addresses.country_id` появился индекс; `users.address_id`
+      — UNIQUE: двое могут жить по одному адресу, но у каждого своя строка
+      адреса, и переезд одного никогда не переселяет другого; индексы
+      `idx_individuals_user_id` и `idx_users_address_id` из задания убраны как
+      дубли этих UNIQUE
+
+### Дальше, в этом порядке
+
+- [ ] JPA-сущности → сервис и транзакции → Envers (V005) → ошибки RFC 9457
+      → наблюдаемость и JSON-логи → публикация в Nexus
+- [ ] Dockerfile и compose вместо заглушки WireMock
+- [ ] individuals-api на новом клиенте, с шагом компенсации
+- [ ] Unit- и интеграционные тесты, покрытие от 80%
 
 ---
 
