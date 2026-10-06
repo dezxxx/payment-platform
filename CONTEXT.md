@@ -1101,6 +1101,9 @@ of its "implementation steps".
       fields, `GlobalExceptionHandler` answers every failure as RFC 9457. Checked live:
       400 / 404 / 405 / 409 / 415, and 12 parallel PATCHes give 409
       `CONCURRENT_MODIFICATION` to the ones that lost the optimistic lock
+- [x] Postman collection `postman/person-service.postman_collection.json`: 19
+      requests, 93 assertions - the five operations, every failure with its RFC 9457
+      body, the delete; runs again on the same database
 
 ### Next, in this order
 

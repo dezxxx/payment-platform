@@ -1,0 +1,564 @@
+{
+  "info": {
+    "name": "person-service",
+    "description": "Every endpoint of person-service and every error the handout names, for one user, Ivan Petrov.\n\nNothing is copied by hand: the create request stores the user id and the next requests use it. Run the whole collection with Postman's Runner, top to bottom. The user is deleted at the end, so the collection can be run again on the same database.\n\nbaseUrl is http://localhost:8092 - person-service started locally (SERVER_PORT=8092 ./gradlew bootRun), because the WireMock stub still holds 8082 in compose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8092"
+    },
+    {
+      "key": "email",
+      "value": "ivan.petrov@example.org"
+    },
+    {
+      "key": "userId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Infrastructure",
+      "item": [
+        {
+          "name": "Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/health"
+          }
+        },
+        {
+          "name": "Swagger UI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/swagger-ui/index.html"
+          }
+        },
+        {
+          "name": "Contract served to Swagger UI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('our contract', () => pm.expect(pm.response.text()).to.include('/api/v1/users'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/openapi/person-service.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Ivan - the whole life of a user",
+      "item": [
+        {
+          "name": "Create user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const u = pm.response.json();",
+                  "pm.collectionVariables.set('userId', u.id);",
+                  "pm.test('id is a UUID', () => pm.expect(u.id).to.match(/^[0-9a-f-]{36}$/));",
+                  "pm.test('email as sent', () => pm.expect(u.email).to.eql(pm.collectionVariables.get('email')));",
+                  "pm.test('filled', () => pm.expect(u.filled).to.eql(true));",
+                  "pm.test('individual status NEW', () => pm.expect(u.individual.status).to.eql('NEW'));",
+                  "pm.test('country resolved', () => { pm.expect(u.address.countryAlpha3).to.eql('UKR'); pm.expect(u.address.countryAlpha2).to.eql('UA'); });",
+                  "pm.test('createdAt present, in UTC', () => pm.expect(u.createdAt).to.match(/Z$/));",
+                  "pm.test('createdAt is now, not shifted by a time zone', () => pm.expect(Math.abs(Date.now() - Date.parse(u.createdAt))).to.be.below(60000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/users",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\",\n  \"address\": {\n    \"countryAlpha3\": \"UKR\",\n    \"countryAlpha2\": \"UA\",\n    \"city\": \"Kyiv\",\n    \"state\": \"Kyiv\",\n    \"zipCode\": \"01001\",\n    \"addressLine\": \"1 Example St.\"\n  },\n  \"individual\": {\n    \"passportNumber\": \"123456789\",\n    \"phoneNumber\": \"+380441234567\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('the same user', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('userId')));",
+                  "pm.test('aggregate whole', () => { const u = pm.response.json(); pm.expect(u.address).to.be.an('object'); pm.expect(u.individual).to.be.an('object'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/{{userId}}"
+          }
+        },
+        {
+          "name": "Get by email, other letter case",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('email is case-insensitive', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('userId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/by-email?email=IVAN.Petrov@example.org"
+          }
+        },
+        {
+          "name": "Update user and address in one request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const u = pm.response.json();",
+                  "pm.test('user changed', () => pm.expect(u.lastName).to.eql('Petrov-Senior'));",
+                  "pm.test('address changed', () => pm.expect(u.address.city).to.eql('Lviv'));",
+                  "pm.test('the rest kept (PATCH)', () => { pm.expect(u.firstName).to.eql('Ivan'); pm.expect(u.address.zipCode).to.eql('01001'); });",
+                  "pm.test('updatedAt moved on', () => pm.expect(Date.parse(u.updatedAt)).to.be.above(Date.parse(u.createdAt)));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/users/{{userId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lastName\": \"Petrov-Senior\",\n  \"address\": {\n    \"city\": \"Lviv\"\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Failures - RFC 9457",
+      "item": [
+        {
+          "name": "409 - the same email again, other case",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409', () => pm.response.to.have.status(409));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = EMAIL_ALREADY_EXISTS', () => pm.expect(p.error).to.eql('EMAIL_ALREADY_EXISTS'));",
+                  "pm.test('status in body = 409', () => pm.expect(p.status).to.eql(409));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/users",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"Ivan.PETROV@example.org\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\",\n  \"address\": {\n    \"countryAlpha3\": \"UKR\",\n    \"countryAlpha2\": \"UA\",\n    \"city\": \"Kyiv\",\n    \"state\": \"Kyiv\",\n    \"zipCode\": \"01001\",\n    \"addressLine\": \"1 Example St.\"\n  },\n  \"individual\": {\n    \"passportNumber\": \"123456789\",\n    \"phoneNumber\": \"+380441234567\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - fields break the contract",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));",
+                  "pm.test('details name the fields', () => { const d = p.details.join(' '); ['email', 'firstName', 'lastName'].forEach(f => pm.expect(d).to.include(f)); });",
+                  "pm.test('details in English', () => pm.expect(p.details.join(' ')).to.include('must'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/users",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"not-an-email\",\n  \"firstName\": \"\",\n  \"address\": {\n    \"city\": \"Kyiv\",\n    \"addressLine\": \"1\"\n  },\n  \"individual\": {}\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - not JSON at all",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = MALFORMED_REQUEST', () => pm.expect(p.error).to.eql('MALFORMED_REQUEST'));",
+                  "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/users",
+            "body": {
+              "mode": "raw",
+              "raw": "{ not json"
+            }
+          }
+        },
+        {
+          "name": "400 - unknown country code",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = COUNTRY_NOT_FOUND', () => pm.expect(p.error).to.eql('COUNTRY_NOT_FOUND'));",
+                  "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));",
+                  "pm.test('names the code', () => pm.expect(p.detail).to.include('XXX'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/users",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nobody@example.org\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\",\n  \"address\": {\n    \"city\": \"Kyiv\",\n    \"addressLine\": \"1 Example St.\",\n    \"countryAlpha3\": \"XXX\"\n  },\n  \"individual\": {\n    \"passportNumber\": \"123456789\",\n    \"phoneNumber\": \"+380441234567\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - email parameter is not an email",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/by-email?email=nope"
+          }
+        },
+        {
+          "name": "400 - id is not a UUID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/not-a-uuid"
+          }
+        },
+        {
+          "name": "404 - no such user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = USER_NOT_FOUND', () => pm.expect(p.error).to.eql('USER_NOT_FOUND'));",
+                  "pm.test('status in body = 404', () => pm.expect(p.status).to.eql(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/00000000-0000-0000-0000-000000000000"
+          }
+        },
+        {
+          "name": "405 - method not supported",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('405', () => pm.response.to.have.status(405));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = METHOD_NOT_ALLOWED', () => pm.expect(p.error).to.eql('METHOD_NOT_ALLOWED'));",
+                  "pm.test('status in body = 405', () => pm.expect(p.status).to.eql(405));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/users/{{userId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "415 - not a JSON content type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('415', () => pm.response.to.have.status(415));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = UNSUPPORTED_MEDIA_TYPE', () => pm.expect(p.error).to.eql('UNSUPPORTED_MEDIA_TYPE'));",
+                  "pm.test('status in body = 415', () => pm.expect(p.status).to.eql(415));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/users",
+            "body": {
+              "mode": "raw",
+              "raw": "Ivan"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Delete - the compensation individuals-api calls",
+      "item": [
+        {
+          "name": "Delete user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/{{userId}}"
+          }
+        },
+        {
+          "name": "Get after delete",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = USER_NOT_FOUND', () => pm.expect(p.error).to.eql('USER_NOT_FOUND'));",
+                  "pm.test('status in body = 404', () => pm.expect(p.status).to.eql(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/{{userId}}"
+          }
+        },
+        {
+          "name": "Email is free again",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = USER_NOT_FOUND', () => pm.expect(p.error).to.eql('USER_NOT_FOUND'));",
+                  "pm.test('status in body = 404', () => pm.expect(p.status).to.eql(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/by-email?email={{email}}"
+          }
+        }
+      ]
+    }
+  ]
+}

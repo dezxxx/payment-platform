@@ -155,7 +155,7 @@ payload.
 | [`CONTEXT.ru.md`](CONTEXT.ru.md) | Russian mirror. English wins if the two disagree. |
 | [`docs/puml-diagrams/`](docs/puml-diagrams) | Diagrams: registration and its rollback, `/me`, the clients, how a failure becomes a response — and [`observability.puml`](docs/puml-diagrams/observability.puml), which is the one to open first if the metrics, logs and traces blur into one thing. A Russian mirror of all of them lives in [`docs/puml-ru`](docs/puml-ru). |
 | [`person-service/docs/`](person-service/docs) | person-service's own diagrams, kept inside the module: [`person-service-flow.puml`](person-service/docs/puml-diagrams/person-service-flow.puml) — a user created through person-service, and the compensation that deletes it when Keycloak fails. Russian mirror in [`puml-ru`](person-service/docs/puml-ru). |
-| [`postman/`](postman) | Postman collection: two users through every endpoint, the failures, Swagger and metrics, with the tokens carried between requests for you. Import it, press Run on a fresh stack. |
+| [`postman/`](postman) | Two Postman collections. `individuals-api`: two users through every endpoint, the failures, Swagger and metrics, with the tokens carried between requests for you - import it, press Run on a fresh stack. `person-service`: one user through all five operations, every RFC 9457 failure and the delete that individuals-api uses as compensation; the user is deleted at the end, so it runs again on the same database. |
 
 ## Status
 
@@ -168,6 +168,6 @@ Module 1 is not finished. What is honest as of today:
 | 🧪 Tests | **53 tests, green: 36 unit and 17 integration.** Every test case the handout lists is covered, and each carries its code — `UT-REG-001`, `IT-KC-001` — in its display name. Integration runs against a real Keycloak and a real PostgreSQL in containers. Coverage on the key services is **100%**, with the build failing below 80% |
 | 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, 20 requests, tokens captured automatically, 52 assertions |
 | 📦 Nexus | In the compose file, and `person-client` is resolved from it rather than from the local Maven repository |
-| 🚧 In progress | **Module 2 — `person-service`.** The build, the contract (`/api/v1/users`, five operations, RFC 9457 errors), the generated `person-service-client`, the Flyway migrations, the JPA entities, the mappers, the service with its transactions and the Envers audit are in; the error layer comes next. Until it runs, a WireMock stub answers in its place |
+| 🚧 In progress | **Module 2 — `person-service`.** The build, the contract (`/api/v1/users`, five operations, RFC 9457 errors), the generated `person-service-client`, the Flyway migrations, the JPA entities, the mappers, the service with its transactions, the Envers audit, the controller with Swagger UI, the RFC 9457 error layer and a Postman collection (19 requests, 93 assertions) are in; observability comes next. Until it runs, a WireMock stub answers in its place |
 
 The ordered to-do lists live in §8 (module 1) and §8a (module 2) of `CONTEXT.md` and are kept current.
