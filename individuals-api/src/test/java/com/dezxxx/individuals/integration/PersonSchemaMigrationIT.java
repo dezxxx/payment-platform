@@ -77,7 +77,7 @@ class PersonSchemaMigrationIT {
         // then
         assertThat(result.success).isTrue();
         assertThat(result.migrations).isNotEmpty();
-        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("004");
+        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("005");
 
         // and the schema is not merely recorded as migrated - it is there
         try (Connection connection = connect()) {

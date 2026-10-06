@@ -15,9 +15,12 @@ import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.envers.Audited;
+import org.hibernate.envers.RelationTargetAuditMode;
 
 @Getter
 @Setter
+@Audited(withModifiedFlag = true)
 @Entity
 @Table(name = "addresses", schema = "person")
 public class AddressEntity {
@@ -35,6 +38,8 @@ public class AddressEntity {
     @Version
     private Long version;
 
+    // countries are a reference list filled by a migration: history keeps only country_id
+    @Audited(withModifiedFlag = true, targetAuditMode = RelationTargetAuditMode.NOT_AUDITED)
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "country_id")
     private CountryEntity country;

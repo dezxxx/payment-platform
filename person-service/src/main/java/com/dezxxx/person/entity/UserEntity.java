@@ -16,10 +16,13 @@ import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.envers.Audited;
+import org.hibernate.envers.NotAudited;
 
 // Root of the aggregate: address and individual are saved and deleted through it
 @Getter
 @Setter
+@Audited(withModifiedFlag = true)
 @Entity
 @Table(name = "users", schema = "person")
 public class UserEntity {
@@ -28,6 +31,8 @@ public class UserEntity {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    // a secret is not copied into the history tables
+    @NotAudited
     private String secretKey;
 
     private String email;

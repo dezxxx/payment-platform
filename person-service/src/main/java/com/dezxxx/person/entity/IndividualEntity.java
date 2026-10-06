@@ -13,9 +13,11 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.envers.Audited;
 
 @Getter
 @Setter
+@Audited(withModifiedFlag = true)
 @Entity
 @Table(name = "individuals", schema = "person")
 public class IndividualEntity {

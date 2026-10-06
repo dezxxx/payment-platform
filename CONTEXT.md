@@ -1043,7 +1043,7 @@ of its "implementation steps".
 | Errors | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) plus the course-wide `timestamp`, `error`, `traceId`, `details` as extension members - one body satisfies both handouts |
 | Migrations | one per step: schema → tables → indexes and constraints → countries; Envers audit tables as V005 |
 | Indexes | where a query or a foreign key needs one, and never twice: a UNIQUE constraint already is an index |
-| Audit | Hibernate Envers writes the history, Spring Data Envers reads it; modified flags at least on User and Individual |
+| Audit | Hibernate Envers writes the history into its own schema `person_history` (`users_history`, `addresses_history`, `individuals_history`, `revinfo`), Spring Data Envers reads it (`RevisionRepository` on User and Individual). Modified flags on all three audited entities - the handout asks for User and Individual at least, and PATCH changes the address most. Countries are not audited: a migration fills them and the API never changes them. `secret_key` stays out of the history. A deleted user keeps its data in the last revision (`store_data_at_delete`) |
 | Entities | `UserEntity` is the aggregate root: address (`@OneToOne`, owner) and individual (`@OneToOne`, `mappedBy`) are saved and deleted through it by cascade; all associations LAZY |
 | Time | `TIMESTAMP` columns as `LocalDateTime`, always UTC (`hibernate.jdbc.time_zone`); the JSON carries a `Z` |
 | Local port | 8092 (`SERVER_PORT=8092 ./gradlew bootRun`): the WireMock stub keeps 8082 until the real service replaces it in compose |
@@ -1089,10 +1089,14 @@ of its "implementation steps".
       then alpha2), sets status `NEW` and `filled`; update flushes so the response
       carries the new version and time. Starts against the compose database:
       Spring Data accepts every repository query
+- [x] Envers: V005 creates `person_history` with three history tables and
+      `revinfo` (own `RevisionInfoEntity`); `@Audited(withModifiedFlag = true)` on
+      User, Address, Individual; `*_mod` flags named after the columns. The schema
+      check at start-up passes against the compose database
 
 ### Next, in this order
 
-- [ ] Envers (V005) → RFC 9457 errors → observability and JSON logs → Nexus publishing
+- [ ] RFC 9457 errors → observability and JSON logs → Nexus publishing
 - [ ] Dockerfile and compose in place of the WireMock stub
 - [ ] individuals-api on the new client, with the compensation step
       - its hand-written DTOs get the same `Dto` suffix: `KeycloakTokenResponse`,

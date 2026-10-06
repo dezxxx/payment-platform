@@ -21,3 +21,13 @@ spring:
     properties:
       # TIMESTAMP columns carry no zone - every time is written and read as UTC
       hibernate.jdbc.time_zone: UTC
+      # Envers history: schema person_history, tables <table>_history (V005)
+      org.hibernate.envers.default_schema: person_history
+      org.hibernate.envers.audit_table_suffix: _history
+      org.hibernate.envers.revision_field_name: revision
+      org.hibernate.envers.revision_type_field_name: revision_type
+      # *_mod flag named after the column (first_name_mod), not the Java field
+      org.hibernate.envers.modified_column_naming_strategy: improved
+      org.hibernate.envers.modified_flag_suffix: _mod
+      # a deleted user keeps its data in the last revision, not only the id
+      org.hibernate.envers.store_data_at_delete: true

@@ -995,7 +995,7 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 | Ошибки | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) плюс общие для курса `timestamp`, `error`, `traceId`, `details` как доп. поля — одно тело устраивает оба задания |
 | Миграции | по одной на шаг: схема → таблицы → индексы и ограничения → страны; аудитные таблицы Envers — V005 |
 | Индексы | там, где они нужны запросу или внешнему ключу, и никогда дважды: UNIQUE уже сам является индексом |
-| Аудит | Hibernate Envers пишет историю, Spring Data Envers её читает; флаги изменённых полей минимум у User и Individual |
+| Аудит | Hibernate Envers пишет историю в свою схему `person_history` (`users_history`, `addresses_history`, `individuals_history`, `revinfo`), Spring Data Envers её читает (`RevisionRepository` у User и Individual). Флаги изменённых полей у всех трёх аудируемых сущностей — ТЗ требует минимум User и Individual, а PATCH чаще всего меняет адрес. Страны не аудируются: их заполняет миграция, через API они не меняются. `secret_key` в историю не попадает. Удалённый пользователь сохраняет данные в последней ревизии (`store_data_at_delete`) |
 | Сущности | `UserEntity` — корень агрегата: адрес (`@OneToOne`, владелец) и individual (`@OneToOne`, `mappedBy`) сохраняются и удаляются через него каскадом; все связи LAZY |
 | Время | колонки `TIMESTAMP` — это `LocalDateTime`, всегда в UTC (`hibernate.jdbc.time_zone`); в JSON — с `Z` |
 | Локальный порт | 8092 (`SERVER_PORT=8092 ./gradlew bootRun`): заглушка WireMock держит 8082, пока настоящий сервис не заменит её в compose |
@@ -1041,10 +1041,14 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
       alpha2), ставит статус `NEW` и `filled`; изменение делает `flush`, чтобы в
       ответе уже были новая версия и время. Стартует на compose-базе: Spring Data
       принимает все запросы репозиториев
+- [x] Envers: V005 создаёт `person_history` с тремя таблицами истории и
+      `revinfo` (своя `RevisionInfoEntity`); `@Audited(withModifiedFlag = true)` у
+      User, Address, Individual; флаги `*_mod` названы по колонкам. Проверка схемы
+      при старте проходит на compose-базе
 
 ### Дальше, в этом порядке
 
-- [ ] Envers (V005) → ошибки RFC 9457 → наблюдаемость и JSON-логи → публикация в Nexus
+- [ ] ошибки RFC 9457 → наблюдаемость и JSON-логи → публикация в Nexus
 - [ ] Dockerfile и compose вместо заглушки WireMock
 - [ ] individuals-api на новом клиенте, с шагом компенсации
       - его DTO, написанные руками, получают тот же суффикс `Dto`: `KeycloakTokenResponse`,
