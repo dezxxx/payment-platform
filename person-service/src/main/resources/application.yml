@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: person-service
+  web:
+    # error texts (validation messages too) are English on any machine,
+    # whatever the server locale or the client's Accept-Language
+    locale: en
+    locale-resolver: fixed
   datasource:
     url: jdbc:postgresql://${PERSON_DB_HOST:localhost}:${PERSON_DB_PORT:5434}/${PERSON_DB_NAME:person}
     username: ${PERSON_DB_USER:person}

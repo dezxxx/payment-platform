@@ -992,7 +992,7 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 | Создание | адрес и individual **обязательны**: строка ТЗ про создание — «транзакционное создание users, individuals, addresses», агрегат рождается целиком, а PATCH меняет только то, что уже есть. Неизвестный код страны → 400 |
 | Идентификатор | `users.id` (UUID) — доменный идентификатор; individuals-api кладёт его в Keycloak как `user_uid`. person-service о Keycloak ничего не знает |
 | Email | уникален без учёта регистра (индекс `lower(email)`); через PATCH не меняется |
-| Ошибки | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) плюс общие для курса `timestamp`, `error`, `traceId`, `details` как доп. поля — одно тело устраивает оба задания |
+| Ошибки | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) плюс общие для курса `timestamp`, `error`, `traceId`, `details` как доп. поля — одно тело устраивает оба задания. `type` = `https://example.org/problems/<код-в-kebab-case>`, как в примере ТЗ, `title` — название HTTP-статуса, `detail` — текст из `ErrorCode`. Один `GlobalExceptionHandler` наследует `ResponseEntityExceptionHandler`, поэтому ошибки самого Spring (кривой JSON, 405, 415, `@Valid`) получают то же тело. Тексты ошибок всегда по-английски (`spring.web.locale: en`, фиксированный resolver) |
 | Миграции | по одной на шаг: схема → таблицы → индексы и ограничения → страны; аудитные таблицы Envers — V005 |
 | Индексы | там, где они нужны запросу или внешнему ключу, и никогда дважды: UNIQUE уже сам является индексом |
 | Аудит | Hibernate Envers пишет историю в свою схему `person_history` (`users_history`, `addresses_history`, `individuals_history`, `revinfo`), Spring Data Envers её читает (`RevisionRepository` у User и Individual). Флаги изменённых полей у всех трёх аудируемых сущностей — ТЗ требует минимум User и Individual, а PATCH чаще всего меняет адрес. Страны не аудируются: их заполняет миграция, через API они не меняются. `secret_key` в историю не попадает. Удалённый пользователь сохраняет данные в последней ревизии (`store_data_at_delete`) |
@@ -1001,7 +1001,7 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 | Локальный порт | 8092 (`SERVER_PORT=8092 ./gradlew bootRun`): заглушка WireMock держит 8082, пока настоящий сервис не заменит её в compose |
 | История Flyway | `person.flyway_schema_history`, рядом с таблицами (`spring.flyway.default-schema: person`). Если оставить её на `search_path`, она «переезжает»: пользователь БД тоже зовётся `person`, поэтому `"$user"` до V001 указывал на `public`, а после — на `person`, и второй старт падал |
 | Репозитории | четыре, по одному на сущность, как у преподавателя. Email ищется через `lower(email) = lower(:email)`, а не встроенным `…IgnoreCase` (тот делает `upper()` и не может использовать `uk_users_email_lower`) |
-| Исключения | одно `PersonException` с `ErrorCode` (статус + текст), тот же образец, что `ApiException` в модуле 1. `USER_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` 409, `COUNTRY_NOT_FOUND` 400 |
+| Исключения | одно `PersonException` с `ErrorCode` (статус + текст), тот же образец, что `ApiException` в модуле 1. `VALIDATION_ERROR` / `MALFORMED_REQUEST` / `COUNTRY_NOT_FOUND` 400, `USER_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` / `CONCURRENT_MODIFICATION` 409, от фреймворка `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR` 500. Второе создание, проскочившее проверку email, останавливает `uk_users_email_lower`, и ответ всё равно 409 |
 | Транзакции | `UserService` — `@Transactional(readOnly = true)`; создание, изменение и удаление открывают пишущую транзакцию. Ответ собирается внутри транзакции: ленивые связи грузятся там, и ничего ленивого из сервиса не выходит |
 | Клиент | `person-service-client` заменяет `person-client`; individuals-api переходит на него и получает компенсацию регистрации — DELETE персоны, если шаг в Keycloak упал |
 
@@ -1049,10 +1049,14 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 - [x] `UserController` реализует сгенерированный `UsersApi`: пять методов в одну
       строку, 201 / 200 / 204, без логики. Swagger UI на `/swagger-ui.html` показывает
       сам файл контракта (springdoc, так же, как в individuals-api)
+- [x] Слой ошибок (шаг 7): `ProblemResponse` в контракте несёт поля курса,
+      `GlobalExceptionHandler` отвечает на любую ошибку в формате RFC 9457. Проверено
+      вживую: 400 / 404 / 405 / 409 / 415, а из 12 параллельных PATCH проигравшие
+      оптимистическую блокировку получают 409 `CONCURRENT_MODIFICATION`
 
 ### Дальше, в этом порядке
 
-- [ ] ошибки RFC 9457 → наблюдаемость и JSON-логи → публикация в Nexus
+- [ ] наблюдаемость и JSON-логи → публикация в Nexus
 - [ ] Dockerfile и compose вместо заглушки WireMock
 - [ ] individuals-api на новом клиенте, с шагом компенсации
       - его DTO, написанные руками, получают тот же суффикс `Dto`: `KeycloakTokenResponse`,

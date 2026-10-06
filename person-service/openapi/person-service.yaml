@@ -380,7 +380,11 @@ components:
     # RFC 9457 Problem Details
     ProblemResponse:
       type: object
-      required: [type, title, status]
+      description: >
+        RFC 9457 problem details. The last four fields are extension members shared by
+        the whole course (module 1 uses the same names), so one error body reads the
+        same in every service.
+      required: [type, title, status, detail, instance, timestamp, error, traceId, details]
       properties:
         type:
           type: string
@@ -388,7 +392,8 @@ components:
           example: https://example.org/problems/email-already-exists
         title:
           type: string
-          example: Data conflict
+          description: Short summary of the HTTP status
+          example: Conflict
         status:
           type: integer
           format: int32
@@ -399,6 +404,24 @@ components:
         instance:
           type: string
           example: /api/v1/users
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-06-08T10:15:30Z"
+        error:
+          type: string
+          description: Stable machine-readable error code
+          example: EMAIL_ALREADY_EXISTS
+        traceId:
+          type: string
+          description: Correlates the response with the trace stored in Tempo
+          example: 4bf92f3577b34da6a3ce929d0e0e4736
+        details:
+          type: array
+          description: Field-level failures, one readable line each; empty otherwise
+          items:
+            type: string
+          example: []
 
   responses:
     BadRequest:

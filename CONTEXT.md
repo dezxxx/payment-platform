@@ -1040,7 +1040,7 @@ of its "implementation steps".
 | Create | address and individual are **required**: the handout's create row says "transactional creation of users, individuals, addresses", so the aggregate is born whole and PATCH only ever changes what exists. Unknown country code → 400 |
 | Identifier | `users.id` (UUID) is the domain identifier; individuals-api stores it in Keycloak as `user_uid`. person-service knows nothing about Keycloak |
 | Email | unique regardless of case (`lower(email)` index); not changed by PATCH |
-| Errors | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) plus the course-wide `timestamp`, `error`, `traceId`, `details` as extension members - one body satisfies both handouts |
+| Errors | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) plus the course-wide `timestamp`, `error`, `traceId`, `details` as extension members - one body satisfies both handouts. `type` = `https://example.org/problems/<code-in-kebab-case>` as in the handout's example, `title` = the HTTP reason phrase, `detail` = the `ErrorCode` text. One `GlobalExceptionHandler` extends `ResponseEntityExceptionHandler`, so Spring's own failures (bad JSON, 405, 415, `@Valid`) get the same body. Error texts are always English (`spring.web.locale: en`, fixed resolver) |
 | Migrations | one per step: schema → tables → indexes and constraints → countries; Envers audit tables as V005 |
 | Indexes | where a query or a foreign key needs one, and never twice: a UNIQUE constraint already is an index |
 | Audit | Hibernate Envers writes the history into its own schema `person_history` (`users_history`, `addresses_history`, `individuals_history`, `revinfo`), Spring Data Envers reads it (`RevisionRepository` on User and Individual). Modified flags on all three audited entities - the handout asks for User and Individual at least, and PATCH changes the address most. Countries are not audited: a migration fills them and the API never changes them. `secret_key` stays out of the history. A deleted user keeps its data in the last revision (`store_data_at_delete`) |
@@ -1049,7 +1049,7 @@ of its "implementation steps".
 | Local port | 8092 (`SERVER_PORT=8092 ./gradlew bootRun`): the WireMock stub keeps 8082 until the real service replaces it in compose |
 | Flyway history | `person.flyway_schema_history`, next to the tables (`spring.flyway.default-schema: person`). Left to `search_path`, it moved: the database user is also called `person`, so `"$user"` pointed to `public` before V001 and to `person` after it, and the second start failed |
 | Repositories | four, one per entity, as in the teacher's project. Email is looked up with `lower(email) = lower(:email)`, not the derived `…IgnoreCase` (that one is `upper()` and cannot use `uk_users_email_lower`) |
-| Exceptions | one `PersonException` carrying an `ErrorCode` (status + message), the same pattern as module 1's `ApiException`. `USER_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` 409, `COUNTRY_NOT_FOUND` 400 |
+| Exceptions | one `PersonException` carrying an `ErrorCode` (status + message), the same pattern as module 1's `ApiException`. `VALIDATION_ERROR` / `MALFORMED_REQUEST` / `COUNTRY_NOT_FOUND` 400, `USER_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` / `CONCURRENT_MODIFICATION` 409, framework `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR` 500. A second create racing past the email check is stopped by `uk_users_email_lower` and still answers 409 |
 | Transactions | `UserService` is `@Transactional(readOnly = true)`; create, update and delete open a writing transaction. The response is built inside the transaction, so LAZY associations load there and nothing lazy leaves the service |
 | Client | `person-service-client` replaces `person-client`; individuals-api moves to it and gains the registration compensation - DELETE the person when the Keycloak part fails |
 
@@ -1097,10 +1097,14 @@ of its "implementation steps".
 - [x] `UserController` implements the generated `UsersApi`: five one-line methods,
       201 / 200 / 204, no logic. Swagger UI at `/swagger-ui.html` shows the contract
       file itself (springdoc, the same way as individuals-api)
+- [x] Error layer (step 7): `ProblemResponse` in the contract carries the course
+      fields, `GlobalExceptionHandler` answers every failure as RFC 9457. Checked live:
+      400 / 404 / 405 / 409 / 415, and 12 parallel PATCHes give 409
+      `CONCURRENT_MODIFICATION` to the ones that lost the optimistic lock
 
 ### Next, in this order
 
-- [ ] RFC 9457 errors → observability and JSON logs → Nexus publishing
+- [ ] Observability and JSON logs → Nexus publishing
 - [ ] Dockerfile and compose in place of the WireMock stub
 - [ ] individuals-api on the new client, with the compensation step
       - its hand-written DTOs get the same `Dto` suffix: `KeycloakTokenResponse`,
