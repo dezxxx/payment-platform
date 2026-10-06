@@ -999,6 +999,9 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 | Время | колонки `TIMESTAMP` — это `LocalDateTime`, всегда в UTC (`hibernate.jdbc.time_zone`); в JSON — с `Z` |
 | Локальный порт | 8092 (`SERVER_PORT=8092 ./gradlew bootRun`): заглушка WireMock держит 8082, пока настоящий сервис не заменит её в compose |
 | История Flyway | `person.flyway_schema_history`, рядом с таблицами (`spring.flyway.default-schema: person`). Если оставить её на `search_path`, она «переезжает»: пользователь БД тоже зовётся `person`, поэтому `"$user"` до V001 указывал на `public`, а после — на `person`, и второй старт падал |
+| Репозитории | четыре, по одному на сущность, как у преподавателя. Email ищется через `lower(email) = lower(:email)`, а не встроенным `…IgnoreCase` (тот делает `upper()` и не может использовать `uk_users_email_lower`) |
+| Исключения | одно `PersonException` с `ErrorCode` (статус + текст), тот же образец, что `ApiException` в модуле 1. `USER_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` 409, `COUNTRY_NOT_FOUND` 400 |
+| Транзакции | `UserService` — `@Transactional(readOnly = true)`; создание, изменение и удаление открывают пишущую транзакцию. Ответ собирается внутри транзакции: ленивые связи грузятся там, и ничего ленивого из сервиса не выходит |
 | Клиент | `person-service-client` заменяет `person-client`; individuals-api переходит на него и получает компенсацию регистрации — DELETE персоны, если шаг в Keycloak упал |
 
 ### Сделано
@@ -1032,11 +1035,15 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
       ни запросов в базу, ни бизнес-решений. Страну ищет сервис и передаёт
       готовой; в PATCH `null` значит «не трогать». Перевод времени в UTC, нужный
       обоим мапперам, лежит в `util/DateTimeUtil`
+- [x] `UserService` с пятью операциями, четыре репозитория, `PersonException`
+      + `ErrorCode`. Создание проверяет email, ищет страну (сначала alpha3, потом
+      alpha2), ставит статус `NEW` и `filled`; изменение делает `flush`, чтобы в
+      ответе уже были новая версия и время. Стартует на compose-базе: Spring Data
+      принимает все запросы репозиториев
 
 ### Дальше, в этом порядке
 
-- [ ] Сервис и транзакции → Envers (V005) → ошибки RFC 9457
-      → наблюдаемость и JSON-логи → публикация в Nexus
+- [ ] Envers (V005) → ошибки RFC 9457 → наблюдаемость и JSON-логи → публикация в Nexus
 - [ ] Dockerfile и compose вместо заглушки WireMock
 - [ ] individuals-api на новом клиенте, с шагом компенсации
 - [ ] Unit- и интеграционные тесты, покрытие от 80%

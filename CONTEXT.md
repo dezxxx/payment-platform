@@ -1047,6 +1047,9 @@ of its "implementation steps".
 | Time | `TIMESTAMP` columns as `LocalDateTime`, always UTC (`hibernate.jdbc.time_zone`); the JSON carries a `Z` |
 | Local port | 8092 (`SERVER_PORT=8092 ./gradlew bootRun`): the WireMock stub keeps 8082 until the real service replaces it in compose |
 | Flyway history | `person.flyway_schema_history`, next to the tables (`spring.flyway.default-schema: person`). Left to `search_path`, it moved: the database user is also called `person`, so `"$user"` pointed to `public` before V001 and to `person` after it, and the second start failed |
+| Repositories | four, one per entity, as in the teacher's project. Email is looked up with `lower(email) = lower(:email)`, not the derived `…IgnoreCase` (that one is `upper()` and cannot use `uk_users_email_lower`) |
+| Exceptions | one `PersonException` carrying an `ErrorCode` (status + message), the same pattern as module 1's `ApiException`. `USER_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` 409, `COUNTRY_NOT_FOUND` 400 |
+| Transactions | `UserService` is `@Transactional(readOnly = true)`; create, update and delete open a writing transaction. The response is built inside the transaction, so LAZY associations load there and nothing lazy leaves the service |
 | Client | `person-service-client` replaces `person-client`; individuals-api moves to it and gains the registration compensation - DELETE the person when the Keycloak part fails |
 
 ### Done
@@ -1080,11 +1083,15 @@ of its "implementation steps".
       no database calls, no business decisions. The country is looked up by the
       service and handed in; on PATCH a null field means "leave as is". The UTC
       conversion both mappers need lives in `util/DateTimeUtil`
+- [x] `UserService` with the five operations, four repositories, `PersonException`
+      + `ErrorCode`. Create checks the email, finds the country (alpha3 first,
+      then alpha2), sets status `NEW` and `filled`; update flushes so the response
+      carries the new version and time. Starts against the compose database:
+      Spring Data accepts every repository query
 
 ### Next, in this order
 
-- [ ] Service and transactions → Envers (V005) → RFC 9457 errors
-      → observability and JSON logs → Nexus publishing
+- [ ] Envers (V005) → RFC 9457 errors → observability and JSON logs → Nexus publishing
 - [ ] Dockerfile and compose in place of the WireMock stub
 - [ ] individuals-api on the new client, with the compensation step
 - [ ] Unit and integration tests, coverage 80% or more
