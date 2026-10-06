@@ -1060,7 +1060,12 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 ### Дальше, в этом порядке
 
 - [ ] наблюдаемость и JSON-логи → публикация в Nexus
-- [ ] Dockerfile и compose вместо заглушки WireMock
+- [ ] Dockerfile и compose вместо заглушки WireMock — с ожиданием готовности, а не
+      только запуска (ТЗ: healthcheck + `depends_on: service_healthy`):
+      - person-service получает healthcheck на `/actuator/health` и ждёт, пока
+        `person-postgres` станет healthy — Flyway мигрирует при старте
+      - individuals-api ждёт healthy person-service (Keycloak — обсудить) и получает
+        свой healthcheck
 - [ ] individuals-api на новом клиенте, с шагом компенсации
       - его DTO, написанные руками, получают тот же суффикс `Dto`: `KeycloakTokenResponse`,
         `KeycloakUserRequest` → `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`

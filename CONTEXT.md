@@ -1108,7 +1108,12 @@ of its "implementation steps".
 ### Next, in this order
 
 - [ ] Observability and JSON logs → Nexus publishing
-- [ ] Dockerfile and compose in place of the WireMock stub
+- [ ] Dockerfile and compose in place of the WireMock stub, with readiness, not just
+      start (the handout: healthcheck + `depends_on: service_healthy`):
+      - person-service gets a healthcheck on `/actuator/health` and waits for
+        `person-postgres` to be healthy - Flyway migrates at start-up
+      - individuals-api waits for person-service to be healthy (Keycloak to discuss)
+        and gets a healthcheck of its own
 - [ ] individuals-api on the new client, with the compensation step
       - its hand-written DTOs get the same `Dto` suffix: `KeycloakTokenResponse`,
         `KeycloakUserRequest` → `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`
