@@ -2,9 +2,9 @@ package com.dezxxx.person.mapper;
 
 import static com.dezxxx.person.util.DateTimeUtil.toUtc;
 
-import com.dezxxx.person.api.model.CreateUserRequest;
-import com.dezxxx.person.api.model.UpdateUserRequest;
-import com.dezxxx.person.api.model.UserResponse;
+import com.dezxxx.person.api.model.CreateUserRequestDto;
+import com.dezxxx.person.api.model.UpdateUserRequestDto;
+import com.dezxxx.person.api.model.UserResponseDto;
 import com.dezxxx.person.entity.CountryEntity;
 import com.dezxxx.person.entity.UserEntity;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +20,7 @@ public class UserMapper {
     private final AddressMapper addressMapper;
     private final IndividualMapper individualMapper;
 
-    public UserEntity toUserEntity(CreateUserRequest request, CountryEntity country) {
+    public UserEntity toUserEntity(CreateUserRequestDto request, CountryEntity country) {
         UserEntity user = new UserEntity();
         user.setEmail(request.getEmail());
         user.setFirstName(request.getFirstName());
@@ -34,8 +34,8 @@ public class UserMapper {
         return user;
     }
 
-    public UserResponse toUserResponse(UserEntity user) {
-        UserResponse response = new UserResponse()
+    public UserResponseDto toUserResponse(UserEntity user) {
+        UserResponseDto response = new UserResponseDto()
                 .id(user.getId())
                 .email(user.getEmail())
                 .firstName(user.getFirstName())
@@ -53,7 +53,7 @@ public class UserMapper {
     }
 
     // PATCH: null means "not sent, leave as is", never "clear"
-    public void updateUser(UserEntity user, UpdateUserRequest request, CountryEntity country) {
+    public void updateUser(UserEntity user, UpdateUserRequestDto request, CountryEntity country) {
         if (request.getFirstName() != null) {
             user.setFirstName(request.getFirstName());
         }

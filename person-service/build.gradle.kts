@@ -70,6 +70,8 @@ openApiGenerate {
 
     apiPackage.set("com.dezxxx.person.api")
     modelPackage.set("com.dezxxx.person.api.model")
+    // generated DTOs read as DTOs next to the entities: UserResponseDto, not UserResponse
+    modelNameSuffix.set("Dto")
     invokerPackage.set("com.dezxxx.person.api")
 
     // only interfaces and models: no pom.xml, README or sample application
@@ -106,6 +108,7 @@ val openApiGenerateClient = tasks.register<GenerateTask>("openApiGenerateClient"
 
     apiPackage.set("com.dezxxx.person.client.api")
     modelPackage.set("com.dezxxx.person.client.model")
+    modelNameSuffix.set("Dto")
     invokerPackage.set("com.dezxxx.person.client")
 
     globalProperties.set(mapOf("apis" to "", "models" to ""))

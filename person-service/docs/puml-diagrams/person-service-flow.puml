@@ -30,13 +30,13 @@ alt email already exists
   IA --> CL : 409 - the email is already registered
 end
 
-S -> M : CreateUserRequest -> UserEntity\n+ AddressEntity + IndividualEntity
+S -> M : CreateUserRequestDto -> UserEntity\n+ AddressEntity + IndividualEntity
 S -> CR : country by alpha3 / alpha2
 CR -> DB : SELECT
 S -> UR : save(user)
 UR -> DB : INSERT addresses, users, individuals\n(cascade, one transaction)
-S -> M : UserEntity -> UserResponse
-S --> C : UserResponse
+S -> M : UserEntity -> UserResponseDto
+S --> C : UserResponseDto
 C --> IA : 201 UserResponse\n(id = the future user_uid)
 
 == The orchestrator goes on ==

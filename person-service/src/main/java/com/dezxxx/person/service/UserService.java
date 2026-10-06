@@ -1,8 +1,8 @@
 package com.dezxxx.person.service;
 
-import com.dezxxx.person.api.model.CreateUserRequest;
-import com.dezxxx.person.api.model.UpdateUserRequest;
-import com.dezxxx.person.api.model.UserResponse;
+import com.dezxxx.person.api.model.CreateUserRequestDto;
+import com.dezxxx.person.api.model.UpdateUserRequestDto;
+import com.dezxxx.person.api.model.UserResponseDto;
 import com.dezxxx.person.entity.CountryEntity;
 import com.dezxxx.person.entity.UserEntity;
 import com.dezxxx.person.exception.ErrorCode;
@@ -32,7 +32,7 @@ public class UserService {
     private final UserMapper userMapper;
 
     @Transactional
-    public UserResponse createUser(CreateUserRequest request) {
+    public UserResponseDto createUser(CreateUserRequestDto request) {
         // the unique index on lower(email) still stops two requests racing past this check
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new PersonException(ErrorCode.EMAIL_ALREADY_EXISTS);
@@ -50,13 +50,13 @@ public class UserService {
         return userMapper.toUserResponse(saved);
     }
 
-    public UserResponse getUserById(UUID id) {
+    public UserResponseDto getUserById(UUID id) {
         UserEntity user = findUser(id);
         log.info("Found user {}", id);
         return userMapper.toUserResponse(user);
     }
 
-    public UserResponse getUserByEmail(String email) {
+    public UserResponseDto getUserByEmail(String email) {
         UserEntity user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new PersonException(ErrorCode.USER_NOT_FOUND));
         // the id, not the email: an email is personal data and stays out of the logs
@@ -65,7 +65,7 @@ public class UserService {
     }
 
     @Transactional
-    public UserResponse updateUser(UUID id, UpdateUserRequest request) {
+    public UserResponseDto updateUser(UUID id, UpdateUserRequestDto request) {
         UserEntity user = findUser(id);
         CountryEntity country = request.getAddress() == null
                 ? null

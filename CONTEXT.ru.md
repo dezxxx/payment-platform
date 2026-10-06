@@ -987,6 +987,7 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 |---|---|
 | Веб-стек | Spring MVC поверх JPA — блокирующий, в отличие от individuals-api |
 | Маппинг DTO ↔ сущность | руками, без MapStruct |
+| Имена DTO | у сгенерированных Java-классов суффикс `Dto` (`modelNameSuffix`): `UserResponseDto` рядом с `UserEntity` — в коде сразу видно, что есть что. Схемы контракта сохраняют имена из ТЗ (`CreateUserRequest`, `UserResponse`…) |
 | API | `/api/v1/users`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204. Поля ровно как в примерах запроса и ответа из задания |
 | Создание | адрес и individual **обязательны**: строка ТЗ про создание — «транзакционное создание users, individuals, addresses», агрегат рождается целиком, а PATCH меняет только то, что уже есть. Неизвестный код страны → 400 |
 | Идентификатор | `users.id` (UUID) — доменный идентификатор; individuals-api кладёт его в Keycloak как `user_uid`. person-service о Keycloak ничего не знает |
@@ -1046,6 +1047,8 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 - [ ] Envers (V005) → ошибки RFC 9457 → наблюдаемость и JSON-логи → публикация в Nexus
 - [ ] Dockerfile и compose вместо заглушки WireMock
 - [ ] individuals-api на новом клиенте, с шагом компенсации
+      - его DTO, написанные руками, получают тот же суффикс `Dto`: `KeycloakTokenResponse`,
+        `KeycloakUserRequest` → `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`
 - [ ] Unit- и интеграционные тесты, покрытие от 80%
 
 ---

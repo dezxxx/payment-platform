@@ -1035,6 +1035,7 @@ of its "implementation steps".
 |---|---|
 | Web stack | Spring MVC over JPA - blocking, unlike individuals-api |
 | DTO ↔ entity mapping | written by hand, no MapStruct |
+| DTO names | the generated Java classes carry a `Dto` suffix (`modelNameSuffix`): `UserResponseDto` next to `UserEntity`, so the code tells the two apart at a glance. The contract schemas keep the handout names (`CreateUserRequest`, `UserResponse`…) |
 | API | `/api/v1/users`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204. Fields exactly as the handout's request and response examples |
 | Create | address and individual are **required**: the handout's create row says "transactional creation of users, individuals, addresses", so the aggregate is born whole and PATCH only ever changes what exists. Unknown country code → 400 |
 | Identifier | `users.id` (UUID) is the domain identifier; individuals-api stores it in Keycloak as `user_uid`. person-service knows nothing about Keycloak |
@@ -1094,6 +1095,8 @@ of its "implementation steps".
 - [ ] Envers (V005) → RFC 9457 errors → observability and JSON logs → Nexus publishing
 - [ ] Dockerfile and compose in place of the WireMock stub
 - [ ] individuals-api on the new client, with the compensation step
+      - its hand-written DTOs get the same `Dto` suffix: `KeycloakTokenResponse`,
+        `KeycloakUserRequest` → `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`
 - [ ] Unit and integration tests, coverage 80% or more
 
 ---

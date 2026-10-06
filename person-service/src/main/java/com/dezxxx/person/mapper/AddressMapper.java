@@ -1,8 +1,8 @@
 package com.dezxxx.person.mapper;
 
-import com.dezxxx.person.api.model.CreateUserRequestAddress;
-import com.dezxxx.person.api.model.UpdateUserRequestAddress;
-import com.dezxxx.person.api.model.UserResponseAddress;
+import com.dezxxx.person.api.model.CreateUserRequestAddressDto;
+import com.dezxxx.person.api.model.UpdateUserRequestAddressDto;
+import com.dezxxx.person.api.model.UserResponseAddressDto;
 import com.dezxxx.person.entity.AddressEntity;
 import com.dezxxx.person.entity.CountryEntity;
 import org.springframework.stereotype.Component;
@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class AddressMapper {
 
-    public AddressEntity toAddressEntity(CreateUserRequestAddress request, CountryEntity country) {
+    public AddressEntity toAddressEntity(CreateUserRequestAddressDto request, CountryEntity country) {
         AddressEntity address = new AddressEntity();
         address.setCountry(country);
         address.setCity(request.getCity());
@@ -21,8 +21,8 @@ public class AddressMapper {
         return address;
     }
 
-    public UserResponseAddress toAddressResponse(AddressEntity address) {
-        UserResponseAddress response = new UserResponseAddress()
+    public UserResponseAddressDto toAddressResponse(AddressEntity address) {
+        UserResponseAddressDto response = new UserResponseAddressDto()
                 .id(address.getId())
                 .city(address.getCity())
                 .state(address.getState())
@@ -36,7 +36,7 @@ public class AddressMapper {
     }
 
     // PATCH: null means "not sent, leave as is"
-    public void updateAddress(AddressEntity address, UpdateUserRequestAddress request, CountryEntity country) {
+    public void updateAddress(AddressEntity address, UpdateUserRequestAddressDto request, CountryEntity country) {
         if (country != null) {
             address.setCountry(country);
         }
