@@ -9,7 +9,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
@@ -37,9 +37,9 @@ public class IndividualEntity {
 
     private String phoneNumber;
 
-    private LocalDateTime verifiedAt;
+    private Instant verifiedAt;
 
-    private LocalDateTime archivedAt;
+    private Instant archivedAt;
 
     private String status;
 }

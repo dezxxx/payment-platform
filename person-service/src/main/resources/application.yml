@@ -19,8 +19,11 @@ spring:
       # Flyway owns the schema; Hibernate only checks that the entities match it
       ddl-auto: validate
     properties:
-      # TIMESTAMP columns carry no zone - every time is written and read as UTC
+      # entities keep time as Instant (a point in time, independent of the server zone);
+      # TIMESTAMP columns carry no zone, so it is written and read as UTC
       hibernate.jdbc.time_zone: UTC
+      # Instant fields map to the plain TIMESTAMP columns of the DDL, not timestamptz
+      hibernate.type.preferred_instant_jdbc_type: TIMESTAMP
       # Envers history: schema person_history, tables <table>_history (V005)
       org.hibernate.envers.default_schema: person_history
       org.hibernate.envers.audit_table_suffix: _history

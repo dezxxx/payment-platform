@@ -10,7 +10,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
@@ -38,10 +38,10 @@ public class UserEntity {
     private String email;
 
     @CreationTimestamp
-    private LocalDateTime created;
+    private Instant created;
 
     @UpdateTimestamp
-    private LocalDateTime updated;
+    private Instant updated;
 
     @Version
     private Long version;

@@ -45,7 +45,8 @@ public class UserService {
         // address and individual are required on create, so the profile is complete
         user.setFilled(true);
 
-        UserEntity saved = userRepository.save(user);
+        // flush now: created and updated are set at INSERT and the response must carry them
+        UserEntity saved = userRepository.saveAndFlush(user);
         log.info("Created user {}", saved.getId());
         return userMapper.toUserResponse(saved);
     }

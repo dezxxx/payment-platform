@@ -9,7 +9,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
@@ -30,10 +30,10 @@ public class AddressEntity {
     private UUID id;
 
     @CreationTimestamp
-    private LocalDateTime created;
+    private Instant created;
 
     @UpdateTimestamp
-    private LocalDateTime updated;
+    private Instant updated;
 
     @Version
     private Long version;
@@ -48,7 +48,7 @@ public class AddressEntity {
 
     private String zipCode;
 
-    private LocalDateTime archived;
+    private Instant archived;
 
     private String city;
 
