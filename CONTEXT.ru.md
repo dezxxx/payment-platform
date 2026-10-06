@@ -1044,7 +1044,11 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 - [x] Envers: V005 создаёт `person_history` с тремя таблицами истории и
       `revinfo` (своя `RevisionInfoEntity`); `@Audited(withModifiedFlag = true)` у
       User, Address, Individual; флаги `*_mod` названы по колонкам. Проверка схемы
-      при старте проходит на compose-базе
+      при старте проходит на compose-базе; через API создание, PATCH и удаление
+      оставляют ревизии 0, 1 и 2
+- [x] `UserController` реализует сгенерированный `UsersApi`: пять методов в одну
+      строку, 201 / 200 / 204, без логики. Swagger UI на `/swagger-ui.html` показывает
+      сам файл контракта (springdoc, так же, как в individuals-api)
 
 ### Дальше, в этом порядке
 

@@ -34,3 +34,8 @@ spring:
       org.hibernate.envers.modified_flag_suffix: _mod
       # a deleted user keeps its data in the last revision, not only the id
       org.hibernate.envers.store_data_at_delete: true
+
+springdoc:
+  swagger-ui:
+    # our contract, copied into the jar by processResources
+    url: /openapi/person-service.yaml

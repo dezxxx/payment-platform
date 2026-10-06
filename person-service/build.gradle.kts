@@ -44,6 +44,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
     implementation("io.micrometer:micrometer-registry-prometheus")
 
+    // Swagger UI over the contract file itself (processResources below)
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0")
+
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // Gradle 9 no longer adds the JUnit launcher by itself
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -55,6 +58,12 @@ tasks.withType<Test>().configureEach {
 
 val contract = layout.projectDirectory.file("openapi/person-service.yaml")
 val generatedDir = layout.buildDirectory.dir("generated/openapi")
+
+// Swagger UI shows the contract itself (descriptions, examples, error codes),
+// not what springdoc guesses from the code: the file is served at /openapi/
+tasks.processResources {
+    from(contract) { into("static/openapi") }
+}
 
 openApiValidate {
     inputSpec.set(contract.asFile.absolutePath)

@@ -1092,7 +1092,11 @@ of its "implementation steps".
 - [x] Envers: V005 creates `person_history` with three history tables and
       `revinfo` (own `RevisionInfoEntity`); `@Audited(withModifiedFlag = true)` on
       User, Address, Individual; `*_mod` flags named after the columns. The schema
-      check at start-up passes against the compose database
+      check at start-up passes against the compose database; through the API a
+      create, a PATCH and a delete leave revisions 0, 1 and 2
+- [x] `UserController` implements the generated `UsersApi`: five one-line methods,
+      201 / 200 / 204, no logic. Swagger UI at `/swagger-ui.html` shows the contract
+      file itself (springdoc, the same way as individuals-api)
 
 ### Next, in this order
 
