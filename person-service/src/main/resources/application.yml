@@ -34,3 +34,36 @@ spring:
 springdoc:
   swagger-ui:
     url: /openapi/person-service.yaml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,prometheus,metrics"
+  metrics:
+    distribution:
+      # buckets let Grafana draw the 95th percentile; only this meter, they cost scrape size
+      percentiles-histogram:
+        http.server.requests: true
+  observations:
+    annotations:
+      enabled: true
+  tracing:
+    sampling:
+      # every request is traced - fine locally, not for production
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        # off: Prometheus scrapes the metrics; an OTLP push would only log failures
+        enabled: false
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  structured:
+    format:
+      console: ecs

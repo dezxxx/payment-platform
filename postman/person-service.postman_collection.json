@@ -1,13 +1,13 @@
 {
   "info": {
     "name": "person-service",
-    "description": "Every endpoint of person-service and every error the handout names, for one user, Ivan Petrov.\n\nNothing is copied by hand: the create request stores the user id and the next requests use it. Run the whole collection with Postman's Runner, top to bottom. The user is deleted at the end, so the collection can be run again on the same database.\n\nbaseUrl is http://localhost:8092 - person-service started locally (SERVER_PORT=8092 ./gradlew bootRun), because the WireMock stub still holds 8082 in compose.",
+    "description": "Every endpoint of person-service and every error the handout names, for one user, Ivan Petrov.\n\nNothing is copied by hand: the create request stores the user id and the next requests use it. Run the whole collection with Postman's Runner, top to bottom. The user is deleted at the end, so the collection can be run again on the same database.\n\nbaseUrl is http://localhost:8082 - person-service in docker compose (make up). Started from the IDE instead, it runs on 8092 while compose holds 8082: change baseUrl.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:8092"
+      "value": "http://localhost:8082"
     },
     {
       "key": "email",
@@ -556,6 +556,75 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/users/by-email?email={{email}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Observability - what the requests above left behind",
+      "item": [
+        {
+          "name": "Prometheus scrape",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP requests counted', () => pm.expect(body).to.include('http_server_requests_seconds_count'));",
+                  "pm.test('p95 buckets for HTTP requests', () => pm.expect(body).to.include('http_server_requests_seconds_bucket'));",
+                  "['create', 'getById', 'getByEmail', 'update', 'delete'].forEach(op => pm.test(`UserService ${op} timed`, () => pm.expect(body).to.match(new RegExp(`user_operations_seconds_count\\\\{[^}]*operation=\"${op}\"`))));",
+                  "pm.test('failures timed apart from successes', () => pm.expect(body).to.match(/user_operations_seconds_count\\{[^}]*error=\"PersonException\"/));",
+                  "pm.test('database pool exposed', () => pm.expect(body).to.include('hikaricp_connections_active'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/prometheus"
+          }
+        },
+        {
+          "name": "Metrics endpoint",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('lists user.operations', () => pm.expect(pm.response.json().names).to.include('user.operations'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/metrics"
+          }
+        },
+        {
+          "name": "Info endpoint",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/info"
           }
         }
       ]

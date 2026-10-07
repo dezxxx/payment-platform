@@ -46,6 +46,7 @@ loki.process "structured" {
       logger   = "log.logger",
       trace_id = "traceId",
       span_id  = "spanId",
+      user_uid = "user_uid",
     }
   }
 
@@ -56,11 +57,13 @@ loki.process "structured" {
     }
   }
 
-  // trace id is one per request: metadata, not a label, or Loki drowns in streams
+  // trace id and user_uid have a value per request or user: metadata, not labels,
+  // or Loki drowns in streams
   stage.structured_metadata {
     values = {
       trace_id = "",
       span_id  = "",
+      user_uid = "",
       logger   = "",
     }
   }

@@ -998,7 +998,7 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 | Аудит | Hibernate Envers пишет историю в свою схему `person_history` (`users_history`, `addresses_history`, `individuals_history`, `revinfo`), Spring Data Envers её читает (`RevisionRepository` у User и Individual). Флаги изменённых полей у всех трёх аудируемых сущностей — ТЗ требует минимум User и Individual, а PATCH чаще всего меняет адрес. Страны не аудируются: их заполняет миграция, через API они не меняются. `secret_key` в историю не попадает. Удалённый пользователь сохраняет данные в последней ревизии (`store_data_at_delete`) |
 | Сущности | `UserEntity` — корень агрегата: адрес (`@OneToOne`, владелец) и individual (`@OneToOne`, `mappedBy`) сохраняются и удаляются через него каскадом; все связи LAZY |
 | Время | в сущностях `Instant` — точка во времени, одинаковая, где бы ни работал сервер; ложится в обычные колонки `TIMESTAMP` из DDL (`preferred_instant_jdbc_type`) и хранится в UTC (`hibernate.jdbc.time_zone`); в JSON — с `Z`. От `LocalDateTime` отказались: `@CreationTimestamp` заполнял его местным временем сервера |
-| Локальный порт | 8092 (`SERVER_PORT=8092 ./gradlew bootRun`): заглушка WireMock держит 8082, пока настоящий сервис не заменит её в compose |
+| Локальный порт | 8082 в compose; 8092 при запуске из IDE (`SERVER_PORT=8092 ./gradlew bootRun`), потому что 8082 занят compose |
 | История Flyway | `person.flyway_schema_history`, рядом с таблицами (`spring.flyway.default-schema: person`). Если оставить её на `search_path`, она «переезжает»: пользователь БД тоже зовётся `person`, поэтому `"$user"` до V001 указывал на `public`, а после — на `person`, и второй старт падал |
 | Репозитории | четыре, по одному на сущность, как у преподавателя. Email ищется через `lower(email) = lower(:email)`, а не встроенным `…IgnoreCase` (тот делает `upper()` и не может использовать `uk_users_email_lower`) |
 | Исключения | одно `PersonException` с `ErrorCode` (статус + текст), тот же образец, что `ApiException` в модуле 1. `VALIDATION_ERROR` / `MALFORMED_REQUEST` / `COUNTRY_NOT_FOUND` 400, `USER_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` / `CONCURRENT_MODIFICATION` 409, от фреймворка `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR` 500. Второе создание, проскочившее проверку email, останавливает `uk_users_email_lower`, и ответ всё равно 409 |
@@ -1053,23 +1053,43 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
       `GlobalExceptionHandler` отвечает на любую ошибку в формате RFC 9457. Проверено
       вживую: 400 / 404 / 405 / 409 / 415, а из 12 параллельных PATCH проигравшие
       оптимистическую блокировку получают 409 `CONCURRENT_MODIFICATION`
-- [x] Postman-коллекция `postman/person-service.postman_collection.json`: 19
-      запросов, 93 проверки — пять операций, каждая ошибка со своим телом RFC 9457,
-      удаление; повторно запускается на той же базе
+- [x] Postman-коллекция `postman/person-service.postman_collection.json`: 22
+      запроса, 106 проверок — пять операций, каждая ошибка со своим телом RFC 9457,
+      удаление и то, что они оставили в `/actuator/prometheus`; повторно запускается
+      на той же базе
+- [x] Наблюдаемость, сторона сервиса: открыты `health`, `info`, `prometheus`,
+      `metrics`; JSON-логи ECS с `traceId`, `spanId`, `service.name` и `user_uid`;
+      трейсы по OTLP в Tempo, каждый метод `UserService` — спан (`userService.create`…)
+      под HTTP-спаном и таймер `user_operations_seconds{operation}`. Проверено с
+      локальным Tempo: `spanId` строки лога — это спан `userService.create` того же трейса.
+      `user_uid` — ещё и атрибут спана `userService.*`, Tempo находит запросы пользователя
+      (`{span.user_uid="..."}`); метрикой-меткой — никогда: ряд на каждого пользователя
+      утопит Prometheus. Имя `user_uid`, а не `user.id` из OpenTelemetry, чтобы одно имя
+      находило пользователя в individuals-api, токене Keycloak и person-service
+
+- [x] Docker-образ и compose: `person-service/Dockerfile` собирает jar внутри образа
+      (контекст — папка `person-service`, свой id кэша Gradle, чтобы собираться рядом с
+      individuals-api); compose запускает настоящий сервис на 8082 только после того,
+      как `person-postgres` стал healthy, healthcheck на `/actuator/health` (bash
+      `/dev/tcp` — в JRE-образе нет curl). Prometheus собирает `person-service:8082`,
+      Alloy хранит `user_uid` как structured metadata, в Grafana дашборд
+      `person-service`. Проверено на чистом стенде: обе Postman-коллекции зелёные,
+      строка из Loki открывает свой трейс в Tempo
+- [x] Заглушка WireMock теперь `person-service-stub`, без порта наружу: individuals-api
+      ещё говорит по старому контракту person и ходит к ней, пока не перейдёт на новый
+      клиент
 
 ### Дальше, в этом порядке
 
-- [ ] наблюдаемость и JSON-логи → публикация в Nexus
-- [ ] Dockerfile и compose вместо заглушки WireMock — с ожиданием готовности, а не
-      только запуска (ТЗ: healthcheck + `depends_on: service_healthy`):
-      - person-service получает healthcheck на `/actuator/health` и ждёт, пока
-        `person-postgres` станет healthy — Flyway мигрирует при старте
-      - individuals-api ждёт healthy person-service (Keycloak — обсудить) и получает
-        свой healthcheck
-- [ ] individuals-api на новом клиенте, с шагом компенсации
+- [ ] Unit- и интеграционные тесты, покрытие от 80%, given / when / then
+- [ ] публикация `person-service-client` в Nexus, когда он проверен тестами
+- [ ] individuals-api на новом клиенте, из Nexus по координатам:
+      - запрос регистрации получает адрес и individual; шаг компенсации удаляет
+        персону, если часть в Keycloak упала
       - его DTO, написанные руками, получают тот же суффикс `Dto`: `KeycloakTokenResponse`,
         `KeycloakUserRequest` → `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`
-- [ ] Unit- и интеграционные тесты, покрытие от 80%
+      - ждёт healthy person-service (Keycloak — обсудить) и получает свой healthcheck;
+        `person-service-stub` и `infra/person-service-stub` удаляются
 
 ---
 

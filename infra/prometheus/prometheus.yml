@@ -1,5 +1,5 @@
-# What Prometheus scrapes: individuals-api by its compose name and container
-# port. The app must expose /actuator/prometheus (application.yml).
+# What Prometheus scrapes: each service by its compose name and container
+# port. Each app must expose /actuator/prometheus (application.yml).
 
 global:
   scrape_interval: 15s
@@ -10,3 +10,8 @@ scrape_configs:
     metrics_path: "/actuator/prometheus"
     static_configs:
       - targets: ["individuals-api:8081"]
+
+  - job_name: "person-service"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["person-service:8082"]

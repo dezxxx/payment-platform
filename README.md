@@ -21,7 +21,9 @@ Java 25 · Spring Boot 4.1 · WebFlux · Keycloak 26.7 · Gradle 9.5.1 · Docker
               accounts & tokens          the domain user
                       ▼                        ▼
              Keycloak      :8080       person-service  :8082
-             (OIDC + Admin REST)       (module 2; a WireMock stub for now)
+             (OIDC + Admin REST)       (module 2: runs in compose; individuals-api
+                                        still calls a WireMock stub until it moves
+                                        to the new client)
 ```
 
 Two systems, two identifiers, and they are not interchangeable:
@@ -107,16 +109,20 @@ docker compose up -d --wait nexus
 docker compose up -d --build
 ```
 
-person-service has no code in module 1, so compose runs a WireMock stub under
-its name (`infra/person-service-stub`): every registration gets a new
+person-service runs in compose as the real service (Spring Boot, its own
+PostgreSQL). individuals-api still speaks the old person contract, so until it
+moves to the new client its registration goes to a WireMock stub,
+`person-service-stub` (`infra/person-service-stub`): every registration gets a new
 `userUid`, and the two Postman users get **409** on a second registration.
 
 | | URL |
 |---|---|
 | individuals-api | http://localhost:8081 |
 | Swagger UI (our contract) | http://localhost:8081/swagger-ui.html |
+| person-service | http://localhost:8082 |
+| Swagger UI of person-service | http://localhost:8082/swagger-ui.html |
 | Keycloak | http://localhost:8080 |
-| Grafana | http://localhost:3000 |
+| Grafana (dashboards individuals-api and person-service) | http://localhost:3000 |
 | Prometheus | http://localhost:9090 |
 
 The full port map, including why Nexus runs on 8083 instead of its own default,
@@ -130,7 +136,7 @@ payment-platform/
 ├── person-client/        generated DTOs + HTTP client, published to Nexus
 ├── person-service/       Spring Boot service over the user aggregate (module 2, in progress)
 ├── infra/                prometheus, tempo, loki, alloy, grafana provisioning,
-│                         person-service stub
+│                         person-service-stub (WireMock, until individuals-api moves)
 ├── docs/                 PlantUML diagrams + two cheatsheets
 ├── postman/
 └── docker-compose.yml
@@ -168,6 +174,6 @@ Module 1 is not finished. What is honest as of today:
 | 🧪 Tests | **53 tests, green: 36 unit and 17 integration.** Every test case the handout lists is covered, and each carries its code — `UT-REG-001`, `IT-KC-001` — in its display name. Integration runs against a real Keycloak and a real PostgreSQL in containers. Coverage on the key services is **100%**, with the build failing below 80% |
 | 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, 20 requests, tokens captured automatically, 52 assertions |
 | 📦 Nexus | In the compose file, and `person-client` is resolved from it rather than from the local Maven repository |
-| 🚧 In progress | **Module 2 — `person-service`.** The build, the contract (`/api/v1/users`, five operations, RFC 9457 errors), the generated `person-service-client`, the Flyway migrations, the JPA entities, the mappers, the service with its transactions, the Envers audit, the controller with Swagger UI, the RFC 9457 error layer and a Postman collection (19 requests, 93 assertions) are in; observability comes next. Until it runs, a WireMock stub answers in its place |
+| 🚧 In progress | **Module 2 — `person-service`.** The build, the contract (`/api/v1/users`, five operations, RFC 9457 errors), the generated `person-service-client`, the Flyway migrations, the JPA entities, the mappers, the service with its transactions, the Envers audit, the controller with Swagger UI, the RFC 9457 error layer, metrics, JSON logs and traces, the Docker image with its Grafana dashboard and a Postman collection (22 requests, 106 assertions) are in, and it runs in compose; tests come next, then Nexus and the move of individuals-api. Until that move, individuals-api still registers through a WireMock stub |
 
 The ordered to-do lists live in §8 (module 1) and §8a (module 2) of `CONTEXT.md` and are kept current.
