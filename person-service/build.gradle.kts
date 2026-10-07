@@ -3,9 +3,7 @@ import org.openapitools.generator.gradle.plugin.tasks.GenerateTask
 plugins {
     java
     id("org.springframework.boot") version "4.1.0"
-    // imports the Spring Boot BOM: dependencies below take their versions from it
     id("io.spring.dependency-management") version "1.1.7"
-    // 7.20+ is the first to know useSpringBoot4
     id("org.openapi.generator") version "7.25.0"
 }
 
@@ -19,7 +17,7 @@ java {
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    // -parameters: Spring reads method parameter names at runtime
+    // -parameters: @Query binds :email by the method parameter name
     options.compilerArgs.addAll(listOf("-parameters", "-Xlint:all", "-Xlint:-processing"))
 }
 
@@ -34,9 +32,7 @@ dependencies {
 
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
-    // since Flyway 10 PostgreSQL support is a separate module
     implementation("org.flywaydb:flyway-database-postgresql")
-    // brings Hibernate Envers (writes history) and adds repositories that read it
     implementation("org.springframework.data:spring-data-envers")
     runtimeOnly("org.postgresql:postgresql")
 
@@ -44,11 +40,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
     implementation("io.micrometer:micrometer-registry-prometheus")
 
-    // Swagger UI over the contract file itself (processResources below)
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
-    // Gradle 9 no longer adds the JUnit launcher by itself
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -59,8 +53,6 @@ tasks.withType<Test>().configureEach {
 val contract = layout.projectDirectory.file("openapi/person-service.yaml")
 val generatedDir = layout.buildDirectory.dir("generated/openapi")
 
-// Swagger UI shows the contract itself (descriptions, examples, error codes),
-// not what springdoc guesses from the code: the file is served at /openapi/
 tasks.processResources {
     from(contract) { into("static/openapi") }
 }
@@ -79,11 +71,9 @@ openApiGenerate {
 
     apiPackage.set("com.dezxxx.person.api")
     modelPackage.set("com.dezxxx.person.api.model")
-    // generated DTOs read as DTOs next to the entities: UserResponseDto, not UserResponse
     modelNameSuffix.set("Dto")
     invokerPackage.set("com.dezxxx.person.api")
 
-    // only interfaces and models: no pom.xml, README or sample application
     globalProperties.set(mapOf("apis" to "", "models" to "", "supportingFiles" to "ApiUtil.java"))
 
     configOptions.set(
@@ -91,7 +81,6 @@ openApiGenerate {
             "interfaceOnly" to "true",
             "delegatePattern" to "true",
             "useSpringBoot4" to "true",
-            // @Nullable from JSpecify, not the one Spring 7 deprecated
             "useJspecify" to "true",
             "useBeanValidation" to "true",
             "useTags" to "true",
@@ -105,7 +94,6 @@ openApiGenerate {
 
 tasks.named("openApiGenerate") { dependsOn("openApiValidate") }
 
-// person-service-client for individuals-api: HTTP Service Clients, a separate artifact
 val generatedClientDir = layout.buildDirectory.dir("generated/client")
 
 val openApiGenerateClient = tasks.register<GenerateTask>("openApiGenerateClient") {
@@ -124,7 +112,6 @@ val openApiGenerateClient = tasks.register<GenerateTask>("openApiGenerateClient"
 
     configOptions.set(
         mapOf(
-            // individuals-api is WebFlux: calls return Mono and never block
             "reactive" to "true",
             "useSpringBoot4" to "true",
             "useJspecify" to "true",
@@ -143,7 +130,6 @@ sourceSets {
         // as a task output: compileJava then runs openApiGenerate first by itself
         java.srcDir(tasks.named("openApiGenerate").map { generatedDir.get().dir("src/main/java") })
     }
-    // compiled apart from the service, so it never lands in person-service.jar
     create("client") {
         java.srcDir(openApiGenerateClient.map { generatedClientDir.get().dir("src/main/java") })
     }

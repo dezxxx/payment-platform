@@ -16,9 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-// The user aggregate: user + address + individual, always as a whole.
-// Read-only by default; the three changing methods open a writing transaction.
-// The response is built inside the transaction, while LAZY associations can still load.
+// responses are built inside the transaction, while LAZY associations can still load
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -42,7 +40,6 @@ public class UserService {
 
         UserEntity user = userMapper.toUserEntity(request, country);
         user.getIndividual().setStatus(NEW_INDIVIDUAL_STATUS);
-        // address and individual are required on create, so the profile is complete
         user.setFilled(true);
 
         // flush now: created and updated are set at INSERT and the response must carry them
@@ -60,7 +57,6 @@ public class UserService {
     public UserResponseDto getUserByEmail(String email) {
         UserEntity user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new PersonException(ErrorCode.USER_NOT_FOUND));
-        // the id, not the email: an email is personal data and stays out of the logs
         log.info("Found user {} by email", user.getId());
         return userMapper.toUserResponse(user);
     }
@@ -82,7 +78,6 @@ public class UserService {
     @Transactional
     public void deleteUser(UUID id) {
         UserEntity user = findUser(id);
-        // address and individual go with the user: cascade + orphanRemoval
         userRepository.delete(user);
         log.info("Deleted user {}", id);
     }
@@ -92,7 +87,6 @@ public class UserService {
                 .orElseThrow(() -> new PersonException(ErrorCode.USER_NOT_FOUND));
     }
 
-    // alpha3 wins when both are sent; no code at all means "keep the country as it is"
     private CountryEntity findCountry(String alpha3, String alpha2) {
         if (alpha3 != null) {
             return countryRepository.findByAlpha3(alpha3)

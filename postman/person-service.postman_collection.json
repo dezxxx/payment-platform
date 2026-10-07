@@ -214,7 +214,7 @@
                   "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
                   "const p = pm.response.json();",
                   "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
-                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
                   "pm.test('error = EMAIL_ALREADY_EXISTS', () => pm.expect(p.error).to.eql('EMAIL_ALREADY_EXISTS'));",
                   "pm.test('status in body = 409', () => pm.expect(p.status).to.eql(409));"
                 ]
@@ -248,7 +248,7 @@
                   "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
                   "const p = pm.response.json();",
                   "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
-                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
                   "pm.test('error = VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
                   "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));",
                   "pm.test('details name the fields', () => { const d = p.details.join(' '); ['email', 'firstName', 'lastName'].forEach(f => pm.expect(d).to.include(f)); });",
@@ -284,7 +284,7 @@
                   "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
                   "const p = pm.response.json();",
                   "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
-                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
                   "pm.test('error = MALFORMED_REQUEST', () => pm.expect(p.error).to.eql('MALFORMED_REQUEST'));",
                   "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));"
                 ]
@@ -318,7 +318,7 @@
                   "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
                   "const p = pm.response.json();",
                   "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
-                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
                   "pm.test('error = COUNTRY_NOT_FOUND', () => pm.expect(p.error).to.eql('COUNTRY_NOT_FOUND'));",
                   "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));",
                   "pm.test('names the code', () => pm.expect(p.detail).to.include('XXX'));"
@@ -353,7 +353,7 @@
                   "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
                   "const p = pm.response.json();",
                   "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
-                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
                   "pm.test('error = VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
                   "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));"
                 ]
@@ -378,7 +378,7 @@
                   "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
                   "const p = pm.response.json();",
                   "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
-                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
                   "pm.test('error = VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
                   "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));"
                 ]
@@ -403,7 +403,7 @@
                   "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
                   "const p = pm.response.json();",
                   "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
-                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
                   "pm.test('error = USER_NOT_FOUND', () => pm.expect(p.error).to.eql('USER_NOT_FOUND'));",
                   "pm.test('status in body = 404', () => pm.expect(p.status).to.eql(404));"
                 ]
@@ -428,7 +428,7 @@
                   "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
                   "const p = pm.response.json();",
                   "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
-                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
                   "pm.test('error = METHOD_NOT_ALLOWED', () => pm.expect(p.error).to.eql('METHOD_NOT_ALLOWED'));",
                   "pm.test('status in body = 405', () => pm.expect(p.status).to.eql(405));"
                 ]
@@ -462,7 +462,7 @@
                   "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
                   "const p = pm.response.json();",
                   "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
-                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
                   "pm.test('error = UNSUPPORTED_MEDIA_TYPE', () => pm.expect(p.error).to.eql('UNSUPPORTED_MEDIA_TYPE'));",
                   "pm.test('status in body = 415', () => pm.expect(p.status).to.eql(415));"
                 ]
@@ -520,7 +520,7 @@
                   "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
                   "const p = pm.response.json();",
                   "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
-                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
                   "pm.test('error = USER_NOT_FOUND', () => pm.expect(p.error).to.eql('USER_NOT_FOUND'));",
                   "pm.test('status in body = 404', () => pm.expect(p.status).to.eql(404));"
                 ]
@@ -545,7 +545,7 @@
                   "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
                   "const p = pm.response.json();",
                   "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
-                  "pm.test('course fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
                   "pm.test('error = USER_NOT_FOUND', () => pm.expect(p.error).to.eql('USER_NOT_FOUND'));",
                   "pm.test('status in body = 404', () => pm.expect(p.status).to.eql(404));"
                 ]

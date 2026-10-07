@@ -3,7 +3,6 @@ package com.dezxxx.person.exception;
 import java.io.Serial;
 import lombok.Getter;
 
-// Every failure person-service reports on purpose. One class: the case is in the ErrorCode
 @Getter
 public class PersonException extends RuntimeException {
 

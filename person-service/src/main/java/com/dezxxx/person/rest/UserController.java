@@ -11,8 +11,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
-// The five endpoints. Implements the generated UsersApi: paths, statuses and
-// @Valid come from the contract. No logic here - call UserService, wrap the answer.
 @RestController
 @RequiredArgsConstructor
 public class UserController implements UsersApi {

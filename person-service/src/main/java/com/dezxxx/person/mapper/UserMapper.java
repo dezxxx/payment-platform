@@ -10,9 +10,6 @@ import com.dezxxx.person.entity.UserEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-// The aggregate as a whole: the user's own fields here, address and individual
-// through their mappers. No database calls and no business decisions: the country
-// is looked up by the service and handed in, status and filled are set there too
 @Component
 @RequiredArgsConstructor
 public class UserMapper {
@@ -52,7 +49,6 @@ public class UserMapper {
         return response;
     }
 
-    // PATCH: null means "not sent, leave as is", never "clear"
     public void updateUser(UserEntity user, UpdateUserRequestDto request, CountryEntity country) {
         if (request.getFirstName() != null) {
             user.setFirstName(request.getFirstName());

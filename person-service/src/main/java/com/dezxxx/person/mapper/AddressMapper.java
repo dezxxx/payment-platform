@@ -7,7 +7,6 @@ import com.dezxxx.person.entity.AddressEntity;
 import com.dezxxx.person.entity.CountryEntity;
 import org.springframework.stereotype.Component;
 
-// The country arrives already found by the service: a mapper never queries the database
 @Component
 public class AddressMapper {
 
@@ -35,7 +34,6 @@ public class AddressMapper {
         return response;
     }
 
-    // PATCH: null means "not sent, leave as is"
     public void updateAddress(AddressEntity address, UpdateUserRequestAddressDto request, CountryEntity country) {
         if (country != null) {
             address.setCountry(country);

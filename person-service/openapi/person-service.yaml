@@ -382,8 +382,8 @@ components:
       type: object
       description: >
         RFC 9457 problem details. The last four fields are extension members shared by
-        the whole course (module 1 uses the same names), so one error body reads the
-        same in every service.
+        every service of the platform (individuals-api uses the same names), so one
+        error body reads the same everywhere.
       required: [type, title, status, detail, instance, timestamp, error, traceId, details]
       properties:
         type:

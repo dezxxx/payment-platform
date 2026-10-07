@@ -38,7 +38,6 @@ public class AddressEntity {
     @Version
     private Long version;
 
-    // countries are a reference list filled by a migration: history keeps only country_id
     @Audited(withModifiedFlag = true, targetAuditMode = RelationTargetAuditMode.NOT_AUDITED)
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "country_id")

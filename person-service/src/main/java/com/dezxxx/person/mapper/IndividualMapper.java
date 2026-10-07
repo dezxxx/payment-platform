@@ -26,7 +26,6 @@ public class IndividualMapper {
                 .archivedAt(toUtc(individual.getArchivedAt()));
     }
 
-    // PATCH: null means "not sent, leave as is"
     public void updateIndividual(IndividualEntity individual, CreateUserRequestIndividualDto request) {
         if (request.getPassportNumber() != null) {
             individual.setPassportNumber(request.getPassportNumber());
