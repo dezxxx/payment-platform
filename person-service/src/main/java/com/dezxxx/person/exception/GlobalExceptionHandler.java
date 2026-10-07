@@ -33,8 +33,14 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 // Every failure becomes one RFC 9457 body: type, title, status, detail, instance
 // plus the course fields timestamp, error, traceId, details.
-// The parent class turns Spring's own exceptions (bad JSON, 405, 415...) into a
-// ProblemDetail; handleExceptionInternal below gives them our fields too.
+// Spring picks a method by the exception CLASS, so there is one method per kind:
+//   PersonException                         (our service) -> its ErrorCode
+//   bad JSON, @Valid, 405, 415, unknown path (Spring)      -> handleExceptionInternal
+//   ObjectOptimisticLockingFailureException (Hibernate)    -> 409 CONCURRENT_MODIFICATION
+//   DataIntegrityViolationException         (database)     -> 409 EMAIL_ALREADY_EXISTS
+//   ConstraintViolationException            (@RequestParam)-> 400 VALIDATION_ERROR
+//   anything else                                          -> 500 INTERNAL_ERROR
+// The service never translates errors; this class is the only place that does.
 @Slf4j
 @RestControllerAdvice
 @RequiredArgsConstructor
@@ -51,43 +57,43 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private final Tracer tracer;
 
     @ExceptionHandler(PersonException.class)
-    public ResponseEntity<Object> handlePerson(PersonException ex, WebRequest request) {
-        return problem(ex, ex.getErrorCode(), ex.getMessage(), List.of(), request);
+    public ResponseEntity<ProblemDetail> handlePerson(PersonException ex, WebRequest request) {
+        return respond(ex, ex.getErrorCode(), ex.getMessage(), List.of(), request);
     }
 
     // two requests read the same version; the second one to write loses
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
-    public ResponseEntity<Object> handleOptimisticLock(ObjectOptimisticLockingFailureException ex, WebRequest request) {
+    public ResponseEntity<ProblemDetail> handleOptimisticLock(ObjectOptimisticLockingFailureException ex, WebRequest request) {
         ErrorCode code = ErrorCode.CONCURRENT_MODIFICATION;
-        return problem(ex, code, code.getDefaultMessage(), List.of(), request);
+        return respond(ex, code, code.getDefaultMessage(), List.of(), request);
     }
 
     // two creates with one email both pass the existsByEmail check; the index stops the second
     @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<Object> handleDataIntegrity(DataIntegrityViolationException ex, WebRequest request) {
+    public ResponseEntity<ProblemDetail> handleDataIntegrity(DataIntegrityViolationException ex, WebRequest request) {
         if (violates(ex, EMAIL_INDEX)) {
             ErrorCode code = ErrorCode.EMAIL_ALREADY_EXISTS;
-            return problem(ex, code, code.getDefaultMessage(), List.of(), request);
+            return respond(ex, code, code.getDefaultMessage(), List.of(), request);
         }
         return handleUnexpected(ex, request);
     }
 
     // method validation on @RequestParam (the generated interface is @Validated)
     @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<Object> handleConstraintViolation(ConstraintViolationException ex, WebRequest request) {
+    public ResponseEntity<ProblemDetail> handleConstraintViolation(ConstraintViolationException ex, WebRequest request) {
         List<String> details = ex.getConstraintViolations().stream()
                 .map(violation -> lastNode(violation.getPropertyPath().toString()) + ": " + violation.getMessage())
                 .sorted()
                 .toList();
         ErrorCode code = ErrorCode.VALIDATION_ERROR;
-        return problem(ex, code, code.getDefaultMessage(), details, request);
+        return respond(ex, code, code.getDefaultMessage(), details, request);
     }
 
     // anything else: 500, and the client never sees the exception text
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Object> handleUnexpected(Exception ex, WebRequest request) {
+    public ResponseEntity<ProblemDetail> handleUnexpected(Exception ex, WebRequest request) {
         ErrorCode code = ErrorCode.INTERNAL_ERROR;
-        return problem(ex, code, code.getDefaultMessage(), List.of(), request);
+        return respond(ex, code, code.getDefaultMessage(), List.of(), request);
     }
 
     // Spring's own exceptions arrive here from the parent class
@@ -103,11 +109,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             log.warn("{} -> {}: {}", path(request), statusCode.value(), ex.getMessage());
             return ResponseEntity.status(statusCode).headers(headers).body(problem);
         }
-        return problem(ex, code, code.getDefaultMessage(), detailsOf(ex), request);
+        return ResponseEntity.status(code.getStatus())
+                .body(problem(ex, code, code.getDefaultMessage(), detailsOf(ex), request));
     }
 
-    private ResponseEntity<Object> problem(Exception ex, ErrorCode code, String detail,
-                                           List<String> details, WebRequest request) {
+    // the HTTP status always comes from the ErrorCode
+    private ResponseEntity<ProblemDetail> respond(Exception ex, ErrorCode code, String detail,
+                                                  List<String> details, WebRequest request) {
+        return ResponseEntity.status(code.getStatus()).body(problem(ex, code, detail, details, request));
+    }
+
+    // logs the failure and builds the body
+    private ProblemDetail problem(Exception ex, ErrorCode code, String detail,
+                                  List<String> details, WebRequest request) {
         String path = path(request);
         if (code.getStatus().is5xxServerError()) {
             log.error("{} -> {} {}", path, code.getStatus().value(), code, ex);
@@ -120,7 +134,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setType(URI.create(PROBLEM_TYPE_BASE + code.name().toLowerCase(Locale.ROOT).replace('_', '-')));
         problem.setInstance(URI.create(path));
         addCourseFields(problem, code.name(), details);
-        return ResponseEntity.status(code.getStatus()).body(problem);
+        return problem;
     }
 
     // properties are written at the top level of the JSON, next to the RFC 9457 fields
