@@ -11,8 +11,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
 
-// Binding of both properties records: a missing or blank value must stop startup.
-// A bare Spring context with only the binder - no web server, no Keycloak
 class PropertiesValidationTest {
 
     @Configuration

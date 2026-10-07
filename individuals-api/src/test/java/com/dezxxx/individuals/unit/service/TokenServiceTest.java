@@ -29,8 +29,6 @@ import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-// TokenService with mocks: login and refresh. The decoder is a mock - Keycloak
-// already checked password and signature; we test what happens around user_uid
 @ExtendWith(MockitoExtension.class)
 @DisplayName("TokenService")
 class TokenServiceTest {
@@ -56,7 +54,6 @@ class TokenServiceTest {
     @Mock
     private ReactiveJwtDecoder jwtDecoder;
 
-    // a real but empty registry: the spans get their names, nothing records them
     @Spy
     private ObservationRegistry observationRegistry = ObservationRegistry.create();
 
@@ -75,9 +72,6 @@ class TokenServiceTest {
                 .assertNext(tokens -> {
                     assertThat(tokens.getAccessToken()).isEqualTo(ACCESS_TOKEN);
                     assertThat(tokens.getRefreshToken()).isEqualTo(REFRESH_TOKEN);
-                    // Keycloak's token endpoint knows nothing about user_uid -
-                    // it reaches the answer only because the service reads the
-                    // claim the realm's mapper wrote and stamps it on.
                     assertThat(tokens.getUserUid()).isEqualTo(USER_UID);
                 })
                 .verifyComplete();
@@ -91,8 +85,7 @@ class TokenServiceTest {
     @Test
     @DisplayName("UT-LOG-002: given a wrong password, when logging in, then it answers 401 and counts the failure")
     void answersUnauthorizedOnAWrongPassword() {
-        // given - the gateway has already translated Keycloak's own
-        // "400 invalid_grant" into our code; the service only passes it on
+        // given
         when(keycloakClient.login(EMAIL, PASSWORD))
                 .thenReturn(Mono.error(new ApiException(ErrorCode.INVALID_CREDENTIALS)));
 
@@ -105,7 +98,7 @@ class TokenServiceTest {
                 })
                 .verify();
 
-        // then - nothing was decoded, because there was no token to decode
+        // then
         verify(metrics).loginStarted();
         verify(metrics).loginFailed();
         verifyNoInteractions(jwtDecoder);
@@ -127,25 +120,20 @@ class TokenServiceTest {
                 })
                 .verifyComplete();
 
-        // then - refresh does not touch the login counters
+        // then
         verify(metrics).refreshStarted();
         verify(metrics, never()).loginStarted();
         verify(metrics, never()).loginFailed();
     }
 
-    // no failure counter for refresh on purpose: a dead refresh token is a normal
-    // end of a session, not something to alert on
     @Test
     @DisplayName("given the refresh token is expired, when refreshing, then it says so rather than blaming a password")
     void namesTheDeadRefreshTokenRatherThanAPassword() {
-        // given - Keycloak answers invalid_grant to a wrong password and to a
-        // spent refresh token alike, so the gateway hands up the only code it
-        // can justify
+        // given
         when(keycloakClient.refresh(REFRESH_TOKEN))
                 .thenReturn(Mono.error(new ApiException(ErrorCode.INVALID_CREDENTIALS)));
 
-        // when / then - this call carried no password, so the answer must not
-        // claim one was wrong
+        // when / then
         StepVerifier.create(tokenService.refresh(REFRESH_TOKEN))
                 .expectErrorSatisfies(error -> {
                     ErrorCode code = ((ApiException) error).getErrorCode();
@@ -154,12 +142,11 @@ class TokenServiceTest {
                 })
                 .verify();
 
-        // then - still not counted as a failure: a session ending is not one
+        // then
         verify(metrics).refreshStarted();
         verify(metrics, never()).loginFailed();
     }
 
-    // Keycloak down is not a dead refresh token - must not become "log in again"
     @Test
     @DisplayName("given Keycloak is unreachable, when refreshing, then the outage keeps its own code")
     void leavesOtherFailuresAlone() {
@@ -174,7 +161,6 @@ class TokenServiceTest {
                 .verify();
     }
 
-    // our decoder rejecting Keycloak's fresh token is our problem, not a 401
     @Test
     @DisplayName("given the issued token cannot be decoded, when logging in, then it is reported as our failure")
     void reportsAnUndecodableTokenAsOurOwnFault() {
@@ -204,11 +190,10 @@ class TokenServiceTest {
                 .assertNext(tokens -> assertThat(tokens.getUserUid()).isEqualTo(USER_UID))
                 .verifyComplete();
 
-        // then - registration is not a login the user made
+        // then
         verifyNoInteractions(metrics);
     }
 
-    // what Keycloak's token endpoint answers: no user_uid in it
     private static TokenResponse tokensFromKeycloak() {
         return new TokenResponse()
                 .accessToken(ACCESS_TOKEN)

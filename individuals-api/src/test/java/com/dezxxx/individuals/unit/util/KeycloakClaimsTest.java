@@ -11,7 +11,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-// Every branch of KeycloakClaims.realmRoles. A real Jwt, no mocks - it is a value object
 class KeycloakClaimsTest {
 
     @Test
@@ -51,8 +50,6 @@ class KeycloakClaimsTest {
     @Test
     @DisplayName("skips entries that are not strings instead of failing")
     void skipsNonStringEntries() {
-        // A map value, a number and a null - none of them can be a role name.
-        // Map.of rejects nulls, hence the explicit map.
         Map<String, Object> realmAccess = new LinkedHashMap<>();
         realmAccess.put("roles", java.util.Arrays.asList("USER", 42, null, Map.of("a", "b")));
         Jwt jwt = jwtWithClaim("realm_access", realmAccess);

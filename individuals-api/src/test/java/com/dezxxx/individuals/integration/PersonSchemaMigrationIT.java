@@ -19,32 +19,23 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-// IT-DB-001: person-service's Flyway migrations on a real PostgreSQL (same image
-// as docker-compose). Gradle passes the scripts' location - see integrationTest
-// in build.gradle.kts
 @Testcontainers
 @DisplayName("person-service migrations")
 class PersonSchemaMigrationIT {
 
-    // keep equal to POSTGRES_IMAGE in .env by hand
     private static final String POSTGRES_IMAGE = "postgres:18.2";
 
     private static final String MIGRATIONS_DIR_PROPERTY = "person.migrations.dir";
 
-    // created by V001; all domain tables live here
     private static final String SCHEMA = "person";
 
-    // rows seeded by V002: the full ISO 3166-1 list
     private static final int ISO_3166_1_ENTRIES = 249;
 
-    // Testcontainers 2.x moved this class to org.testcontainers.postgresql and
-    // dropped the self-type parameter the 1.x class carried.
     @Container
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE);
 
     private static Path migrations;
 
-    // one container for both tests - start each from an empty database
     @BeforeEach
     void emptyTheDatabase() throws SQLException {
         try (Connection connection = connect();
@@ -79,7 +70,6 @@ class PersonSchemaMigrationIT {
         assertThat(result.migrations).isNotEmpty();
         assertThat(flyway.info().current().getVersion().toString()).isEqualTo("002");
 
-        // and the schema is not merely recorded as migrated - it is there
         try (Connection connection = connect()) {
 
             assertThat(tableExists(connection, "users")).isTrue();
@@ -87,8 +77,6 @@ class PersonSchemaMigrationIT {
             assertThat(tableExists(connection, "addresses")).isTrue();
             assertThat(tableExists(connection, "countries")).isTrue();
 
-            // V002 seeds every ISO 3166-1 entry; an empty table would mean the
-            // script ran and inserted nothing, which Flyway reports as success
             assertThat(rowCount(connection, "countries")).isEqualTo(ISO_3166_1_ENTRIES);
         }
     }
@@ -103,7 +91,7 @@ class PersonSchemaMigrationIT {
         // when
         MigrateResult second = flyway.migrate();
 
-        // then - a redeploy of an unchanged service must not touch the schema
+        // then
         assertThat(second.success).isTrue();
         assertThat(second.migrationsExecuted).isZero();
     }
@@ -126,7 +114,6 @@ class PersonSchemaMigrationIT {
         }
     }
 
-    // the table name is our constant, so concatenation is safe here
     private static int rowCount(Connection connection, String table) throws SQLException {
         try (Statement statement = connection.createStatement();
                 ResultSet rows = statement.executeQuery("SELECT count(*) FROM " + SCHEMA + "." + table)) {

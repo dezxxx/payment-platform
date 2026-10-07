@@ -20,9 +20,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-// KeycloakClient without a real Keycloak: a fake exchange function answers
-// every request. Covers the service-account token cache and the translation
-// of Keycloak's errors into our codes.
 @DisplayName("KeycloakClient")
 class KeycloakClientTest {
 
@@ -45,7 +42,6 @@ class KeycloakClientTest {
     @DisplayName("given a token about to expire, when asked again, then a fresh one is fetched")
     void refetchesATokenAboutToExpire() {
         AtomicInteger calls = new AtomicInteger();
-        // 5 seconds of life is inside the 10-second safety margin - never reused
         KeycloakClient client = clientAnswering(calls, tokenBody("short-lived", 5));
 
         StepVerifier.create(client.adminLogin()).expectNext("short-lived").verifyComplete();
@@ -72,9 +68,6 @@ class KeycloakClientTest {
         assertThat(calls).hasValue(2);
     }
 
-    // --- Keycloak errors -> our codes ---
-
-    // OIDC shape and Admin API shape of Keycloak's error body
     private static final String OIDC_BODY = "{\"error\":\"%s\",\"error_description\":\"%s\"}";
     private static final String ADMIN_BODY = "{\"errorMessage\":\"%s\"}";
 
@@ -151,8 +144,6 @@ class KeycloakClientTest {
                 ErrorCode.DEPENDENCY_UNAVAILABLE, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
-    // logs in against a Keycloak that answers with the given failure;
-    // checks both the code (what the client reads) and its status (whether to retry)
     private static void expectFailure(ClientResponse failure, ErrorCode expected, HttpStatus expectedStatus) {
         WebClient webClient = WebClient.builder()
                 .baseUrl(PROPERTIES.baseUrl())
@@ -177,7 +168,6 @@ class KeycloakClientTest {
                 .build();
     }
 
-    // a client whose Keycloak always answers with the same token body
     private static KeycloakClient clientAnswering(AtomicInteger calls, String body) {
         WebClient webClient = WebClient.builder()
                 .baseUrl(PROPERTIES.baseUrl())

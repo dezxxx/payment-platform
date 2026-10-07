@@ -5,8 +5,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
-// Every error has one shape, and errors with the same status still say
-// different things. Needs a running app: security errors never reach a handler
 @DisplayName("Error contract")
 class ErrorContractIT extends IntegrationTest {
 
@@ -17,7 +15,7 @@ class ErrorContractIT extends IntegrationTest {
     @Test
     @DisplayName("given no token, when asking who am I, then it says a token is missing - not that a password is wrong")
     void namesTheMissingTokenRatherThanAPassword() {
-        // given / when - no Authorization header at all
+        // given / when
         client.get()
                 .uri(ME)
                 .exchange()
@@ -34,13 +32,12 @@ class ErrorContractIT extends IntegrationTest {
     @Test
     @DisplayName("given a broken token, when asking who am I, then it is our error body, not an empty 401")
     void answersABrokenTokenInOurShape() {
-        // given / when - a token is sent, but it is not a JWT at all
+        // given / when
         client.get()
                 .uri(ME)
                 .header("Authorization", "Bearer not.a.jwt")
                 .exchange()
-                // then - the resource server rejects it with its own entry point
-                // unless ours is set there too
+                // then
                 .expectStatus().isUnauthorized()
                 .expectBody()
                 .jsonPath("$.error").isEqualTo("AUTHENTICATION_REQUIRED")
@@ -51,14 +48,11 @@ class ErrorContractIT extends IntegrationTest {
     @Test
     @DisplayName("given a path that does not exist, when it is called, then the answer is about the token, not the path")
     void treatsAnUnknownPathAsUnauthenticated() {
-        // given / when - nothing is mapped here, and it is not in the public
-        // list either, so the filter chain stops it before routing
+        // given / when
         client.get()
                 .uri("/api/v1/auth/nothing-here")
                 .exchange()
-                // then - 401 rather than 404 on purpose: answering "no such
-                // path" to an unauthenticated caller would map out the API for
-                // anyone who asks
+                // then
                 .expectStatus().isUnauthorized()
                 .expectBody()
                 .jsonPath("$.error").isEqualTo("AUTHENTICATION_REQUIRED");
@@ -67,7 +61,7 @@ class ErrorContractIT extends IntegrationTest {
     @Test
     @DisplayName("given a wrong password, when logging in, then the same status carries a different code")
     void keepsInvalidCredentialsForTheLoginFlow() {
-        // given / when - here a password really was compared
+        // given / when
         client.post()
                 .uri(LOGIN)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -75,8 +69,7 @@ class ErrorContractIT extends IntegrationTest {
                         { "email": "%s", "password": "WrongPassword1!" }
                         """.formatted(freshEmail("error-contract")))
                 .exchange()
-                // then - the status is the same as above, and that is exactly
-                // why the two need different codes
+                // then
                 .expectStatus().isUnauthorized()
                 .expectBody()
                 .jsonPath("$.error").isEqualTo("INVALID_CREDENTIALS")
