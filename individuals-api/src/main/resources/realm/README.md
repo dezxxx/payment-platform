@@ -32,7 +32,7 @@ JSON carries no comments, which is why this file is described here instead.
 | `registrationEmailAsUsername` | `true` | the contract has no username field, so the address serves as one |
 | `duplicateEmailsAllowed` | `false` | what makes a second registration answer **409** |
 | `registrationAllowed` | `false` | accounts are created through our API, never through Keycloak's own page |
-| `verifyEmail` | `false` | nothing verifies an address in module 1 |
+| `verifyEmail` | `false` | nothing verifies an address yet |
 | `accessTokenLifespan` | `300` | access token, 5 minutes |
 | `ssoSessionIdleTimeout` | `1800` | refresh token, 30 minutes of inactivity |
 | `ssoSessionMaxLifespan` | `36000` | 10 hours, whatever the activity |

@@ -4,8 +4,6 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import reactor.core.publisher.Hooks;
 
-// individuals-api owns no data: it orchestrates person-service (the person)
-// and Keycloak (the account and its tokens)
 @SpringBootApplication
 public class IndividualsApiApplication {
 

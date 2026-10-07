@@ -18,22 +18,17 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
-// The only class that talks to person-service. Used once: at registration,
-// to create the person and get user_uid. The HTTP call itself is the generated
-// PersonsApi; this class turns its answer and its errors into ours.
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class PersonClient {
 
-    // name of the dependency in "unreachable" logs
     private static final String PERSON_SERVICE = "person-service";
 
     private final PersonsApi personsApi;
     private final PersonServiceProperties properties;
     private final AuthMetrics metrics;
 
-    // creates the person, returns user_uid. No password: that belongs to Keycloak.
     public Mono<UUID> createPerson(String email, String firstName, String lastName) {
         PersonRegistrationRequest body = new PersonRegistrationRequest(email, firstName, lastName);
         return metrics.timePersonService(call(() -> personsApi.registerPerson(Mono.just(body))))
@@ -42,7 +37,6 @@ public class PersonClient {
                 .transform(GatewayErrors.transportFailures(PERSON_SERVICE, properties.baseUrl()));
     }
 
-    // user_uid from the answer; an answer without it is person-service's bug -> 500
     private static UUID userUidOf(ResponseEntity<PersonRegistrationResponse> response) {
         PersonRegistrationResponse body = response.getBody();
         if (body == null || body.getUserUid() == null) {

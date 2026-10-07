@@ -6,7 +6,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
-// person-service settings from individuals.person-service.*, checked at startup
 @Validated
 @ConfigurationProperties(prefix = "individuals.person-service")
 public record PersonServiceProperties(

@@ -1,10 +1,5 @@
-# individuals-api - base configuration.
-# Environment variables with local defaults, so it runs from the IDE as is;
-# application-docker.yml overrides only the addresses.
-
 spring:
   application:
-    # also service.name in the JSON logs
     name: individuals-api
   jackson:
     # no "details": null in error bodies - an absent field instead
@@ -20,10 +15,8 @@ spring:
           issuer-uri: ${KEYCLOAK_URL:http://localhost:8080}/realms/${KEYCLOAK_REALM:payment-platform}
 
 server:
-  # fixed by the handout's port map
   port: 8081
 
-# outbound addresses - read only by the clients in gateway
 individuals:
   person-service:
     base-url: ${PERSON_SERVICE_URL:http://localhost:8082}
@@ -31,19 +24,16 @@ individuals:
     base-url: ${KEYCLOAK_URL:http://localhost:8080}
     realm: ${KEYCLOAK_REALM:payment-platform}
     client-id: ${KEYCLOAK_CLIENT_ID:individuals-api}
-    # comes from .env, never hardcoded
     client-secret: ${KEYCLOAK_CLIENT_SECRET:}
 
 springdoc:
   swagger-ui:
-    # our contract, copied into the jar by processResources
     url: /openapi/individuals-api.yaml
 
 management:
   metrics:
     distribution:
-      # histogram buckets for the HTTP timer, so Grafana can draw the 95th
-      # percentile; only this one meter, buckets cost scrape size
+      # buckets let Grafana draw the 95th percentile; only this meter, they cost scrape size
       percentiles-histogram:
         http.server.requests: true
   endpoints:
@@ -62,8 +52,7 @@ management:
   otlp:
     metrics:
       export:
-        # off: Prometheus scrapes our metrics; this OTLP copy would only log
-        # a failed push every minute. Traces still go over OTLP
+        # off: Prometheus scrapes the metrics; an OTLP push would only log failures
         enabled: false
   opentelemetry:
     tracing:
@@ -74,6 +63,4 @@ management:
 logging:
   structured:
     format:
-      # JSON logs in ECS (Elastic Common Schema) format; the request fields
-      # come from RequestLogFilter
       console: ecs

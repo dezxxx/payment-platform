@@ -74,12 +74,10 @@ public class AuthMetrics {
         refreshes.increment();
     }
 
-    // one call to Keycloak, OIDC and Admin API alike
     public <T> Mono<T> timeKeycloak(Mono<T> call) {
         return time(keycloakRequests, call);
     }
 
-    // one call to person-service
     public <T> Mono<T> timePersonService(Mono<T> call) {
         return time(personServiceRequests, call);
     }

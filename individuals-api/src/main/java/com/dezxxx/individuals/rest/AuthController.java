@@ -17,16 +17,12 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-// The four endpoints. Implements the generated AuthApi: paths, statuses and
-// @Valid come from the contract. No logic here - unwrap, call UserService, wrap.
-// UserService is its only dependency, as on the component diagram
 @RestController
 @RequiredArgsConstructor
 public class AuthController implements AuthApi {
 
     private final UserService userService;
 
-    // 201: an account and a person now exist; the other three answer 200
     @Override
     public Mono<ResponseEntity<TokenResponse>> register(Mono<RegistrationRequest> registrationRequest,
                                                         ServerWebExchange exchange) {

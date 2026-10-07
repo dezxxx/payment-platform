@@ -9,9 +9,7 @@ import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-// Reads Keycloak's claims from a verified token. Realm roles sit in the nested
-// realm_access.roles claim - only this class knows that. Defensive: a missing
-// or odd claim gives an empty answer, never an exception
+// realm roles sit in the nested realm_access.roles claim
 @Slf4j
 public final class KeycloakClaims {
 
@@ -19,14 +17,12 @@ public final class KeycloakClaims {
 
     private static final String ROLES = "roles";
 
-    // written by the realm's protocol mapper (realm-export.json)
     private static final String USER_UID = "user_uid";
 
     private KeycloakClaims() {
         throw new UnsupportedOperationException("Utility class");
     }
 
-    // user_uid from the token; empty if the mapper is missing or the value is not a UUID
     public static Optional<UUID> userUid(Jwt jwt) {
         String raw = jwt.getClaimAsString(USER_UID);
         if (raw == null || raw.isBlank()) {
@@ -39,7 +35,6 @@ public final class KeycloakClaims {
         }
     }
 
-    // user_uid that must be there - used by login, refresh and /me.
     // Missing means the realm's mapper is broken: our fault, so 500, not 401.
     public static UUID requireUserUid(Jwt jwt) {
         return userUid(jwt).orElseThrow(() -> {
@@ -48,7 +43,6 @@ public final class KeycloakClaims {
         });
     }
 
-    // all realm roles, Keycloak's own included - the caller decides what to show
     public static List<String> realmRoles(Jwt jwt) {
         Map<String, Object> realmAccess = jwt.getClaimAsMap(REALM_ACCESS);
         if (realmAccess == null) {

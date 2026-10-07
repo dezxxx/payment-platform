@@ -8,12 +8,10 @@ import java.time.ZoneOffset;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
-// Builds our ErrorResponse - the one place, so the two roads to an error
-// (GlobalExceptionHandler and the security handlers) give the same body
+// one builder for both roads to an error: GlobalExceptionHandler and the security handlers
 @Component
 public class ErrorResponseFactory {
 
-    // traceId is required by the contract, so there is always a value
     private static final String NO_TRACE = "unavailable";
 
     private final Tracer tracer;
@@ -22,7 +20,6 @@ public class ErrorResponseFactory {
         this.tracer = tracer;
     }
 
-    // message is for the client - never an exception message
     public ErrorResponse create(ErrorCode code, String message, List<String> details, String path) {
         ErrorResponse body = new ErrorResponse()
                 .timestamp(OffsetDateTime.now(ZoneOffset.UTC))
@@ -31,7 +28,6 @@ public class ErrorResponseFactory {
                 .error(code.name())
                 .message(message);
         body.setTraceId(currentTraceId());
-        // always an array, possibly empty, as in the handout's example
         body.setDetails(details == null ? List.of() : List.copyOf(details));
         return body;
     }

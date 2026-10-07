@@ -15,9 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-// Writes ErrorResponse straight into the response, for the two security
-// handlers - in the filter chain there is no @ExceptionHandler to do it.
-// Boot's ObjectMapper, so JSON settings match the controllers'
+// in the filter chain there is no @ExceptionHandler, so the body is written by hand
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -46,7 +44,6 @@ public class SecurityErrorWriter {
         }
 
         DataBuffer buffer = response.bufferFactory().wrap(bytes);
-        // same as GlobalExceptionHandler: record the business code
         RequestLog.errorCode(code.name());
         log.warn("{} {} -> {} {}", exchange.getRequest().getMethod(), path, code.getStatus().value(), code);
         // an unwritten buffer must be released by hand, or pooled memory leaks

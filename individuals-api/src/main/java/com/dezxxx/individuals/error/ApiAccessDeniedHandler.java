@@ -7,8 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-// 403: the token is valid but its roles are not enough. Needed because the
-// decision is made in a web filter, out of GlobalExceptionHandler's reach
+// 403 is decided in a web filter, out of GlobalExceptionHandler's reach
 @Component
 @RequiredArgsConstructor
 public class ApiAccessDeniedHandler implements ServerAccessDeniedHandler {

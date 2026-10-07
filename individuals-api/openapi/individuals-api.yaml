@@ -317,7 +317,7 @@ components:
       type: object
       # All of these are always known for an authenticated user: the token
       # carries sub and the roles, and the domain columns behind firstName and
-      # lastName are NOT NULL. Matches the payload the handout shows for /me.
+      # lastName are NOT NULL.
       required: [userUid, keycloakUserId, email, firstName, lastName, emailVerified, roles, registeredAt]
       properties:
         userUid:
@@ -338,7 +338,7 @@ components:
           example: user@dezxxx.com
         # person-service owns the domain profile; the account carries a copy
         # written at registration, and this answer is built from that copy
-        # because module 1 has no read side to ask. So the two names can lag
+        # because individuals-api has no read side to ask. So the two names can lag
         # behind a profile edited elsewhere, and the copy is not the truth.
         firstName:
           type: string

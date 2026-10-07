@@ -17,8 +17,7 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
 import org.springframework.web.bind.support.WebExchangeBindException;
 
-// Turns any exception from a controller into our ErrorResponse.
-// Filter-chain errors never get here - ApiAuthenticationEntryPoint and
+// filter-chain errors never get here - ApiAuthenticationEntryPoint and
 // ApiAccessDeniedHandler answer those, sharing ErrorResponseFactory with us
 @Slf4j
 @RestControllerAdvice
@@ -32,7 +31,6 @@ public class GlobalExceptionHandler {
         return respond(ex.getErrorCode(), ex.getMessage(), ex.getDetails(), exchange, ex);
     }
 
-    // @Valid failed on the body; each bad field becomes one line in details
     @ExceptionHandler(WebExchangeBindException.class)
     public ResponseEntity<ErrorResponse> handleValidation(WebExchangeBindException ex,
                                                           ServerWebExchange exchange) {
@@ -43,7 +41,7 @@ public class GlobalExceptionHandler {
                 details, exchange, ex);
     }
 
-    // broken or empty body. Its message names Java classes - logged, not returned
+    // its message names Java classes - logged, not returned
     @ExceptionHandler(ServerWebInputException.class)
     public ResponseEntity<ErrorResponse> handleUnreadableInput(ServerWebInputException ex,
                                                                ServerWebExchange exchange) {
@@ -75,8 +73,6 @@ public class GlobalExceptionHandler {
                 List.of(), exchange, ex);
     }
 
-    // anything else: the client gets a plain message and the trace id,
-    // the stack trace stays in the log
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, ServerWebExchange exchange) {
         return respond(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.getDefaultMessage(),

@@ -10,9 +10,7 @@ import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 
-// Resource server: we never issue tokens, only verify Keycloak's with the
-// realm's public keys. WebFlux, so SecurityWebFilterChain + ServerHttpSecurity
-// (the servlet HttpSecurity would silently do nothing here).
+// WebFlux: the servlet HttpSecurity would silently do nothing here
 @Configuration
 @EnableWebFluxSecurity
 public class SecurityConfig {
@@ -25,18 +23,15 @@ public class SecurityConfig {
             "/api/v1/auth/refresh-token"
     };
 
-    // infrastructure; wildcards are fine - these paths belong to the frameworks
     private static final String[] INFRASTRUCTURE_ENDPOINTS = {
             "/actuator/health/**",
             "/actuator/info",
             "/actuator/prometheus",
             "/v3/api-docs/**",
-            // our contract file, shown by the Swagger UI
             "/openapi/**",
             // not covered by /swagger-ui/** - a dot, not a slash
             "/swagger-ui.html",
             "/swagger-ui/**",
-            // WebFlux serves the Swagger UI from here
             "/webjars/**"
     };
 
@@ -45,20 +40,16 @@ public class SecurityConfig {
                                        ApiAuthenticationEntryPoint authenticationEntryPoint,
                                        ApiAccessDeniedHandler accessDeniedHandler) {
         return http
-                // tokens go in the Authorization header, never in a cookie
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
 
-                // token-only API: no login form, no basic-auth popup
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
 
-                // no session: every request brings its own token
                 .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
 
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .pathMatchers(INFRASTRUCTURE_ENDPOINTS).permitAll()
-                        // must stay last: the first matching rule wins
                         .anyExchange().authenticated())
 
                 // checks the signature (realm keys), exp and iss. A token that is
