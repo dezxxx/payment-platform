@@ -39,9 +39,11 @@ paths:
         because the create call does not accept one. The new user is then
         logged in, so no separate login is needed.
 
-        The two systems share no transaction. An account created without a
-        password is deleted again; a domain user that outlives a failed
-        Keycloak account cannot be, and is reported as REGISTRATION_INCONSISTENT.
+        The two systems share no transaction, so a failure is compensated: an
+        account created without a password or role is deleted from Keycloak, and
+        the domain user is deleted from person-service; the caller gets the
+        original error. Only when that delete fails too do the two systems
+        disagree, and the answer is REGISTRATION_INCONSISTENT.
       security: []
       requestBody:
         required: true
@@ -58,6 +60,14 @@ paths:
                   confirmPassword: Str0ngP@ssw0rd
                   firstName: Ivan
                   lastName: Ivanov
+                  address:
+                    countryAlpha3: UKR
+                    city: Kyiv
+                    zipCode: "01001"
+                    addressLine: 1 Example St.
+                  individual:
+                    passportNumber: "123456789"
+                    phoneNumber: "+380441234567"
               mismatchedConfirmation:
                 summary: Rejected with 400 - confirmation does not match
                 value:
@@ -66,6 +76,14 @@ paths:
                   confirmPassword: Str0ngP@ssw0rt
                   firstName: Ivan
                   lastName: Ivanov
+                  address:
+                    countryAlpha3: UKR
+                    city: Kyiv
+                    zipCode: "01001"
+                    addressLine: 1 Example St.
+                  individual:
+                    passportNumber: "123456789"
+                    phoneNumber: "+380441234567"
       responses:
         "201":
           description: User registered and logged in
@@ -221,7 +239,7 @@ components:
 
     RegistrationRequest:
       type: object
-      required: [email, password, confirmPassword, firstName, lastName]
+      required: [email, password, confirmPassword, firstName, lastName, address, individual]
       # OpenAPI has no way to say "this field equals that one", so the
       # confirmation rule is the single constraint of this schema that the
       # keywords below cannot express. The extension stamps our class-level
@@ -260,6 +278,51 @@ components:
           minLength: 1
           maxLength: 64
           example: Ivanov
+        address:
+          type: object
+          description: The user's address, stored by person-service. Country by ISO 3166-1 code; alpha3 wins when both are sent
+          required: [city, addressLine]
+          properties:
+            countryAlpha3:
+              type: string
+              minLength: 3
+              maxLength: 3
+              example: UKR
+            countryAlpha2:
+              type: string
+              minLength: 2
+              maxLength: 2
+              example: UA
+            city:
+              type: string
+              minLength: 1
+              maxLength: 64
+              example: Kyiv
+            state:
+              type: string
+              maxLength: 64
+              example: Kyiv
+            zipCode:
+              type: string
+              maxLength: 32
+              example: "01001"
+            addressLine:
+              type: string
+              minLength: 1
+              maxLength: 128
+              example: 1 Example St.
+        individual:
+          type: object
+          description: Personal data stored by person-service
+          properties:
+            passportNumber:
+              type: string
+              maxLength: 32
+              example: "123456789"
+            phoneNumber:
+              type: string
+              maxLength: 32
+              example: "+380441234567"
 
     LoginRequest:
       type: object
@@ -317,7 +380,7 @@ components:
       type: object
       # All of these are always known for an authenticated user: the token
       # carries sub and the roles, and the domain columns behind firstName and
-      # lastName are NOT NULL. Matches the payload the handout shows for /me.
+      # lastName are NOT NULL.
       required: [userUid, keycloakUserId, email, firstName, lastName, emailVerified, roles, registeredAt]
       properties:
         userUid:
@@ -338,7 +401,7 @@ components:
           example: user@dezxxx.com
         # person-service owns the domain profile; the account carries a copy
         # written at registration, and this answer is built from that copy
-        # because module 1 has no read side to ask. So the two names can lag
+        # because individuals-api has no read side to ask. So the two names can lag
         # behind a profile edited elsewhere, and the copy is not the truth.
         firstName:
           type: string

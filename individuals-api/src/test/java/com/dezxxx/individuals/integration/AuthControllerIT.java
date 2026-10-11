@@ -14,8 +14,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 
-// IT-KC-001..003: registration and login against a real Keycloak through real
-// HTTP. Only person-service is a stub
 @DisplayName("Registration against a real Keycloak")
 class AuthControllerIT extends IntegrationTest {
 
@@ -25,7 +23,6 @@ class AuthControllerIT extends IntegrationTest {
 
     private static final String PASSWORD = "Str0ngPass!";
 
-    // the same decoder the app uses for incoming tokens
     @Autowired
     private ReactiveJwtDecoder jwtDecoder;
 
@@ -62,13 +59,11 @@ class AuthControllerIT extends IntegrationTest {
         // when
         TokenResponse tokens = register(email);
 
-        // then - the identifier person-service issued, not one we invented
+        // then
         JsonNode account = keycloak.findUserByEmail(email).orElseThrow();
         assertThat(keycloak.attributeOf(account, "user_uid"))
                 .contains(PERSON_SERVICE.userUid().toString());
 
-        // and it reaches the client through the protocol mapper as well, which
-        // is what lets /me answer without a second call to Keycloak
         assertThat(tokens.getUserUid()).isEqualTo(PERSON_SERVICE.userUid());
     }
 
@@ -92,8 +87,7 @@ class AuthControllerIT extends IntegrationTest {
                 .returnResult()
                 .getResponseBody();
 
-        // then - decoded by our own decoder, so the signature is checked
-        // against the realm's JWKS rather than merely parsed
+        // then
         assertThat(tokens).isNotNull();
         Jwt accessToken = jwtDecoder.decode(tokens.getAccessToken()).block();
 
@@ -104,7 +98,6 @@ class AuthControllerIT extends IntegrationTest {
         assertThat(accessToken.getExpiresAt()).isNotNull();
     }
 
-    // UT-REG-002 end to end: @Valid rejects the request, nothing downstream is called
     @Test
     @DisplayName("UT-REG-002: given the confirmation does not match, then it answers 400 and Keycloak is never called")
     void rejectsAMismatchedConfirmationWithoutTouchingKeycloak() {
@@ -124,8 +117,7 @@ class AuthControllerIT extends IntegrationTest {
                 .jsonPath("$.details").value(details ->
                         assertThat(details.toString()).contains("confirmPassword: must match password"));
 
-        // then - the realm holds no trace of the attempt, which is what
-        // "Keycloak is never called" means from the outside
+        // then
         assertThat(keycloak.findUserByEmail(email)).isEmpty();
     }
 

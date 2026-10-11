@@ -6,7 +6,6 @@ import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 
-// Shared by KeycloakClient and PersonClient: "the other side did not answer at all"
 @Slf4j
 public final class GatewayErrors {
 

@@ -1,6 +1,6 @@
 package com.dezxxx.individuals.config;
 
-import com.dezxxx.person.client.api.PersonsApi;
+import com.dezxxx.person.client.api.UsersApi;
 import io.netty.channel.ChannelOption;
 import java.time.Duration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -12,14 +12,11 @@ import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 import org.springframework.web.reactive.function.client.support.WebClientAdapter;
 import reactor.netty.http.client.HttpClient;
 
-// Outbound HTTP - the only place that knows the addresses. Built from Boot's
-// WebClient.Builder, which already traces every call as a child span.
 // Timeouts are explicit: WebClient has none and would wait forever
 @Configuration
 @EnableConfigurationProperties({KeycloakProperties.class, PersonServiceProperties.class})
 public class HttpClientsConfig {
 
-    // "cannot connect" should fail fast, separately from "no answer"
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
 
     @Bean
@@ -38,13 +35,12 @@ public class HttpClientsConfig {
                 .build();
     }
 
-    // Spring builds PersonsApi from its @HttpExchange annotations over WebClient
     @Bean
-    PersonsApi personsApi(WebClient personWebClient) {
+    UsersApi usersApi(WebClient personWebClient) {
         return HttpServiceProxyFactory
                 .builderFor(WebClientAdapter.create(personWebClient))
                 .build()
-                .createClient(PersonsApi.class);
+                .createClient(UsersApi.class);
     }
 
     private static ReactorClientHttpConnector connector(Duration responseTimeout) {

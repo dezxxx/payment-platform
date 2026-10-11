@@ -16,8 +16,6 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 
-// IT-OBS-001..003. No Tempo container: our job ends when spans leave over
-// OTLP (OpenTelemetry Protocol) - that is what is checked
 @DisplayName("Observability")
 class ObservabilityIT extends IntegrationTest {
 
@@ -25,7 +23,6 @@ class ObservabilityIT extends IntegrationTest {
 
     private static final String REGISTRATION_PATH = "/api/v1/auth/registration";
 
-    // from AuthMetrics, with the suffixes Prometheus adds
     private static final List<String> SCRAPED_METER_NAMES = List.of(
             "auth_registration_total",
             "auth_registration_success_total",
@@ -42,12 +39,6 @@ class ObservabilityIT extends IntegrationTest {
 
     @BeforeEach
     void captureOurOwnLogs() {
-        // Logback reads the MDC lazily, on first access, not when the record is
-        // created. Read from the test thread afterwards it would always come
-        // back empty, and the test would report "no trace id" about an
-        // application that has one. prepareForDeferredProcessing pins the MDC
-        // on the thread that did the logging - the same thing an async appender
-        // does, and for the same reason.
         capturedLogs = new ListAppender<>() {
             @Override
             protected void append(ILoggingEvent event) {
@@ -69,7 +60,7 @@ class ObservabilityIT extends IntegrationTest {
     @Test
     @DisplayName("IT-OBS-001: given the application is running, when /actuator/prometheus is scraped, then every meter is there")
     void publishesEveryMeterInPrometheusFormat() {
-        // given - traffic, so the counters exist rather than merely being declared
+        // given
         register(freshEmail("it-obs-001"));
 
         // when
@@ -89,14 +80,13 @@ class ObservabilityIT extends IntegrationTest {
     @Test
     @DisplayName("IT-OBS-002: given a request has been served, when the exporter flushes, then spans reach the OTLP endpoint")
     void pushesTracesOverOtlp() {
-        // given - whatever earlier tests already exported
+        // given
         int exportsBefore = OTLP_COLLECTOR.exportedPayloadSizes().size();
 
         // when
         register(freshEmail("it-obs-002"));
 
-        // then - the batch processor flushes on a schedule, so this is a wait,
-        // not a poll for something that should already have happened
+        // then
         await().atMost(Duration.ofSeconds(30))
                 .pollInterval(Duration.ofMillis(500))
                 .untilAsserted(() -> {
@@ -114,7 +104,7 @@ class ObservabilityIT extends IntegrationTest {
         // when
         register(freshEmail("it-obs-002-steps"));
 
-        // then - the scenario and each of its steps, so Tempo reads as the flow
+        // then
         List<String> steps = List.of(
                 "registration",
                 "registration.createPerson",
@@ -136,8 +126,7 @@ class ObservabilityIT extends IntegrationTest {
         // given / when
         register(freshEmail("it-obs-003"));
 
-        // then - the line UserService writes on success, which is the
-        // one an operator would follow from a dashboard into Tempo
+        // then
         assertThat(capturedLogs.list)
                 .filteredOn(event -> event.getFormattedMessage().startsWith("Registered"))
                 .isNotEmpty()
@@ -158,8 +147,7 @@ class ObservabilityIT extends IntegrationTest {
         // given / when
         register(freshEmail("it-obs-003-fields"));
 
-        // then - the module requires the path, the method and the domain user
-        // on the records of a request, not only inside a message
+        // then
         assertThat(capturedLogs.list)
                 .filteredOn(event -> event.getFormattedMessage().startsWith("Registered"))
                 .isNotEmpty()
@@ -173,7 +161,7 @@ class ObservabilityIT extends IntegrationTest {
     @Test
     @DisplayName("IT-OBS-003: given a request fails, when the summary is read, then it carries the status and the business error code")
     void stampsStatusAndErrorCodeOnTheSummary() {
-        // given / when - a confirmation that does not match, rejected by @Valid
+        // given / when
         client.post()
                 .uri(REGISTRATION_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -181,9 +169,7 @@ class ObservabilityIT extends IntegrationTest {
                 .exchange()
                 .expectStatus().isBadRequest();
 
-        // then - the status exists only once the response is written, so it is
-        // the closing summary that has to carry it, together with the code the
-        // client was answered with
+        // then
         assertThat(capturedLogs.list)
                 .filteredOn(event -> event.getMDCPropertyMap().containsKey("http.status"))
                 .isNotEmpty()

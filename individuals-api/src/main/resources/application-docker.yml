@@ -1,6 +1,3 @@
-# Profile "docker": only the addresses change. Inside compose a service is
-# reached by its name and container port, not by the host port.
-
 spring:
   security:
     oauth2:
@@ -10,8 +7,6 @@ spring:
 
 individuals:
   person-service:
-    # the compose service person-service: a WireMock stub in module 1,
-    # the real service from module 2 on. PERSON_SERVICE_URL overrides it.
     base-url: ${PERSON_SERVICE_URL:http://person-service:8082}
   keycloak:
     base-url: http://keycloak:8080
@@ -21,4 +16,4 @@ management:
     tracing:
       export:
         otlp:
-          endpoint: http://tempo:4318/v1/traces
+          endpoint: http://alloy:4318/v1/traces

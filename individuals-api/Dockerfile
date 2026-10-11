@@ -1,5 +1,5 @@
 # Builds individuals-api on a JDK, runs it on a JRE.
-# Context is the repo root (needs gradle/libs.versions.toml). person-client
+# Context is the repo root (needs gradle/libs.versions.toml). person-service-client
 # comes from Nexus - it must be up first (make up); anonymous read, no password.
 
 # --- build ---

@@ -6,7 +6,6 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-// Access tokens the way Keycloak issues them - shared by TokenServiceTest and UserServiceTest.
 final class ServiceTokens {
 
     static final String ACCESS_TOKEN = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.access";
@@ -18,8 +17,6 @@ final class ServiceTokens {
         throw new UnsupportedOperationException("Utility class");
     }
 
-    // a full token: user_uid plus the roles Keycloak really puts there -
-    // ours and the three it grants every account for itself
     static Jwt accessToken() {
         return jwt()
                 .claim("user_uid", USER_UID.toString())
@@ -28,7 +25,6 @@ final class ServiceTokens {
                 .build();
     }
 
-    // what a token looks like when the realm's user_uid mapper is broken
     static Jwt tokenWithoutUserUid() {
         return jwt().build();
     }

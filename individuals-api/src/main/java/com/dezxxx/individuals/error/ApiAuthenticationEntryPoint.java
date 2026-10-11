@@ -7,8 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-// 401 in our error shape. Authentication runs in a web filter, out of
-// GlobalExceptionHandler's reach - without this Spring answers an empty 401
+// 401 is decided in a web filter, out of GlobalExceptionHandler's reach
 @Component
 @RequiredArgsConstructor
 public class ApiAuthenticationEntryPoint implements ServerAuthenticationEntryPoint {

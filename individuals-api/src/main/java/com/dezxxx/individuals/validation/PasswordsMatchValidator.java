@@ -4,12 +4,9 @@ import com.dezxxx.individuals.api.model.RegistrationRequest;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
 
-// Checks @PasswordsMatch. Hibernate Validator finds it through the annotation,
-// so no @Component. Typed on the generated RegistrationRequest: a renamed field
-// breaks the build instead of silently switching the rule off
+// typed on the generated RegistrationRequest: a renamed field breaks the build
 public class PasswordsMatchValidator implements ConstraintValidator<PasswordsMatch, RegistrationRequest> {
 
-    // the error is shown on the confirmation - that is what was mistyped
     private static final String CONFIRMATION_FIELD = "confirmPassword";
 
     // a missing value is @NotNull's job - do not report it twice

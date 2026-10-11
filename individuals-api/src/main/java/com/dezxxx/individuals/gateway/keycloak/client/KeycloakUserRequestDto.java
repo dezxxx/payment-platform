@@ -3,8 +3,8 @@ package com.dezxxx.individuals.gateway.keycloak.client;
 import java.util.List;
 import java.util.Map;
 
-// Body of POST /admin/realms/{realm}/users. No password - it is set by a second call
-record KeycloakUserRequest(
+// no password here: it is set by a second call
+record KeycloakUserRequestDto(
         String username,
         String email,
         String firstName,
@@ -17,10 +17,8 @@ record KeycloakUserRequest(
     // otherwise the claim silently disappears from the token
     private static final String USER_UID_ATTRIBUTE = "user_uid";
 
-    // username = email (the realm logs in by email); attribute values are
-    // always lists; emailVerified is false - nothing verified it
-    static KeycloakUserRequest forRegistration(String email, String firstName, String lastName, String userUid) {
-        return new KeycloakUserRequest(
+    static KeycloakUserRequestDto forRegistration(String email, String firstName, String lastName, String userUid) {
+        return new KeycloakUserRequestDto(
                 email,
                 email,
                 firstName,

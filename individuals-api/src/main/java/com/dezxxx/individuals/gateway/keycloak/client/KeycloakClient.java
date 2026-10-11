@@ -30,21 +30,16 @@ import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-// The only class that talks to Keycloak: tokens and accounts.
-// "account" = everything in Keycloak; "user"/"person" = person-service.
 @Slf4j
 @Component
 public class KeycloakClient {
 
-    // name of the dependency in "unreachable" logs
     private static final String KEYCLOAK = "Keycloak";
 
-    // form fields for the token endpoint
     private static final String GRANT_TYPE = "grant_type";
     private static final String CLIENT_ID = "client_id";
     private static final String CLIENT_SECRET = "client_secret";
 
-    // Admin API path tails
     private static final String BY_ID = "/{id}";
     private static final String RESET_PASSWORD = "/{id}/reset-password";
     private static final String REALM_ROLE_MAPPINGS = "/{id}/role-mappings/realm";
@@ -53,7 +48,6 @@ public class KeycloakClient {
     // role from realm-export.json - rename both together
     private static final String PLATFORM_ROLE = "USER";
 
-    // Keycloak error codes we act on
     private static final String INVALID_GRANT = "invalid_grant";
     // our own client failed to authenticate; Keycloak 26 says unauthorized_client
     private static final Set<String> CLIENT_AUTH_FAILURES = Set.of("invalid_client", "unauthorized_client");
@@ -66,7 +60,6 @@ public class KeycloakClient {
     private final KeycloakProperties properties;
     private final AuthMetrics metrics;
 
-    // service-account token, reused until it is about to expire
     private final AtomicReference<CachedToken> adminToken = new AtomicReference<>();
 
     // written by hand: Lombok does not copy @Qualifier onto its constructor
@@ -78,9 +71,6 @@ public class KeycloakClient {
         this.metrics = metrics;
     }
 
-    // --- tokens ---
-
-    // email + password -> tokens
     public Mono<TokenResponse> login(String email, String password) {
         MultiValueMap<String, String> form = clientForm("password");
         form.add("username", email);
@@ -88,14 +78,12 @@ public class KeycloakClient {
         return requestToken(form).map(KeycloakClient::toTokenResponse);
     }
 
-    // refresh token -> new pair; the old refresh token stops working
     public Mono<TokenResponse> refresh(String refreshToken) {
         MultiValueMap<String, String> form = clientForm("refresh_token");
         form.add("refresh_token", refreshToken);
         return requestToken(form).map(KeycloakClient::toTokenResponse);
     }
 
-    // this service logs in as its service account - a pass for the Admin API;
     // the token is cached, so registration asks Keycloak for it once, not four times
     public Mono<String> adminLogin() {
         return Mono.defer(() -> {
@@ -110,11 +98,9 @@ public class KeycloakClient {
         });
     }
 
-    // --- accounts ---
-
     // creates the account without a password, returns its id (the future sub)
     public Mono<String> createAccount(String email, String firstName, String lastName, String userUid) {
-        KeycloakUserRequest body = KeycloakUserRequest.forRegistration(email, firstName, lastName, userUid);
+        KeycloakUserRequestDto body = KeycloakUserRequestDto.forRegistration(email, firstName, lastName, userUid);
         return withAdminToken(token -> keycloakWebClient.post()
                 .uri(properties.usersUri())
                 .headers(headers -> headers.setBearerAuth(token))
@@ -126,7 +112,6 @@ public class KeycloakClient {
                 .map(KeycloakClient::idFromLocation));
     }
 
-    // sets the password (temporary=false, otherwise login fails)
     public Mono<Void> resetUserPassword(String keycloakUserId, String password) {
         KeycloakCredential body = KeycloakCredential.password(password);
         return withAdminToken(token -> keycloakWebClient.put()
@@ -172,7 +157,6 @@ public class KeycloakClient {
                 .then(Mono.error(cause));
     }
 
-    // registration date for /me - the only field the token does not carry
     public Mono<OffsetDateTime> findRegisteredAt(String keycloakUserId) {
         return withAdminToken(token -> keycloakWebClient.get()
                 .uri(properties.usersUri() + BY_ID, keycloakUserId)
@@ -183,9 +167,6 @@ public class KeycloakClient {
                 .map(account -> toRegisteredAt(account, keycloakUserId)));
     }
 
-    // --- helpers ---
-
-    // finds a realm role by name - needed for its id
     private Mono<KeycloakRealmRole> findRealmRole(String name) {
         return withAdminToken(token -> keycloakWebClient.get()
                 .uri(properties.rolesUri() + BY_NAME, name)
@@ -195,25 +176,22 @@ public class KeycloakClient {
                 .bodyToMono(KeycloakRealmRole.class));
     }
 
-    // gets the service-account token, runs one Admin call with it, times it
     private <T> Mono<T> withAdminToken(Function<String, Mono<T>> call) {
         return adminLogin()
                 .flatMap(token -> metrics.timeKeycloak(call.apply(token)))
                 .transform(GatewayErrors.transportFailures(KEYCLOAK, properties.baseUrl()));
     }
 
-    // one POST to /token for every grant; the body is a form, not JSON
-    private Mono<KeycloakTokenResponse> requestToken(MultiValueMap<String, String> form) {
+    private Mono<KeycloakTokenResponseDto> requestToken(MultiValueMap<String, String> form) {
         return metrics.timeKeycloak(keycloakWebClient.post()
                         .uri(properties.tokenUri())
                         .body(BodyInserters.fromFormData(form))
                         .retrieve()
                         .onStatus(HttpStatusCode::isError, KeycloakClient::translate)
-                        .bodyToMono(KeycloakTokenResponse.class))
+                        .bodyToMono(KeycloakTokenResponseDto.class))
                 .transform(GatewayErrors.transportFailures(KEYCLOAK, properties.baseUrl()));
     }
 
-    // grant_type + client_id + client_secret - what every grant sends
     private MultiValueMap<String, String> clientForm(String grantType) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add(GRANT_TYPE, grantType);
@@ -222,8 +200,7 @@ public class KeycloakClient {
         return form;
     }
 
-    // Keycloak's token answer -> our TokenResponse; userUid is filled by the service
-    private static TokenResponse toTokenResponse(KeycloakTokenResponse source) {
+    private static TokenResponse toTokenResponse(KeycloakTokenResponseDto source) {
         return new TokenResponse()
                 .accessToken(source.accessToken())
                 .refreshToken(source.refreshToken())
@@ -231,7 +208,6 @@ public class KeycloakClient {
                 .tokenType(source.tokenType());
     }
 
-    // new account id from Location: .../users/{id}
     private static String idFromLocation(ResponseEntity<Void> response) {
         URI location = response.getHeaders().getLocation();
         if (location == null) {
@@ -247,7 +223,6 @@ public class KeycloakClient {
         return id;
     }
 
-    // Keycloak's millisecond counter -> date in UTC
     private static OffsetDateTime toRegisteredAt(KeycloakUserRepresentation account, String keycloakUserId) {
         if (account.createdTimestamp() == null) {
             log.error("Keycloak account {} came back without a creation timestamp", keycloakUserId);
@@ -256,14 +231,11 @@ public class KeycloakClient {
         return Instant.ofEpochMilli(account.createdTimestamp()).atOffset(ZoneOffset.UTC);
     }
 
-    // --- errors ---
-
     // Keycloak's error answer -> our ApiException. Keycloak's text goes to the log
     // only: it leaks internals and would let anyone probe which emails exist.
     private static Mono<Throwable> translate(ClientResponse response) {
         HttpStatusCode status = response.statusCode();
         return response.bodyToMono(KeycloakError.class)
-                // no body, or not JSON - the status alone still decides
                 .defaultIfEmpty(KeycloakError.EMPTY)
                 .onErrorReturn(KeycloakError.EMPTY)
                 .map(body -> {
@@ -305,7 +277,6 @@ public class KeycloakClient {
 
         static final KeycloakError EMPTY = new KeycloakError(null, null, null);
 
-        // the most useful text Keycloak gave - for the log only
         String describe() {
             if (errorDescription != null) {
                 return errorDescription;
@@ -317,11 +288,9 @@ public class KeycloakClient {
         }
     }
 
-    // a token and the moment it stops being safe to reuse;
-    // expires_in is a lifetime in seconds, turned into a moment once, on arrival
     private record CachedToken(String value, Instant expiresAt) {
 
-        static CachedToken from(KeycloakTokenResponse response) {
+        static CachedToken from(KeycloakTokenResponseDto response) {
             long lifetime = response.expiresIn() == null ? 0 : response.expiresIn();
             return new CachedToken(response.accessToken(), Instant.now().plusSeconds(lifetime));
         }
@@ -330,8 +299,6 @@ public class KeycloakClient {
             return value != null && Instant.now().isBefore(expiresAt.minus(EXPIRY_MARGIN));
         }
     }
-
-    // --- small Admin API bodies ---
 
     // body of reset-password. temporary must be false: with true the reset still
     // answers 204, but the next login fails with "Account is not fully set up"
@@ -342,12 +309,9 @@ public class KeycloakClient {
         }
     }
 
-    // a realm role; we need its id - a role is granted by id, not by name
     private record KeycloakRealmRole(String id, String name) {
     }
 
-    // the account (Keycloak's own name); only the registration moment is read,
-    // /me takes the rest from the token. Milliseconds since the epoch, UTC.
     private record KeycloakUserRepresentation(Long createdTimestamp) {
     }
 }

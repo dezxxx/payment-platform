@@ -17,8 +17,6 @@ import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-// Tokens: login and refresh, and the tokens UserService hands out at the end of
-// registration. Registration itself and /me live in UserService.
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -27,12 +25,10 @@ public class TokenService {
     private final KeycloakClient keycloakClient;
     private final AuthMetrics metrics;
 
-    // the same decoder the security chain uses; keys are cached, no network call
     private final ReactiveJwtDecoder jwtDecoder;
 
     private final ObservationRegistry observationRegistry;
 
-    // email + password -> tokens + user_uid
     public Mono<TokenResponse> login(String email, String password) {
         return keycloakClient.login(email, password)
                 .transform(span("login.getToken"))
@@ -43,8 +39,7 @@ public class TokenService {
                 .transform(span("login"));
     }
 
-    // tokens for an account UserService has just registered - the last step of
-    // registration. No login counters: the user did not log in, registration did
+    // no login counters: the user did not log in, registration did
     public Mono<TokenResponse> issueTokens(String email, String password) {
         return keycloakClient.login(email, password)
                 .flatMap(this::withUserUid);
@@ -63,12 +58,10 @@ public class TokenService {
                 .transform(span("refresh"));
     }
 
-    // one step of a scenario as a named span in the trace
     private <T> Function<Mono<T>, Mono<T>> span(String name) {
         return Spans.named(name, observationRegistry);
     }
 
-    // only that one code is renamed; "Keycloak is down" keeps its own
     private static boolean isRefusedCredentials(Throwable cause) {
         return cause instanceof ApiException api && api.getErrorCode() == ErrorCode.INVALID_CREDENTIALS;
     }

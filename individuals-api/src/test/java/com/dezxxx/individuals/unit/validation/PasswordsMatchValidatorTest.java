@@ -3,6 +3,8 @@ package com.dezxxx.individuals.unit.validation;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.dezxxx.individuals.api.model.RegistrationRequest;
+import com.dezxxx.individuals.api.model.RegistrationRequestAddress;
+import com.dezxxx.individuals.api.model.RegistrationRequestIndividual;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -13,8 +15,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-// Through a real validator, not isValid() directly: checks the annotation
-// reaches the generated class and the error lands on a field
 @DisplayName("PasswordsMatch")
 class PasswordsMatchValidatorTest {
 
@@ -57,7 +57,6 @@ class PasswordsMatchValidatorTest {
         assertThat(violation.getMessage()).isEqualTo(MISMATCH_MESSAGE);
     }
 
-    // @NotNull already reports it - one mistake, one line
     @Test
     @DisplayName("stays silent when a value is missing, leaving that to @NotNull")
     void ignoresMissingValues() {
@@ -74,6 +73,8 @@ class PasswordsMatchValidatorTest {
                 .password(password)
                 .confirmPassword(confirmPassword)
                 .firstName("Ivan")
-                .lastName("Ivanov");
+                .lastName("Ivanov")
+                .address(new RegistrationRequestAddress().city("Kyiv").addressLine("1 Example St."))
+                .individual(new RegistrationRequestIndividual());
     }
 }

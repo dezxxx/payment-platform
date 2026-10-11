@@ -19,7 +19,6 @@ import reactor.core.publisher.Mono;
 @Component
 public class RequestLogFilter implements WebFilter, Ordered {
 
-    // scrapes and probes come constantly - no summary line for them
     private static final String ACTUATOR_PREFIX = "/actuator";
 
     public RequestLogFilter() {
@@ -54,7 +53,6 @@ public class RequestLogFilter implements WebFilter, Ordered {
                 .contextWrite(context -> context.put(RequestLog.CONTEXT_KEY, requestLog));
     }
 
-    // the status exists only now, after the response was written
     private static void finish(ServerWebExchange exchange, RequestLog requestLog, String method, String path) {
         HttpStatusCode status = exchange.getResponse().getStatusCode();
         if (status != null) {

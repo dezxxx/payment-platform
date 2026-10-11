@@ -23,8 +23,6 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-// The one entry point for AuthController: registration, login, refresh and /me.
-// Login and refresh are TokenService's work; the controller reaches it only through here.
 // Registration spans two systems with no shared transaction, so the order is
 // fixed: person-service first (it issues user_uid), then Keycloak, then login.
 @Slf4j
@@ -32,7 +30,6 @@ import reactor.core.publisher.Mono;
 @RequiredArgsConstructor
 public class UserService {
 
-    // claim names in a Keycloak access token
     private static final String EMAIL = "email";
     private static final String GIVEN_NAME = "given_name";
     private static final String FAMILY_NAME = "family_name";
@@ -48,12 +45,9 @@ public class UserService {
     private final AuthMetrics metrics;
     private final ObservationRegistry observationRegistry;
 
-    // --- registration ---
-
-    // the request is already valid: @Valid ran on the controller
     public Mono<TokenResponse> register(RegistrationRequest request) {
         return personClient
-                .createPerson(request.getEmail(), request.getFirstName(), request.getLastName())
+                .createPerson(request)
                 .transform(span("registration.createPerson"))
                 // defer: without it login() would be called while the chain is
                 // built - before the account exists
@@ -83,26 +77,32 @@ public class UserService {
                         .onErrorResume(cause -> keycloakClient.rollbackAccountWithError(keycloakUserId, cause)
                                 .transform(span("registration.rollbackAccount"))))
                 .then()
-                .onErrorMap(cause -> inconsistent(userUid, cause));
+                .onErrorResume(cause -> compensate(userUid, cause));
     }
 
-    // person-service already holds the person and cannot delete it - module 1's
-    // accepted limit. A retry would get 409, so the answer names the problem
-    // and the log carries the user_uid a human needs to clean it up.
-    private ApiException inconsistent(UUID userUid, Throwable cause) {
-        log.error("Inconsistent registration: domain user {} exists in person-service "
-                + "but its Keycloak account was not completed", userUid, cause);
-        return new ApiException(ErrorCode.REGISTRATION_INCONSISTENT);
+    // the Keycloak part failed: the domain user goes too, and the caller gets the original error.
+    // Only when this delete fails as well do the two systems disagree
+    private Mono<Void> compensate(UUID userUid, Throwable cause) {
+        return personClient.deletePerson(userUid)
+                .transform(span("registration.deletePerson"))
+                .doOnSuccess(done -> log.warn("Registration of {} rolled back in person-service", userUid))
+                .onErrorMap(deleteFailure -> inconsistent(userUid, cause, deleteFailure))
+                .then(Mono.error(cause));
     }
 
-    // the new account logs in through TokenService, as on the component diagram;
+    // a retry would get 409, so the answer names the problem
+    // and the log carries the user_uid a human needs to clean it up
+    private ApiException inconsistent(UUID userUid, Throwable cause, Throwable deleteFailure) {
+        log.error("Inconsistent registration: domain user {} exists in person-service, its Keycloak account "
+                + "failed and deleting the user failed too", userUid, deleteFailure);
+        return new ApiException(ErrorCode.REGISTRATION_INCONSISTENT, ErrorCode.REGISTRATION_INCONSISTENT.getDefaultMessage(), cause);
+    }
+
     // user_uid comes back from the token, which also proves the realm mapper works
     private Mono<TokenResponse> login(RegistrationRequest request) {
         return tokenService.issueTokens(request.getEmail(), request.getPassword())
                 .transform(span("registration.login"));
     }
-
-    // --- login and refresh: TokenService does the work ---
 
     public Mono<TokenResponse> login(String email, String password) {
         return tokenService.login(email, password);
@@ -111,8 +111,6 @@ public class UserService {
     public Mono<TokenResponse> refresh(String refreshToken) {
         return tokenService.refresh(refreshToken);
     }
-
-    // --- /me ---
 
     // 7 of 8 fields come from the token the security chain already verified;
     // registeredAt is in no claim, so it costs one Keycloak call
@@ -138,12 +136,10 @@ public class UserService {
                 .registeredAt(registeredAt);
     }
 
-    // one step of a scenario as a named span in the trace
     private <T> Function<Mono<T>, Mono<T>> span(String name) {
         return Spans.named(name, observationRegistry);
     }
 
-    // token roles minus Keycloak's own - the client asks about business roles
     private static List<String> platformRoles(Jwt jwt) {
         return KeycloakClaims.realmRoles(jwt).stream()
                 .filter(role -> !KEYCLOAK_OWN_ROLES.contains(role))
