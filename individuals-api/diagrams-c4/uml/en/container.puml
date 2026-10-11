@@ -1,0 +1,36 @@
+@startuml container
+!include <C4/C4_Container>
+
+title individuals-api - container diagram (C4, level 2)
+
+Person(client, "Client", "Registers, logs in, asks who it is")
+
+System_Boundary(ia, "individuals-api") {
+    Container(app, "individuals-api", "Spring Boot WebFlux, Java 25", "Orchestrator: registration, login, token refresh, current user")
+}
+
+Container_Ext(keycloak, "Keycloak", "identity provider", "Accounts, passwords, roles, tokens; signing keys via JWKS")
+ContainerDb_Ext(keycloakDb, "PostgreSQL", "Keycloak database", "Keycloak's own data")
+Container_Ext(personService, "person-service", "Spring Boot MVC", "Stores individuals: individual + user + address")
+Container_Ext(nexus, "Nexus", "Maven repository", "Holds person-service-client")
+Container_Ext(prometheus, "Prometheus", "metrics", "Scrapes /actuator/prometheus")
+Container_Ext(alloy, "Alloy", "telemetry agent", "Receives traces, reads logs")
+Container_Ext(tempo, "Tempo", "traces", "Stores traces")
+Container_Ext(loki, "Loki", "logs", "Stores logs")
+Container_Ext(grafana, "Grafana", "dashboards", "Metrics, traces, logs")
+
+Rel(client, app, "REST /api/v1/auth", "HTTP, JSON, Bearer token")
+Rel(app, keycloak, "admin API, token endpoint, JWKS", "HTTP, OIDC")
+Rel(keycloak, keycloakDb, "reads and writes", "JDBC")
+Rel(app, personService, "REST /api/v1/individuals", "person-service-client")
+Rel(nexus, app, "imports the client", "Maven")
+Rel(prometheus, app, "scrapes metrics", "HTTP")
+Rel(app, alloy, "traces and JSON logs", "OTLP, stdout")
+Rel(alloy, tempo, "traces", "OTLP")
+Rel(alloy, loki, "logs")
+Rel(grafana, prometheus, "reads")
+Rel(grafana, tempo, "reads")
+Rel(grafana, loki, "reads")
+
+SHOW_LEGEND()
+@enduml

@@ -1,0 +1,36 @@
+@startuml container
+!include <C4/C4_Container>
+
+title individuals-api — контейнерная диаграмма (C4, уровень 2)
+
+Person(client, "Клиент", "Регистрируется, входит, узнаёт, кто он")
+
+System_Boundary(ia, "individuals-api") {
+    Container(app, "individuals-api", "Spring Boot WebFlux, Java 25", "Оркестратор: регистрация, вход, обновление токена, текущий пользователь")
+}
+
+Container_Ext(keycloak, "Keycloak", "провайдер идентификации", "Аккаунты, пароли, роли, токены; ключи подписи через JWKS")
+ContainerDb_Ext(keycloakDb, "PostgreSQL", "база Keycloak", "Собственные данные Keycloak")
+Container_Ext(personService, "person-service", "Spring Boot MVC", "Хранит физлиц: individual + user + address")
+Container_Ext(nexus, "Nexus", "Maven-репозиторий", "Хранит клиент person-service-client")
+Container_Ext(prometheus, "Prometheus", "метрики", "Собирает /actuator/prometheus")
+Container_Ext(alloy, "Alloy", "агент телеметрии", "Принимает трассы, читает логи")
+Container_Ext(tempo, "Tempo", "трассы", "Хранит трассы")
+Container_Ext(loki, "Loki", "логи", "Хранит логи")
+Container_Ext(grafana, "Grafana", "дашборды", "Метрики, трассы, логи")
+
+Rel(client, app, "REST /api/v1/auth", "HTTP, JSON, Bearer-токен")
+Rel(app, keycloak, "admin API, выдача токенов, JWKS", "HTTP, OIDC")
+Rel(keycloak, keycloakDb, "читает и пишет", "JDBC")
+Rel(app, personService, "REST /api/v1/individuals", "person-service-client")
+Rel(nexus, app, "импорт клиента", "Maven")
+Rel(prometheus, app, "забирает метрики", "HTTP")
+Rel(app, alloy, "трассы и JSON-логи", "OTLP, stdout")
+Rel(alloy, tempo, "трассы", "OTLP")
+Rel(alloy, loki, "логи")
+Rel(grafana, prometheus, "читает")
+Rel(grafana, tempo, "читает")
+Rel(grafana, loki, "читает")
+
+SHOW_LEGEND()
+@enduml

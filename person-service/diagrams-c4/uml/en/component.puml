@@ -1,0 +1,31 @@
+@startuml component
+!include <C4/C4_Component>
+
+title person-service - component diagram (C4, level 3)
+
+Container_Ext(individualsApi, "individuals-api", "Spring Boot WebFlux", "Calls person-service through person-service-client")
+ContainerDb(db, "PostgreSQL", "schemas person, person_history", "Individuals data and Envers audit")
+Container_Ext(observability, "Prometheus / Alloy", "metrics, traces, logs", "Observability stack")
+
+Container_Boundary(app, "person-service") {
+    Component(filter, "UserUidLogFilter", "Servlet filter", "Puts the request's user_uid into the log context")
+    Component(controller, "IndividualRestControllerV1", "Spring MVC, implements generated IndividualsApi", "/api/v1/individuals: create, get by id and by email, update, archive, compensate registration")
+    Component(handler, "GlobalExceptionHandler", "@RestControllerAdvice", "Answers every error as RFC 9457 problem details")
+    Component(service, "IndividualService", "Spring service, @Transactional, @Observed", "Operations on the whole aggregate in one transaction; reads see only active individuals")
+    Component(mappers, "IndividualMapper -> UserMapper -> AddressMapper", "manual mapping", "Generated DTOs <-> entities of the aggregate")
+    Component(repositories, "IndividualRepository, UserRepository, CountryRepository", "Spring Data JPA", "Aggregate by id or email, email check, country by alpha3 / alpha2")
+    Component(envers, "Hibernate Envers", "audit", "Writes every change of the aggregate as a revision")
+}
+
+Rel(individualsApi, filter, "REST /api/v1/individuals", "HTTP, JSON")
+Rel(filter, controller, "passes the request")
+Rel(controller, service, "calls")
+Rel(service, mappers, "maps DTO <-> entities")
+Rel(service, repositories, "loads and saves the aggregate")
+Rel(repositories, db, "SQL", "JPA, schema person")
+Rel(envers, db, "revisions", "schema person_history")
+Rel_Back(handler, controller, "PersonException and framework errors")
+Rel(service, observability, "spans and operation metrics", "OTLP, /actuator/prometheus")
+
+SHOW_LEGEND()
+@enduml

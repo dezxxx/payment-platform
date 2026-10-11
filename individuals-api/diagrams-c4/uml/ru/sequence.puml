@@ -1,0 +1,75 @@
+@startuml sequence
+title individuals-api — регистрация и её компенсация
+
+autonumber
+skinparam shadowing false
+
+actor "Клиент" as Client
+participant "AuthController" as Ctl
+participant "UserService" as Svc
+participant "TokenService" as Tok
+participant "PersonClient" as PCl
+participant "person-service" as Per
+participant "KeycloakClient" as KCl
+participant "Keycloak" as Kc
+
+Client -> Ctl : POST /api/v1/auth/registration
+activate Ctl
+note right of Ctl : @Valid уже проверил формат,\nобязательные поля и совпадение паролей
+Ctl -> Svc : register(RegistrationRequestDto)
+activate Svc
+
+Svc -> PCl : createPerson
+activate PCl
+PCl -> Per : POST /api/v1/individuals\nпаспорт, телефон, email, имя, адрес
+Per --> PCl : 201, id физлица = user_uid
+PCl --> Svc : user_uid
+deactivate PCl
+
+group Аккаунт в Keycloak — при сбое компенсируется
+  Svc -> KCl : createAccount
+  activate KCl
+  KCl -> Kc : POST /admin/realms/REALM/users\nбез пароля, плюс атрибут user_uid
+  Kc --> KCl : id пользователя в Keycloak (заголовок Location)
+  Svc -> KCl : resetUserPassword
+  KCl -> Kc : PUT .../users/{id}/reset-password
+  Svc -> KCl : assignPlatformRole
+  KCl -> Kc : GET .../roles/USER\nPOST .../users/{id}/role-mappings/realm
+  deactivate KCl
+end
+
+alt пароль или роль упали
+  Svc -> KCl : rollbackAccountWithError
+  KCl -> Kc : DELETE .../users/{id}
+end
+
+alt любой шаг аккаунта в Keycloak упал
+  Svc -> PCl : compensateRegistration(user_uid)
+  activate PCl
+  PCl -> Per : DELETE /api/v1/individuals/compensate-registration/{user_uid}
+  Per --> PCl : 204, агрегат удалён целиком
+  deactivate PCl
+  Svc --> Ctl : исходная ошибка (например, 503 DEPENDENCY_UNAVAILABLE)
+  Ctl --> Client : ответ с ошибкой
+  note right of Svc : компенсация тоже упала →\n503 REGISTRATION_INCONSISTENT,\nuser_uid в лог для ручной уборки
+end
+
+Svc -> Tok : issueTokens
+Tok -> KCl : login
+KCl -> Kc : POST /realms/REALM/protocol/openid-connect/token
+Kc --> KCl : access, refresh, expiresIn
+KCl --> Tok : токены
+Tok --> Svc : TokenResponseDto + user_uid из токена
+Svc --> Ctl : TokenResponseDto
+deactivate Svc
+Ctl --> Client : 201 с токенами и user_uid
+deactivate Ctl
+
+note over Svc, Kc
+  Аккаунт в Keycloak создаётся только после успеха person-service,
+  поэтому аккаунта без физлица не бывает.
+  Компенсация — шаг саги: она полностью отменяет физлицо,
+  и тот же email можно зарегистрировать снова.
+end note
+
+@enduml

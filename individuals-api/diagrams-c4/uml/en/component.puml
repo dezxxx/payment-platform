@@ -1,0 +1,40 @@
+@startuml component
+!include <C4/C4_Component>
+
+title individuals-api - component diagram (C4, level 3)
+
+Person(client, "Client", "Registers, logs in, asks who it is")
+Container_Ext(keycloak, "Keycloak", "identity provider", "Accounts, roles, tokens, JWKS")
+Container_Ext(personService, "person-service", "Spring Boot MVC", "Individual aggregate")
+Container_Ext(observability, "Prometheus / Alloy", "metrics, traces, logs", "Observability stack")
+
+Container_Boundary(app, "individuals-api") {
+    Component(filter, "RequestLogFilter", "WebFilter", "Request log line and user_uid in the log context")
+    Component(security, "SecurityConfig", "Spring Security, resource server", "Checks the Bearer token against Keycloak's JWKS; registration, login and refresh are open")
+    Component(controller, "AuthController", "WebFlux, implements generated AuthApi", "/api/v1/auth: registration, login, refresh-token, me")
+    Component(validation, "PasswordsMatchValidator", "Bean Validation", "password and confirmPassword must match")
+    Component(userService, "UserService", "Spring service, Reactor", "Registration as a saga: person-service, then Keycloak, compensation on failure; current user")
+    Component(tokenService, "TokenService", "Spring service", "Login, refresh, user_uid taken from the token")
+    Component(personClient, "PersonClient", "adapter over person-service-client", "Create an individual, compensate a registration")
+    Component(keycloakClient, "KeycloakClient", "WebClient adapter", "Admin calls, password grant, refresh, rollback of a half-made account")
+    Component(errors, "GlobalExceptionHandler, SecurityErrorWriter", "error handling", "Every error as one ErrorResponseDto with traceId")
+    Component(metrics, "AuthMetrics", "Micrometer", "Registration, login and dependency metrics")
+}
+
+Rel(client, filter, "REST /api/v1/auth", "HTTP, JSON")
+Rel(filter, security, "passes the request")
+Rel(security, controller, "authenticated or open path")
+Rel(controller, validation, "@Valid")
+Rel(controller, userService, "calls")
+Rel(userService, personClient, "create, compensate")
+Rel(userService, keycloakClient, "account, password, role")
+Rel(userService, tokenService, "tokens")
+Rel(tokenService, keycloakClient, "login, refresh")
+Rel(personClient, personService, "REST /api/v1/individuals", "HTTP")
+Rel(keycloakClient, keycloak, "admin REST, token endpoint", "HTTP")
+Rel(security, keycloak, "JWKS", "HTTP")
+Rel_Back(errors, controller, "ApiException and framework errors")
+Rel(metrics, observability, "metrics and spans", "/actuator/prometheus, OTLP")
+
+SHOW_LEGEND()
+@enduml

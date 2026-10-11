@@ -133,7 +133,6 @@ payment-platform/
 ├── individuals-api/      the orchestrator — module 1's deliverable
 ├── person-service/       the individual aggregate (module 2); publishes person-service-client to Nexus
 ├── infra/                prometheus, tempo, loki, alloy, grafana provisioning
-├── docs/                 PlantUML diagrams + two cheatsheets
 ├── postman/
 └── docker-compose.yml
 ```
@@ -155,8 +154,7 @@ payload.
 |---|---|
 | [`CONTEXT.md`](CONTEXT.md) | The working document: decisions, rules, the registration flow, progress. The long read. |
 | [`CONTEXT.ru.md`](CONTEXT.ru.md) | Russian mirror. English wins if the two disagree. |
-| [`docs/puml-diagrams/`](docs/puml-diagrams) | Diagrams: registration and its rollback, `/me`, the clients, how a failure becomes a response — and [`observability.puml`](docs/puml-diagrams/observability.puml), which is the one to open first if the metrics, logs and traces blur into one thing. A Russian mirror of all of them lives in [`docs/puml-ru`](docs/puml-ru). |
-| [`person-service/docs/`](person-service/docs) | person-service's own diagrams, kept inside the module: [`person-service-flow.puml`](person-service/docs/puml-diagrams/person-service-flow.puml) — a user created through person-service, and the compensation that deletes it when Keycloak fails. Russian mirror in [`puml-ru`](person-service/docs/puml-ru). |
+| [`individuals-api/diagrams-c4/`](individuals-api/diagrams-c4), [`person-service/diagrams-c4/`](person-service/diagrams-c4) | C4 diagrams of each service: container, component and sequence. PlantUML in `uml/{en,ru}`, a rendered picture of each in `png/{en,ru}`. |
 | [`postman/`](postman) | Two Postman collections. `individuals-api`: two users through every endpoint, the failures, Swagger and metrics, with the tokens carried between requests for you - import it, press Run on a fresh stack. `person-service`: one individual through all six operations, every RFC 9457 failure, the soft delete and the compensation individuals-api calls; each run takes a fresh email, so it runs again on the same database. |
 
 ## Status

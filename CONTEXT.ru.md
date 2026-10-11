@@ -582,11 +582,9 @@ payment-platform/              Git root, а НЕ проект Gradle
 ├── .env                       теги образов, порты, секреты (не в git)
 ├── infra/                     провижининг prometheus, tempo, loki, alloy, grafana
 ├── postman/                   коллекция на каждый сервис: все эндпоинты и их отказы
-├── docs/puml-diagrams/        PlantUML: компоненты, деплой, последовательность
-│                              регистрации, слои, клиенты, ошибки, наблюдаемость
-├── docs/puml-ru/              те же диаграммы на русском
-├── individuals-api/           оркестратор
-└── person-service/            агрегат пользователя; ещё публикует person-service-client -> Nexus
+├── individuals-api/           оркестратор; его C4-диаграммы в diagrams-c4/
+└── person-service/            агрегат физлица; ещё публикует person-service-client -> Nexus
+                               его C4-диаграммы в diagrams-c4/
 ```
 
 Каждый модуль — самостоятельная сборка Gradle: свой `settings.gradle.kts`,
@@ -1016,9 +1014,8 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 - [x] Контракт переписан по заданию и проходит валидацию
 - [x] Серверные интерфейсы генерируются в `build/generated/openapi`
       (`interfaceOnly` + `delegatePattern` + `useSpringBoot4`, `@Nullable` из JSpecify)
-- [x] Flow-диаграмма внутри модуля, `person-service/docs/puml-diagrams/person-service-flow.puml`
-      (русская копия в `puml-ru/`): клиент → individuals-api → person-service
-      → Keycloak → клиент, с компенсацией `DELETE`, если Keycloak упал
+- [x] C4-диаграммы внутри модуля, `person-service/diagrams-c4/`: контейнеры, компоненты и
+      последовательность (создание, архивация, компенсация), EN + RU, рядом с каждой PNG
 - [x] `person-service-client` генерируется своей задачей (`spring-http-interface`,
       реактивный — для WebFlux в individuals-api) в свой source set и свой jar;
       в `person-service.jar` из него ничего не попадает
@@ -1196,19 +1193,9 @@ Build-файлы ни при чём и не менялись: откат wrapper
 
 ## 10. Карта конфигурации
 
-Те же четыре вида существуют как PlantUML в `docs/` — `component.puml`,
-`deployment.puml`, `registration-sequence.puml` и `layers.puml` — для плагина
-IDE. Mermaid ниже — копия, которая рендерится на GitHub без плагина. Меняется
-одно — меняй и другое.
-
-`observability.puml` — пятая, и она отвечает на другой вопрос: кто из трёх —
-метрики, логи, трейсы — на что отвечает, в какую сторону каждый едет и что их
-связывает. Открывать её тогда, когда они начинают сливаться в «мониторинг».
-Вторая диаграмма в ней рисует один трейс деревом спанов.
-
-`docs/puml-ru/` — зеркало всех диаграмм на русском, имена файлов те же.
-Основными считаются английские; пара правится вместе, как этот файл и
-`CONTEXT.md`.
+У каждого сервиса свои C4-диаграммы в его `diagrams-c4/`: контейнеры, компоненты
+и последовательность, PlantUML в `uml/{en,ru}` и отрисованная PNG в `png/{en,ru}`.
+Mermaid ниже — копия, которая рендерится на GitHub без плагина.
 
 Файлы здесь работают в два разных момента времени и по большей части не знают
 друг о друге. Связывает их горстка значений, которые обязаны совпадать — и это

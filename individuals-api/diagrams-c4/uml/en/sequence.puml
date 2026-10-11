@@ -1,0 +1,75 @@
+@startuml sequence
+title individuals-api - registration and its compensation
+
+autonumber
+skinparam shadowing false
+
+actor Client
+participant "AuthController" as Ctl
+participant "UserService" as Svc
+participant "TokenService" as Tok
+participant "PersonClient" as PCl
+participant "person-service" as Per
+participant "KeycloakClient" as KCl
+participant "Keycloak" as Kc
+
+Client -> Ctl : POST /api/v1/auth/registration
+activate Ctl
+note right of Ctl : @Valid already checked the format,\nthe required fields and the password confirmation
+Ctl -> Svc : register(RegistrationRequestDto)
+activate Svc
+
+Svc -> PCl : createPerson
+activate PCl
+PCl -> Per : POST /api/v1/individuals\npassport, phone, email, names, address
+Per --> PCl : 201, individual id = user_uid
+PCl --> Svc : user_uid
+deactivate PCl
+
+group Keycloak account - compensated on failure
+  Svc -> KCl : createAccount
+  activate KCl
+  KCl -> Kc : POST /admin/realms/REALM/users\nno password, plus user_uid attribute
+  Kc --> KCl : keycloak user id (Location header)
+  Svc -> KCl : resetUserPassword
+  KCl -> Kc : PUT .../users/{id}/reset-password
+  Svc -> KCl : assignPlatformRole
+  KCl -> Kc : GET .../roles/USER\nPOST .../users/{id}/role-mappings/realm
+  deactivate KCl
+end
+
+alt password or role failed
+  Svc -> KCl : rollbackAccountWithError
+  KCl -> Kc : DELETE .../users/{id}
+end
+
+alt any step of the Keycloak account failed
+  Svc -> PCl : compensateRegistration(user_uid)
+  activate PCl
+  PCl -> Per : DELETE /api/v1/individuals/compensate-registration/{user_uid}
+  Per --> PCl : 204, the whole aggregate is removed
+  deactivate PCl
+  Svc --> Ctl : the original error (e.g. 503 DEPENDENCY_UNAVAILABLE)
+  Ctl --> Client : error response
+  note right of Svc : the compensation fails too ->\n503 REGISTRATION_INCONSISTENT,\nuser_uid logged for a manual clean-up
+end
+
+Svc -> Tok : issueTokens
+Tok -> KCl : login
+KCl -> Kc : POST /realms/REALM/protocol/openid-connect/token
+Kc --> KCl : access, refresh, expiresIn
+KCl --> Tok : tokens
+Tok --> Svc : TokenResponseDto + user_uid from the token
+Svc --> Ctl : TokenResponseDto
+deactivate Svc
+Ctl --> Client : 201 with tokens and user_uid
+deactivate Ctl
+
+note over Svc, Kc
+  The Keycloak account is created only after person-service
+  succeeded, so no account is ever left without an individual.
+  The compensation is a saga step: it undoes the individual
+  completely, so the same email can register again.
+end note
+
+@enduml

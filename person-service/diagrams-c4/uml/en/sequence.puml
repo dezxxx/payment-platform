@@ -1,0 +1,69 @@
+@startuml sequence
+title person-service - create, archive and compensate an individual
+
+autonumber
+skinparam shadowing false
+
+participant "individuals-api" as IA
+participant "IndividualRestControllerV1" as Ctl
+participant "IndividualService\n@Transactional" as Svc
+participant "IndividualMapper" as Map
+participant "Repositories" as Repo
+database "PostgreSQL" as DB
+
+== Create ==
+IA -> Ctl : POST /api/v1/individuals
+activate Ctl
+note right of Ctl : @Valid: passport, phone,\nemail, names, address
+Ctl -> Svc : createIndividual
+activate Svc
+Svc -> Repo : existsByEmail (lower(email))
+alt email taken
+  Svc --> Ctl : EMAIL_ALREADY_EXISTS
+  Ctl --> IA : 409 problem details
+end
+Svc -> Repo : country by alpha3 / alpha2
+Svc -> Map : DTO -> individual + user + address
+Svc -> Svc : status NEW
+Svc -> Repo : saveAndFlush(individual)
+Repo -> DB : INSERT addresses, users, individuals\n+ revision in person_history
+Svc -> Map : entities -> IndividualResponseDto
+Svc --> Ctl : IndividualResponseDto
+deactivate Svc
+Ctl --> IA : 201, id = user_uid
+deactivate Ctl
+
+== Archive (soft delete) ==
+IA -> Ctl : DELETE /api/v1/individuals/{id}
+activate Ctl
+Ctl -> Svc : deleteIndividual
+activate Svc
+Svc -> Repo : findActiveById
+alt not found or already ARCHIVED
+  Ctl --> IA : 404 problem details
+end
+Svc -> Svc : status ARCHIVED, archived_at = now
+Repo -> DB : UPDATE individuals at commit\n+ revision in person_history
+deactivate Svc
+Ctl --> IA : 204
+deactivate Ctl
+
+== Compensate a failed registration ==
+IA -> Ctl : DELETE /api/v1/individuals/compensate-registration/{id}
+activate Ctl
+Ctl -> Svc : compensateRegistration
+activate Svc
+Svc -> Repo : findById
+Svc -> Repo : delete(individual)
+Repo -> DB : DELETE individuals, users, addresses\n+ DELETE revision in person_history
+deactivate Svc
+Ctl --> IA : 204
+deactivate Ctl
+
+note over IA, DB
+  Archive keeps the rows: the individual is no longer found,
+  its email stays taken. Compensation removes the whole aggregate,
+  so the same email can register again. The audit keeps both.
+end note
+
+@enduml
