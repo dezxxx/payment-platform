@@ -13,8 +13,7 @@ endif
 
 # absolute paths with forward slashes - the only form both cmd and sh accept
 API      := $(CURDIR)/individuals-api
-CLIENT   := $(CURDIR)/person-client
-CONTRACT := $(CURDIR)/person-service
+PERSON   := $(CURDIR)/person-service
 
 # one place to switch to the old docker-compose if needed
 DOCKER_COMPOSE := docker compose
@@ -30,52 +29,56 @@ all: up
 
 # help: list the targets
 help:
-	@echo make              start the stack - the image builds individuals-api inside Docker
-	@echo make build        publish person-client locally, then build with tests
-	@echo make jar          publish person-client locally, then package the jar
-	@echo make publish-local   person-client into the local Maven repository
-	@echo make publish      person-client into Nexus - needs NEXUS_USERNAME and NEXUS_PASSWORD
-	@echo make test         unit tests only - needs nothing running
-	@echo make it           integration tests - stops the stack first
-	@echo make check        contract validation of person-service
+	@echo make              start the stack - the images build both services inside Docker
+	@echo make build        publish person-service-client locally, then build both modules with tests
+	@echo make jar          publish person-service-client locally, then package both jars
+	@echo make publish-local   person-service-client into the local Maven repository
+	@echo make publish      person-service-client into Nexus - needs NEXUS_USERNAME and NEXUS_PASSWORD
+	@echo make test         unit tests of both modules - needs nothing running
+	@echo make it           integration tests of both modules - stops the stack first
+	@echo make check        person-service: contract, tests and the 80% coverage gate
 	@echo make up           start Nexus, wait for it, then build the image and start the stack
 	@echo make down         stop the stack, keep the volumes
 	@echo make restart      down, then up
-	@echo make rebuild      rebuild the image from scratch, then start
+	@echo make rebuild      rebuild both images from scratch, then start
 	@echo make reset-db     wipe both databases - Keycloak users and persons - then start
-	@echo make logs         follow the application log
+	@echo make logs         follow both application logs
 	@echo make ps           what is running
 	@echo make clean        remove build output of every module
 
-# build: publish person-client locally, then build individuals-api with tests
+# build: publish person-service-client locally, then build both modules with tests
 build: publish-local
+	cd $(PERSON) && $(PERSON)/$(WRAPPER) build
 	cd $(API) && $(API)/$(WRAPPER) build
 
-# jar: publish person-client locally, then package the application jar
+# jar: publish person-service-client locally, then package both application jars
 jar: publish-local
+	cd $(PERSON) && $(PERSON)/$(WRAPPER) bootJar
 	cd $(API) && $(API)/$(WRAPPER) bootJar
 
-# publish-local: person-client into the local Maven repository
+# publish-local: person-service-client into the local Maven repository
 publish-local:
-	cd $(CLIENT) && $(CLIENT)/$(WRAPPER) publishToMavenLocal
+	cd $(PERSON) && $(PERSON)/$(WRAPPER) publishClientPublicationToMavenLocal
 
-# publish: person-client into Nexus (needs NEXUS_USERNAME and NEXUS_PASSWORD)
+# publish: person-service-client into Nexus (needs NEXUS_USERNAME and NEXUS_PASSWORD)
 publish:
-	cd $(CLIENT) && $(CLIENT)/$(WRAPPER) publish
+	cd $(PERSON) && $(PERSON)/$(WRAPPER) publishClientPublicationToNexusRepository
 
 # test: unit tests only - needs nothing running
 test:
+	cd $(PERSON) && $(PERSON)/$(WRAPPER) test
 	cd $(API) && $(API)/$(WRAPPER) test
 
 # it: integration tests - they start their own containers, so stop the stack first
 it: down
+	cd $(PERSON) && $(PERSON)/$(WRAPPER) integrationTest
 	cd $(API) && $(API)/$(WRAPPER) integrationTest
 
-# check: contract validation of person-service
+# check: person-service contract, unit and integration tests, coverage of at least 80%
 check:
-	cd $(CONTRACT) && $(CONTRACT)/$(WRAPPER) check
+	cd $(PERSON) && $(PERSON)/$(WRAPPER) check
 
-# up: Nexus first - the image build downloads person-client from it - then the rest;
+# up: Nexus first - the image build downloads person-service-client from it - then the rest;
 # --wait returns only when every container with a healthcheck reports healthy
 up:
 	$(DOCKER_COMPOSE) up -d --wait nexus
@@ -88,22 +91,22 @@ down:
 # restart: down, then up
 restart: down up
 
-# rebuild: build the image from scratch, ignoring the layer cache, then start
+# rebuild: build both images from scratch, ignoring the layer cache, then start
 rebuild:
 	@$(DOCKER_COMPOSE) up -d --wait nexus
-	@$(DOCKER_COMPOSE) build --no-cache individuals-api
+	@$(DOCKER_COMPOSE) build --no-cache person-service individuals-api
 	@$(DOCKER_COMPOSE) up -d
 
 # reset-db: empty Keycloak and person databases, then start again. Keycloak
-# re-imports the realm; the person-service stub forgets who registered.
+# re-imports the realm, person-service starts with an empty schema.
 # Nexus, metrics, traces and logs are kept
 reset-db: down
 	docker volume rm $(PROJECT)_keycloak-postgres-data $(PROJECT)_person-postgres-data
 	$(MAKE) up
 
-# logs: follow the application log
+# logs: follow both application logs
 logs:
-	$(DOCKER_COMPOSE) logs -f individuals-api
+	$(DOCKER_COMPOSE) logs -f person-service individuals-api
 
 # ps: what is running
 ps:
@@ -111,6 +114,5 @@ ps:
 
 # clean: remove build output of every module
 clean:
-	cd $(CLIENT) && $(CLIENT)/$(WRAPPER) clean
+	cd $(PERSON) && $(PERSON)/$(WRAPPER) clean
 	cd $(API) && $(API)/$(WRAPPER) clean
-	cd $(CONTRACT) && $(CONTRACT)/$(WRAPPER) clean

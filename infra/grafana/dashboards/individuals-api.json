@@ -38,7 +38,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (status) (rate(http_server_requests_seconds_count[1m]))",
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{job=\"individuals-api\"}[1m]))",
           "legendFormat": "{{status}}"
         }
       ]
@@ -67,7 +67,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket{job=\"individuals-api\"}[5m])))",
           "legendFormat": "{{uri}}"
         }
       ]

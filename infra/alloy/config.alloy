@@ -1,6 +1,7 @@
-// Grafana Alloy: reads the stdout of every container and ships it to Loki.
-// Not the Loki docker driver - that is a host plugin, and "docker compose up
-// brings everything up" is an acceptance criterion. Promtail is end of life.
+// Grafana Alloy: reads the stdout of every container and ships it to Loki, and
+// passes the OTLP traces of the services on to Tempo.
+// Not the Loki docker driver - that is a host plugin, and the stack must come up
+// with docker compose alone. Promtail is end of life.
 
 // 1. find the containers (Docker socket, mounted read-only)
 discovery.docker "containers" {
@@ -75,5 +76,29 @@ loki.process "structured" {
 loki.write "default" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// Traces: the services push OTLP here, Alloy batches them and passes them on to Tempo,
+// so a service never depends on Tempo being up
+otelcol.receiver.otlp "default" {
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    traces = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  output {
+    traces = [otelcol.exporter.otlphttp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlphttp "tempo" {
+  client {
+    endpoint = "http://tempo:4318"
   }
 }

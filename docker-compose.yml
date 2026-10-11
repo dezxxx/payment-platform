@@ -48,8 +48,6 @@ services:
     ports:
       - "${KEYCLOAK_PORT}:8080"
 
-  # WireMock stub for person-service until module 2: a new userUid per
-  # registration, 409 on a repeat for the Postman users (infra/person-service-stub)
   person-service:
     build:
       context: ./person-service
@@ -57,7 +55,7 @@ services:
       # Flyway migrates at start-up: the database must already accept connections
       person-postgres:
         condition: service_healthy
-      tempo:
+      alloy:
         condition: service_started
     environment:
       PERSON_DB_HOST: person-postgres
@@ -65,7 +63,7 @@ services:
       PERSON_DB_NAME: ${PERSON_DB_NAME}
       PERSON_DB_USER: ${PERSON_DB_USER}
       PERSON_DB_PASSWORD: ${PERSON_DB_PASSWORD}
-      OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
+      OTLP_TRACES_ENDPOINT: http://alloy:4318/v1/traces
     # the JRE image has no curl or wget, only bash
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8082 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
@@ -75,19 +73,6 @@ services:
       start_period: 30s
     ports:
       - "${PERSON_SERVICE_PORT}:8082"
-
-  # individuals-api still speaks the old person contract; it moves to the real
-  # person-service with the new client, and then this stub goes
-  person-service-stub:
-    image: ${WIREMOCK_IMAGE}
-    command: ["--port", "8082", "--global-response-templating"]
-    volumes:
-      - ./infra/person-service-stub:/home/wiremock:ro
-    healthcheck:
-      test: ["CMD", "curl", "-fs", "http://localhost:8082/__admin/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   person-postgres:
     image: ${POSTGRES_IMAGE}
@@ -108,7 +93,7 @@ services:
   individuals-api:
     build:
       # root as context: the build needs gradle/libs.versions.toml;
-      # person-client comes from Nexus, so Nexus must be up first (make up)
+      # person-service-client comes from Nexus, so Nexus must be up first (make up)
       context: .
       dockerfile: individuals-api/Dockerfile
       args:
@@ -117,21 +102,28 @@ services:
       extra_hosts:
         - "host.docker.internal:host-gateway"
     depends_on:
-      person-service-stub:
-        condition: service_started
-      # not service_healthy: the app copes with Keycloak still importing the realm
+      # registration starts in person-service: it must already answer
+      person-service:
+        condition: service_healthy
       keycloak:
-        condition: service_started
+        condition: service_healthy
       prometheus:
         condition: service_started
-      tempo:
+      alloy:
         condition: service_started
     environment:
       SPRING_PROFILES_ACTIVE: docker
       KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
-      PERSON_SERVICE_URL: ${PERSON_SERVICE_URL:-http://person-service-stub:8082}
+      PERSON_SERVICE_URL: ${PERSON_SERVICE_URL:-http://person-service:8082}
+    # the JRE image has no curl or wget, only bash
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8081 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     ports:
       - "${INDIVIDUALS_API_PORT}:8081"
 
@@ -169,11 +161,12 @@ services:
       - run
       # remembers how far each log was read, so a restart does not replay it all
       - --storage.path=/var/lib/alloy/data
-      # its UI shows the log pipeline; 0.0.0.0 so it is reachable from the host
+      # its UI shows the log and trace pipelines; 0.0.0.0 so it is reachable from the host
       - --server.http.listen-addr=0.0.0.0:12345
       - /etc/alloy/config.alloy
     depends_on:
       - loki
+      - tempo
     ports:
       - "${ALLOY_PORT}:12345"
     # root: needed to read the Docker socket - local stack only
@@ -200,7 +193,7 @@ services:
     ports:
       - "${GRAFANA_PORT}:3000"
 
-  # Artifact repository: person-client is published here, and the
+  # Artifact repository: person-service-client is published here, and the
   # individuals-api image build downloads it. Host port 8083, because
   # individuals-api owns 8081.
   nexus:
