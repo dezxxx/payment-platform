@@ -6,6 +6,7 @@
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:8081" },
+    { "key": "personServiceUrl", "value": "http://localhost:8082", "description": "Only to check that user_uid is the id of the individual person-service stored." },
     { "key": "password", "value": "Str0ngPass!", "description": "The same for both users, to keep the collection short." },
 
     { "key": "ivanEmail", "value": "ivan.petrov@example.com" },
@@ -180,6 +181,33 @@
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{ivanAccessToken}}" }],
             "url": { "raw": "{{baseUrl}}/api/v1/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "me"] }
+          }
+        },
+        {
+          "name": "Ivan - the same individual in person-service",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('user_uid is the individual id', () => pm.expect(body.id).to.eql(pm.collectionVariables.get('ivanUserUid')));",
+                  "pm.test('the individual holds Ivan as its user', () => {",
+                  "    pm.expect(body.user.email).to.eql(pm.collectionVariables.get('ivanEmail'));",
+                  "    pm.expect(body.user.firstName).to.eql('Ivan');",
+                  "    pm.expect(body.status).to.eql('NEW');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{personServiceUrl}}/api/v1/individuals/{{ivanUserUid}}", "host": ["{{personServiceUrl}}"], "path": ["api", "v1", "individuals", "{{ivanUserUid}}"] },
+            "description": "Straight to person-service: the userUid in the token is the id of the individual it stored."
           }
         },
         {
