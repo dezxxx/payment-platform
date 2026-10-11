@@ -580,15 +580,13 @@ payment-platform/              Git root, а НЕ проект Gradle
 ├── gradle/libs.versions.toml  все версии — обычный файл, его читает каждый модуль
 ├── docker-compose.yml
 ├── .env                       теги образов, порты, секреты (не в git)
-├── infra/                     провижининг prometheus, tempo, grafana
-│                              и заглушка person-service (WireMock)
-├── postman/                   коллекция: все эндпоинты и их отказы
+├── infra/                     провижининг prometheus, tempo, loki, alloy, grafana
+├── postman/                   коллекция на каждый сервис: все эндпоинты и их отказы
 ├── docs/puml-diagrams/        PlantUML: компоненты, деплой, последовательность
 │                              регистрации, слои, клиенты, ошибки, наблюдаемость
 ├── docs/puml-ru/              те же диаграммы на русском
-├── person-client/             сгенерированные DTO + HTTP-клиенты -> Nexus
 ├── individuals-api/           оркестратор
-└── person-service/            Spring Boot сервис над агрегатом пользователя (модуль 2)
+└── person-service/            агрегат пользователя; ещё публикует person-service-client -> Nexus
 ```
 
 Каждый модуль — самостоятельная сборка Gradle: свой `settings.gradle.kts`,
@@ -597,7 +595,7 @@ payment-platform/              Git root, а НЕ проект Gradle
 роль Git root», а межмодульные зависимости идут только через опубликованные
 артефакты.
 
-individuals-api и person-client пока подключают `gradle/libs.versions.toml` как
+individuals-api пока подключает `gradle/libs.versions.toml` как
 `from(files("../gradle/libs.versions.toml"))`. person-service ничего не читает за
 пределами своей папки: версии плагинов — в его собственном `build.gradle.kts`.
 
@@ -611,21 +609,24 @@ individuals-api и person-client пока подключают `gradle/libs.vers
 
 Что он запускает, на случай, если make не установлен:
 
-`person-client` обязан существовать артефактом до того, как `individuals-api`
-начнёт резолвиться. Корневой сборки, которая сделала бы и то и другое, нет —
-каждый модуль собирается из своей папки; пока Nexus не поднят, передачу
-покрывает `mavenLocal()`:
+`person-service-client` обязан существовать артефактом до того, как
+`individuals-api` начнёт резолвиться. Собирает и публикует его person-service;
+корневой сборки, которая сделала бы и то и другое, нет — каждый модуль собирается
+из своей папки. Пока Nexus не поднят, передачу покрывает `mavenLocal()`:
 
 ```bash
-cd person-client   && ./gradlew publishToMavenLocal
+cd person-service  && ./gradlew publishClientPublicationToMavenLocal
+cd person-service  && ./gradlew check      # контракт, unit + интеграционные тесты, порог покрытия 80%
 cd individuals-api && ./gradlew build
-cd person-service  && ./gradlew check      # проверяет контракт
 ```
+
+В Nexus: `make publish` (`publishClientPublicationToNexusRepository`, с
+заданными `NEXUS_USERNAME` / `NEXUS_PASSWORD`).
 
 **Образ сам собирает individuals-api**, как в эталоне преподавателя: стадия на
 JDK выполняет `bootJar`, стадия на JRE запускает jar. Контекст сборки — корень
 репозитория, потому что модуль читает оттуда `gradle/libs.versions.toml`.
-`person-client` скачивается из Nexus через `host.docker.internal:8083` —
+`person-service-client` скачивается из Nexus через `host.docker.internal:8083` —
 docker build идёт вне сети compose и доходит до Nexus через порт хоста.
 Поэтому Nexus должен быть поднят и уже хранить артефакт:
 
@@ -1075,21 +1076,43 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
       Alloy хранит `user_uid` как structured metadata, в Grafana дашборд
       `person-service`. Проверено на чистом стенде: обе Postman-коллекции зелёные,
       строка из Loki открывает свой трейс в Tempo
-- [x] Заглушка WireMock теперь `person-service-stub`, без порта наружу: individuals-api
-      ещё говорит по старому контракту person и ходит к ней, пока не перейдёт на новый
-      клиент
+- [x] Тесты person-service, given / when / then: 38 unit (UserService, мапперы,
+      GlobalExceptionHandler, DateTimeUtil, UserUidLogFilter) и 19 интеграционных на
+      настоящем PostgreSQL (Testcontainers): все сценарии из ТЗ — создание, повтор
+      email -> 409, чтение по id и по email, один PATCH пользователя и адреса, откат
+      частичного изменения, удаление без единой оставшейся строки, ревизии Envers и
+      флаги изменений, health и метрики. Покрытие 97% строк, сборка падает ниже 80%
+      (`./gradlew check`)
+- [x] `person-service-client` публикует в Nexus сам person-service (`make publish`):
+      jar клиента и pom со списком его зависимостей
+- [x] individuals-api на новом клиенте, из Nexus по координатам:
+      - регистрация принимает адрес и individual и передаёт их в
+        `POST /api/v1/users`; неизвестный код страны — 400 `VALIDATION_ERROR` с
+        указанием адреса
+      - компенсация: если часть в Keycloak упала, доменный пользователь удаляется
+        (`DELETE /api/v1/users/{id}`), а вызывающий получает исходную ошибку;
+        `REGISTRATION_INCONSISTENT` — только если и удаление упало. Проверено вживую:
+        Keycloak остановлен -> 503, строки не осталось, в истории Envers создание и
+        удаление
+      - `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`
+      - ждёт healthy person-service и healthy Keycloak и имеет свой healthcheck; заглушка WireMock и
+        старый модуль `person-client` удалены
+- [x] Оба сервиса отвечают по-английски независимо от `Accept-Language` клиента и
+      языка сервера (`spring.web.locale: en`, фиксированный resolver): API отдаёт
+      стабильные тексты и коды, переводит интерфейс
+- [x] Трейсы идут через Alloy, агента: оба сервиса отправляют OTLP на
+      `alloy:4318`, Alloy собирает их в пачки и передаёт в Tempo — как ТЗ и
+      предпочитает вместо прямого экспорта. Одна регистрация — один трейс через оба
+      сервиса (`registration` -> `http post /api/v1/users` -> `userService.create`)
+- [x] Проверено на чистом стенде: обе Postman-коллекции зелёные (individuals-api
+      20 запросов / 52 проверки, person-service 22 / 106), обе сборки со всеми
+      тестами зелёные
 
-### Дальше, в этом порядке
+### Дальше
 
-- [ ] Unit- и интеграционные тесты, покрытие от 80%, given / when / then
-- [ ] публикация `person-service-client` в Nexus, когда он проверен тестами
-- [ ] individuals-api на новом клиенте, из Nexus по координатам:
-      - запрос регистрации получает адрес и individual; шаг компенсации удаляет
-        персону, если часть в Keycloak упала
-      - его DTO, написанные руками, получают тот же суффикс `Dto`: `KeycloakTokenResponse`,
-        `KeycloakUserRequest` → `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`
-      - ждёт healthy person-service (Keycloak — обсудить) и получает свой healthcheck;
-        `person-service-stub` и `infra/person-service-stub` удаляются
+- [ ] Ваше полное ручное тестирование приложения
+- [ ] Решить, какие коммиты и в какие ветки, затем push и PR
+      `module-2-person-service` -> `main`
 
 ---
 

@@ -56,9 +56,9 @@ end note
 Ctl -> Usr : register(request)
 activate Usr
 
-Usr -> PC : createPerson(email, firstName, lastName)
-PC -> PS : POST /api/v1/persons/registration
-PS --> PC : 201 { "userUid": "6f1d2a4e-..." }
+Usr -> PC : createPerson(request)
+PC -> PS : POST /api/v1/users
+PS --> PC : 201 { "id": "6f1d2a4e-...", ... }
 PC --> Usr : UUID
 note right of PC
   Пароль сюда не отправляется.
@@ -261,12 +261,13 @@ if (@Valid прошёл?) then (нет)
 else (да)
 endif
 
-:person-service\nPOST /persons/registration;
+:person-service\nPOST /api/v1/users;
 
 if (создан?) then (нет)
   #FFE0E0:409 -> **409** USER_ALREADY_EXISTS
   5xx -> **503** DEPENDENCY_UNAVAILABLE
-  400 -> **500** INTERNAL_ERROR;
+  400 COUNTRY_NOT_FOUND -> **400** VALIDATION_ERROR
+  другой 400 -> **500** INTERNAL_ERROR;
   note right
     По-прежнему ничего не создано.
     Вызывающий может просто повторить.
@@ -277,21 +278,22 @@ endif
 
 :user_uid выдан;
 note right #FFFFCC
-  С этого места ЛЮБОЙ сбой оставляет
-  person-service и Keycloak
-  несогласованными по этому человеку.
+  С этого места сбой в Keycloak
+  компенсируется: доменный пользователь
+  удаляется (DELETE /api/v1/users/{id}).
 end note
 
 :Keycloak\nPOST /admin/.../users;
 
 if (создан?) then (нет)
-  #FFCCCC:**503** REGISTRATION_INCONSISTENT;
+  #FFCCCC:DELETE person-service /api/v1/users/{id};
+  #FFCCCC:исходная ошибка, например **503** DEPENDENCY_UNAVAILABLE;
   note right
-    Доменный пользователь есть, учётки нет.
-    В Keycloak откатывать нечего.
-    У person-service нет удаления - расхождение
-    пишется в лог с user_uid и оставляется
-    человеку. Принятое ограничение модуля 1.
+    Компенсация: нигде ничего не остаётся,
+    вызывающий может просто повторить. Только
+    если и удаление упало: **503**
+    REGISTRATION_INCONSISTENT, user_uid в лог
+    для ручной уборки.
   end note
   stop
 else (да)
@@ -308,7 +310,8 @@ if (пароль установлен?) then (нет)
     а адрес остаётся занятым, поэтому повторная
     регистрация будет отвечать 409 вечно.
   end note
-  #FFCCCC:**503** REGISTRATION_INCONSISTENT;
+  #FFCCCC:DELETE person-service /api/v1/users/{id};
+  #FFCCCC:исходная ошибка;
   stop
 else (да)
 endif
@@ -321,7 +324,8 @@ if (роль выдана?) then (нет)
     Та же компенсация: учётка без роли
     бесполезна, а адрес занят.
   end note
-  #FFCCCC:**503** REGISTRATION_INCONSISTENT;
+  #FFCCCC:DELETE person-service /api/v1/users/{id};
+  #FFCCCC:исходная ошибка;
   stop
 else (да)
 endif

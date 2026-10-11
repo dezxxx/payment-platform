@@ -21,8 +21,8 @@ activate Svc
 
 Svc -> PCl : createPerson
 activate PCl
-PCl -> Per : POST /api/v1/persons/registration
-Per --> PCl : user_uid
+PCl -> Per : POST /api/v1/users\nemail, names, address, individual
+Per --> PCl : 201, id = user_uid
 PCl --> Svc : user_uid
 deactivate PCl
 
@@ -45,6 +45,16 @@ group Domain user already exists past this line
   Tok --> Svc : tokens + user_uid from the token
 end
 
+alt the Keycloak part failed (account, password or role)
+  Svc -> PCl : deletePerson(user_uid)
+  activate PCl
+  PCl -> Per : DELETE /api/v1/users/{user_uid}
+  Per --> PCl : 204
+  deactivate PCl
+  Svc --> Ctl : the original error (e.g. 503 DEPENDENCY_UNAVAILABLE)
+  note right of Svc : the delete fails too ->\n503 REGISTRATION_INCONSISTENT,\nuser_uid logged for a manual clean-up
+end
+
 Svc --> Ctl : TokenResponse
 deactivate Svc
 Ctl --> Client : 201 with tokens and user_uid
@@ -61,11 +71,12 @@ note over Svc, Kc
   rollbackAccountWithError deletes the account again -
   see keycloak-client.puml.
 
-  The inverse is the open window. Any failure inside
-  the group leaves an orphaned domain user, and the
-  compensation policy applies - structured log, mark
-  the registration inconsistent, return an error,
-  hide nothing.
+  The inverse is the compensation (a saga step): any
+  failure inside the group deletes the domain user
+  through DELETE /api/v1/users/{id}, and the caller
+  gets the original error. Only when that delete
+  fails too do the systems disagree - the answer is
+  REGISTRATION_INCONSISTENT and the log says so.
 end note
 
 @enduml

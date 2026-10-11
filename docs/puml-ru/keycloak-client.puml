@@ -6,7 +6,7 @@ skinparam shadowing false
 
 participant "AuthController" as Ctl
 participant "UserService" as Svc
-participant "PersonClient\n(над сгенерированным PersonsApi)" as Person
+participant "PersonClient\n(над сгенерированным UsersApi)" as Person
 participant "KeycloakClient" as Kcl
 participant "person-service" as Ps
 participant "Keycloak" as Kc
@@ -16,10 +16,10 @@ activate Svc
 
 == 1. сначала создаётся доменный пользователь ==
 
-Svc -> Person : createPerson(email, firstName, lastName)
+Svc -> Person : createPerson(request)
 activate Person
-Person -> Ps : POST /api/v1/persons/registration\n{ "email", "firstName", "lastName" }
-Ps --> Person : 201 { "userUid": "6f1d2a4e-..." }
+Person -> Ps : POST /api/v1/users\n{ "email", "firstName", "lastName", "address", "individual" }
+Ps --> Person : 201 { "id": "6f1d2a4e-...", ... }
 Person --> Svc : userUid
 deactivate Person
 
@@ -163,13 +163,13 @@ else (нет)
     свободен, вызывающий может просто
     попробовать ещё раз.
 
-    Доменный пользователь в person-service
-    НЕ откатывается - в его контракте нет
-    операции удаления. Записано как известное
-    ограничение в CONTEXT.md.
+    Затем UserService удаляет и доменного
+    пользователя: DELETE /api/v1/users/{id}
+    в person-service.
   end note
   :ответить клиенту исходной ошибкой
-  (как REGISTRATION_INCONSISTENT);
+  (REGISTRATION_INCONSISTENT - только если
+  и это удаление упало);
   stop
 endif
 
@@ -230,7 +230,8 @@ package service {
 
 package "gateway.person" {
   class PersonClient <<@Component>> {
-    + Mono<UUID> createPerson(email,\n                       firstName, lastName)
+    + Mono<UUID> createPerson(request)
+    + Mono<Void> deletePerson(userUid)
     - translate(error)
   }
 }

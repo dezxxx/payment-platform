@@ -6,7 +6,7 @@ skinparam shadowing false
 
 participant "AuthController" as Ctl
 participant "UserService" as Svc
-participant "PersonClient\n(over generated PersonsApi)" as Person
+participant "PersonClient\n(over generated UsersApi)" as Person
 participant "KeycloakClient" as Kcl
 participant "person-service" as Ps
 participant "Keycloak" as Kc
@@ -16,10 +16,10 @@ activate Svc
 
 == 1. the domain user is created first ==
 
-Svc -> Person : createPerson(email, firstName, lastName)
+Svc -> Person : createPerson(request)
 activate Person
-Person -> Ps : POST /api/v1/persons/registration\n{ "email", "firstName", "lastName" }
-Ps --> Person : 201 { "userUid": "6f1d2a4e-..." }
+Person -> Ps : POST /api/v1/users\n{ "email", "firstName", "lastName", "address", "individual" }
+Ps --> Person : 201 { "id": "6f1d2a4e-...", ... }
 Person --> Svc : userUid
 deactivate Person
 
@@ -162,13 +162,13 @@ else (no)
     free again, the caller can simply
     try once more.
 
-    The domain user in person-service is
-    NOT rolled back - its contract has no
-    delete operation. Recorded as a known
-    gap in CONTEXT.md.
+    UserService then deletes the domain
+    user too: DELETE /api/v1/users/{id}
+    on person-service.
   end note
   :answer the client with the original failure
-  (as REGISTRATION_INCONSISTENT);
+  (REGISTRATION_INCONSISTENT only if that
+  delete fails as well);
   stop
 endif
 
@@ -229,7 +229,8 @@ package service {
 
 package "gateway.person" {
   class PersonClient <<@Component>> {
-    + Mono<UUID> createPerson(email,\n                       firstName, lastName)
+    + Mono<UUID> createPerson(request)
+    + Mono<Void> deletePerson(userUid)
     - translate(error)
   }
 }

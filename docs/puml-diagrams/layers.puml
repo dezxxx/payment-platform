@@ -80,7 +80,7 @@ note bottom of gateway
   a second implementation would be the reason to
   add one, and there is none.
 
-  Nothing above this layer may see person-client
+  Nothing above this layer may see person-service-client
   types or Keycloak's own shapes. Only the domain
   user_uid and our own types cross upwards.
 end note

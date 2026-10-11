@@ -26,7 +26,7 @@ LOGS -[#b45309,bold]-> ALLOY : stdout\nread through the Docker socket
 ALLOY -[#b45309,bold]-> LOKI : push
 
 ' --- traces: pushed by the application itself ---
-SPANS -[#6d28d9,bold]-> TEMPO : **push** OTLP\ntempo:4318/v1/traces
+SPANS -[#6d28d9,bold]-> TEMPO : **push** OTLP through Alloy\nalloy:4318 -> tempo:4318
 
 GRAF --> PROM
 GRAF --> LOKI
@@ -111,7 +111,7 @@ rectangle "**trace** 16bc50fe...  one id for the whole request" as T {
   rectangle "registration.assignRole" as R4
   rectangle "registration.login" as R5
 
-  rectangle "client span\nPOST person-service /api/v1/persons/registration" as H1
+  rectangle "client span\nPOST person-service /api/v1/users" as H1
   rectangle "client span\nPOST Keycloak /token  client_credentials\n(only when the cached token is stale)" as H2
   rectangle "client span\nPOST Keycloak /admin/.../users" as H3
   rectangle "client span\nPUT Keycloak /admin/.../reset-password" as H4

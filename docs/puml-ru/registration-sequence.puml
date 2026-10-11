@@ -21,8 +21,8 @@ activate Svc
 
 Svc -> PCl : createPerson
 activate PCl
-PCl -> Per : POST /api/v1/persons/registration
-Per --> PCl : user_uid
+PCl -> Per : POST /api/v1/users\nemail, имя, адрес, individual
+Per --> PCl : 201, id = user_uid
 PCl --> Svc : user_uid
 deactivate PCl
 
@@ -45,28 +45,36 @@ group За этой чертой доменный пользователь уж�
   Tok --> Svc : токены + user_uid из токена
 end
 
+alt часть в Keycloak упала (аккаунт, пароль или роль)
+  Svc -> PCl : deletePerson(user_uid)
+  activate PCl
+  PCl -> Per : DELETE /api/v1/users/{user_uid}
+  Per --> PCl : 204
+  deactivate PCl
+  Svc --> Ctl : исходная ошибка (например, 503 DEPENDENCY_UNAVAILABLE)
+  note right of Svc : удаление тоже упало →\n503 REGISTRATION_INCONSISTENT,\nuser_uid в лог для ручной уборки
+end
+
 Svc --> Ctl : TokenResponse
 deactivate Svc
 Ctl --> Client : 201 с токенами и user_uid
 deactivate Ctl
 
 note over Svc, Kc
-  Порядок выбран сознательно: учётка в Keycloak
-  создаётся только после успешного доменного шага,
-  поэтому учётка никогда не остаётся без
-  доменного пользователя.
+  Порядок намеренный: аккаунт Keycloak создаётся только
+  после успешного шага в person-service, поэтому аккаунта
+  без доменного пользователя не бывает.
 
-  Админских вызова три, а не один: Keycloak принимает
-  пароль своим отдельным эндпоинтом и не раздаёт роль
-  при импорте. Если не встали пароль или роль,
-  rollbackAccountWithError удаляет учётку -
-  см. keycloak-client.puml.
+  Три admin-вызова, а не один: пароль Keycloak принимает
+  отдельным эндпоинтом, роль при импорте не выдаёт. Если
+  пароль или роль упали, rollbackAccountWithError удаляет
+  аккаунт — см. keycloak-client.puml.
 
-  Обратное - открытое окно. Любой сбой внутри
-  группы оставляет осиротевшего доменного
-  пользователя, и действует политика компенсации:
-  структурный лог, пометить регистрацию
-  несогласованной, вернуть ошибку, ничего не прятать.
+  Обратная сторона — компенсация (Saga): любой сбой внутри
+  группы удаляет доменного пользователя через
+  DELETE /api/v1/users/{id}, и клиент получает исходную
+  ошибку. Только если и удаление не удалось, системы
+  расходятся — REGISTRATION_INCONSISTENT и запись в лог.
 end note
 
 @enduml

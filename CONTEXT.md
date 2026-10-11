@@ -616,15 +616,13 @@ payment-platform/              a Git root, NOT a Gradle project
 ├── gradle/libs.versions.toml  every version - a plain file each module reads
 ├── docker-compose.yml
 ├── .env                       image tags, ports, credentials (not in git)
-├── infra/                     prometheus, tempo, grafana provisioning,
-│                              and the person-service stub (WireMock)
-├── postman/                   collection: every endpoint and its failures
+├── infra/                     prometheus, tempo, loki, alloy, grafana provisioning
+├── postman/                   one collection per service: every endpoint and its failures
 ├── docs/puml-diagrams/        PlantUML: component, deployment, registration
 │                              sequence, layers, gateways, errors, observability
 ├── docs/puml-ru/              the same diagrams in Russian
-├── person-client/             generated DTOs + HTTP clients -> Nexus
 ├── individuals-api/           the orchestrator
-└── person-service/            Spring Boot service over the user aggregate (module 2)
+└── person-service/            the user aggregate; also publishes person-service-client -> Nexus
 ```
 
 Each module is an independent Gradle build: its own `settings.gradle.kts`,
@@ -632,7 +630,7 @@ Each module is an independent Gradle build: its own `settings.gradle.kts`,
 root is not a Maven/Gradle project, it is a package that plays the role of a
 Git root", and every cross-module dependency travels as a published artifact.
 
-individuals-api and person-client still read `gradle/libs.versions.toml` as
+individuals-api still reads `gradle/libs.versions.toml` as
 `from(files("../gradle/libs.versions.toml"))`. person-service reads nothing from
 outside its folder: plugin versions are in its own `build.gradle.kts`.
 
@@ -646,20 +644,24 @@ is no root build to hang the order on.
 
 What it runs, for when it is not installed:
 
-`person-client` must exist as an artifact before `individuals-api` resolves.
-There is no root build to do both, so each module is built from its own folder;
-until Nexus is up, `mavenLocal()` covers the hand-over:
+`person-service-client` must exist as an artifact before `individuals-api`
+resolves. person-service builds and publishes it; there is no root build to do
+both, so each module is built from its own folder. Until Nexus is up,
+`mavenLocal()` covers the hand-over:
 
 ```bash
-cd person-client   && ./gradlew publishToMavenLocal
+cd person-service  && ./gradlew publishClientPublicationToMavenLocal
+cd person-service  && ./gradlew check      # contract, unit + integration tests, 80% coverage gate
 cd individuals-api && ./gradlew build
-cd person-service  && ./gradlew check      # validates the contract
 ```
+
+Into Nexus: `make publish` (`publishClientPublicationToNexusRepository`, with
+`NEXUS_USERNAME` / `NEXUS_PASSWORD` set).
 
 **The image builds individuals-api itself**, as in the teacher's reference: a
 JDK stage runs `bootJar`, a JRE stage runs the jar. The build context is the
 repository root, because the module reads `gradle/libs.versions.toml` from
-there. `person-client` is downloaded from Nexus through
+there. `person-service-client` is downloaded from Nexus through
 `host.docker.internal:8083` - a docker build runs outside the compose network,
 so it reaches Nexus through the host's port. That is why Nexus must be up and
 hold the artifact first:
@@ -1124,21 +1126,44 @@ of its "implementation steps".
       `person-service:8082`, Alloy keeps `user_uid` as structured metadata, Grafana
       has a `person-service` dashboard. Checked on a clean stack: both Postman
       collections green, a Loki line opens its Tempo trace
-- [x] The WireMock stub is now `person-service-stub`, without a host port:
-      individuals-api still speaks the old person contract and calls it until it
-      moves to the new client
+- [x] Tests of person-service, given / when / then: 38 unit (UserService, the
+      mappers, GlobalExceptionHandler, DateTimeUtil, UserUidLogFilter) and 19
+      integration on a real PostgreSQL (Testcontainers): every scenario the handout
+      lists - create, a repeated email -> 409, read by id and by email, one PATCH of
+      user and address, rollback of a partial change, delete leaving no row, Envers
+      revisions and modified flags, health and metrics. Coverage 97% of lines, the
+      build fails below 80% (`./gradlew check`)
+- [x] `person-service-client` published to Nexus by person-service itself
+      (`make publish`): the client jar and a pom listing its dependencies
+- [x] individuals-api on the new client, from Nexus by coordinates:
+      - registration takes address and individual and passes them to
+        `POST /api/v1/users`; an unknown country code answers 400
+        `VALIDATION_ERROR` naming the address
+      - compensation: when the Keycloak part fails, the domain user is deleted
+        (`DELETE /api/v1/users/{id}`) and the caller gets the original error;
+        `REGISTRATION_INCONSISTENT` only when that delete fails too. Checked live:
+        Keycloak stopped -> 503, no row left, Envers history shows the create and
+        the delete
+      - `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`
+      - waits for a healthy person-service and a healthy Keycloak, and has a
+        healthcheck of its own;
+        the WireMock stub and the old `person-client` module are gone
+- [x] Both services answer in English whatever the client's `Accept-Language` or
+      the server locale (`spring.web.locale: en`, fixed resolver): an API returns
+      stable texts and codes, the user interface translates
+- [x] Traces go through Alloy, the agent: both services push OTLP to
+      `alloy:4318`, Alloy batches them and passes them on to Tempo - as the handout
+      prefers over a direct export. One registration is one trace across both
+      services (`registration` -> `http post /api/v1/users` -> `userService.create`)
+- [x] Checked on a clean stack: both Postman collections green (individuals-api
+      20 requests / 52 assertions, person-service 22 / 106), both builds green with
+      every test suite
 
-### Next, in this order
+### Next
 
-- [ ] Unit and integration tests, coverage 80% or more, given / when / then
-- [ ] Nexus publishing of `person-service-client`, once it is tested
-- [ ] individuals-api on the new client, from Nexus by coordinates:
-      - the registration request gains address and individual; the compensation
-        step deletes the person when the Keycloak part fails
-      - its hand-written DTOs get the same `Dto` suffix: `KeycloakTokenResponse`,
-        `KeycloakUserRequest` → `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`
-      - waits for person-service to be healthy (Keycloak to discuss) and gets a
-        healthcheck of its own; `person-service-stub` and `infra/person-service-stub` go
+- [ ] Your full manual test of the application
+- [ ] Decide the commits and the branches they go to, then push and open the PR
+      `module-2-person-service` -> `main`
 
 ---
 

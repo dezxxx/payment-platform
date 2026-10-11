@@ -26,7 +26,7 @@ LOGS -[#b45309,bold]-> ALLOY : stdout\nчитает через сокет Docker
 ALLOY -[#b45309,bold]-> LOKI : push
 
 ' --- трейсы: отправляет само приложение ---
-SPANS -[#6d28d9,bold]-> TEMPO : **отправка** по OTLP\ntempo:4318/v1/traces
+SPANS -[#6d28d9,bold]-> TEMPO : **отправка** по OTLP через Alloy\nalloy:4318 -> tempo:4318
 
 GRAF --> PROM
 GRAF --> LOKI
@@ -111,7 +111,7 @@ rectangle "**трейс** 16bc50fe...  один id на весь запрос" a
   rectangle "registration.assignRole" as R4
   rectangle "registration.login" as R5
 
-  rectangle "клиентский спан\nPOST person-service /api/v1/persons/registration" as H1
+  rectangle "клиентский спан\nPOST person-service /api/v1/users" as H1
   rectangle "клиентский спан\nPOST Keycloak /token  client_credentials\n(только если токен в кеше устарел)" as H2
   rectangle "клиентский спан\nPOST Keycloak /admin/.../users" as H3
   rectangle "клиентский спан\nPUT Keycloak /admin/.../reset-password" as H4
