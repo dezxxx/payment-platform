@@ -9,7 +9,6 @@ import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-// realm roles sit in the nested realm_access.roles claim
 @Slf4j
 public final class KeycloakClaims {
 
@@ -35,7 +34,7 @@ public final class KeycloakClaims {
         }
     }
 
-    // Missing means the realm's mapper is broken: our fault, so 500, not 401.
+    // missing means the realm mapper is broken: our fault, so 500, not 401
     public static UUID requireUserUid(Jwt jwt) {
         return userUid(jwt).orElseThrow(() -> {
             log.error("Access token of {} carries no usable user_uid claim", jwt.getSubject());

@@ -11,10 +11,7 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-// Two jobs: (1) the constructor teaches Reactor how to carry RequestLog across
-// threads into the MDC - once for the whole app; (2) every request gets its own
-// RequestLog and one summary line at the end. Runs first, before security,
-// so a 401 is logged like any other request
+// runs first, before security, so a 401 is logged like any other request
 @Slf4j
 @Component
 public class RequestLogFilter implements WebFilter, Ordered {
@@ -22,7 +19,6 @@ public class RequestLogFilter implements WebFilter, Ordered {
     private static final String ACTUATOR_PREFIX = "/actuator";
 
     public RequestLogFilter() {
-        // getter, setter, cleanup - the short form of a ThreadLocalAccessor
         ContextRegistry.getInstance().registerThreadLocalAccessor(
                 RequestLog.CONTEXT_KEY,
                 RequestLog::current,
@@ -43,8 +39,7 @@ public class RequestLogFilter implements WebFilter, Ordered {
         RequestLog requestLog = new RequestLog(method, path);
 
         return chain.filter(exchange)
-                // doOnEach, not doFinally: here the traceId is restored,
-                // so the summary line carries the same traceId as the rest
+                // doOnEach, not doFinally: only here is the traceId restored
                 .doOnEach(signal -> {
                     if (signal.isOnComplete() || signal.isOnError()) {
                         finish(exchange, requestLog, method, path);

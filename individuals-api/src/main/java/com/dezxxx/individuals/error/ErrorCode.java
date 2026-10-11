@@ -10,17 +10,11 @@ public enum ErrorCode {
 
     VALIDATION_ERROR(HttpStatus.BAD_REQUEST, "Request validation failed"),
 
-    // wrong password at login. Never says which of the two was wrong,
-    // or anyone could find out which emails are registered
+    // never says which of the two was wrong, or anyone could probe registered emails
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect"),
 
-    // no usable token: missing, expired, foreign - or an unknown path,
-    // since everything outside the public list needs a token first
     AUTHENTICATION_REQUIRED(HttpStatus.UNAUTHORIZED, "A valid access token is required"),
 
-    // refresh token is dead - the session ended, show the login form.
-    // Keycloak says invalid_grant for this and for a wrong password alike;
-    // TokenService knows which call it was and picks this code
     REFRESH_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Refresh token is expired or no longer valid"),
 
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access is denied"),
@@ -35,8 +29,6 @@ public enum ErrorCode {
 
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error"),
 
-    // person-service has the person, Keycloak has no account: the two disagree.
-    // Own code so logs and alerts can find it; the message does not describe our internals
     REGISTRATION_INCONSISTENT(HttpStatus.SERVICE_UNAVAILABLE,
             "Registration did not complete, please contact support"),
 

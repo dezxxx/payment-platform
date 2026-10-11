@@ -10,13 +10,10 @@ import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 
-// WebFlux: the servlet HttpSecurity would silently do nothing here
 @Configuration
 @EnableWebFluxSecurity
 public class SecurityConfig {
 
-    // called before the caller has a token. One by one on purpose:
-    // a wildcard would silently open any endpoint added later
     private static final String[] PUBLIC_ENDPOINTS = {
             "/api/v1/auth/registration",
             "/api/v1/auth/login",
@@ -52,15 +49,11 @@ public class SecurityConfig {
                         .pathMatchers(INFRASTRUCTURE_ENDPOINTS).permitAll()
                         .anyExchange().authenticated())
 
-                // checks the signature (realm keys), exp and iss. A token that is
-                // present but broken fails here, not in exceptionHandling below -
-                // so our entry point is set here too, or the answer is an empty 401
+                // a broken token fails here, so without this entry point the 401 has no body
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .jwt(Customizer.withDefaults()))
 
-                // errors inside the filter chain never reach GlobalExceptionHandler,
-                // so these two write our error body themselves
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
