@@ -1,0 +1,33 @@
+@startuml container
+!include <C4/C4_Container>
+
+title person-service - container diagram (C4, level 2)
+
+Container_Ext(individualsApi, "individuals-api", "Spring Boot WebFlux", "Orchestrator: registers individuals, calls person-service")
+
+System_Boundary(ps, "person-service") {
+    Container(app, "person-service", "Spring Boot MVC, Java 25", "Stores and changes individuals: individual + user + address")
+    ContainerDb(db, "PostgreSQL", "schemas person, person_history", "Individuals data and Envers audit")
+}
+
+Container_Ext(nexus, "Nexus", "Maven repository", "Holds person-service-client")
+Container_Ext(prometheus, "Prometheus", "metrics", "Scrapes /actuator/prometheus")
+Container_Ext(alloy, "Alloy", "telemetry agent", "Receives traces, reads logs")
+Container_Ext(tempo, "Tempo", "traces", "Stores traces")
+Container_Ext(loki, "Loki", "logs", "Stores logs")
+Container_Ext(grafana, "Grafana", "dashboards", "Metrics, traces, logs")
+
+Rel(individualsApi, app, "REST /api/v1/individuals", "person-service-client")
+Rel(app, db, "reads and writes", "JPA, Flyway")
+Rel(app, nexus, "build publishes the client", "Gradle")
+Rel(nexus, individualsApi, "imports the client", "Maven")
+Rel(prometheus, app, "scrapes metrics", "HTTP")
+Rel(app, alloy, "traces and JSON logs", "OTLP, stdout")
+Rel(alloy, tempo, "traces", "OTLP")
+Rel(alloy, loki, "logs")
+Rel(grafana, prometheus, "reads")
+Rel(grafana, tempo, "reads")
+Rel(grafana, loki, "reads")
+
+SHOW_LEGEND()
+@enduml
