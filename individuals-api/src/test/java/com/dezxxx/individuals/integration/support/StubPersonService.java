@@ -12,9 +12,9 @@ import reactor.netty.http.server.HttpServer;
 
 public final class StubPersonService {
 
-    private static final String USERS_PATH = "/api/v1/users";
+    private static final String INDIVIDUALS_PATH = "/api/v1/individuals";
 
-    private static final String USER_PATH = "/api/v1/users/{id}";
+    private static final String COMPENSATION_PATH = "/api/v1/individuals/compensate-registration/{id}";
 
     private final List<String> receivedBodies = new CopyOnWriteArrayList<>();
 
@@ -26,8 +26,8 @@ public final class StubPersonService {
         server = HttpServer.create()
                 .port(0)
                 .route(routes -> routes
-                        .delete(USER_PATH, (request, response) -> response.status(HttpResponseStatus.NO_CONTENT).send())
-                        .post(USERS_PATH, (request, response) ->
+                        .delete(COMPENSATION_PATH, (request, response) -> response.status(HttpResponseStatus.NO_CONTENT).send())
+                        .post(INDIVIDUALS_PATH, (request, response) ->
                             request.receive()
                                     .aggregate()
                                     .asString(StandardCharsets.UTF_8)

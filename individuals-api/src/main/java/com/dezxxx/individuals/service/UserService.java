@@ -1,8 +1,8 @@
 package com.dezxxx.individuals.service;
 
-import com.dezxxx.individuals.api.model.CurrentUserResponse;
-import com.dezxxx.individuals.api.model.RegistrationRequest;
-import com.dezxxx.individuals.api.model.TokenResponse;
+import com.dezxxx.individuals.api.model.CurrentUserResponseDto;
+import com.dezxxx.individuals.api.model.RegistrationRequestDto;
+import com.dezxxx.individuals.api.model.TokenResponseDto;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
@@ -23,8 +23,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-// Registration spans two systems with no shared transaction, so the order is
-// fixed: person-service first (it issues user_uid), then Keycloak, then login.
+// no shared transaction: person-service first (it issues user_uid), then Keycloak, then login
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -35,7 +34,6 @@ public class UserService {
     private static final String FAMILY_NAME = "family_name";
     private static final String EMAIL_VERIFIED = "email_verified";
 
-    // roles Keycloak gives every account for itself - not shown in /me
     private static final Set<String> KEYCLOAK_OWN_ROLES = Set.of("offline_access", "uma_authorization");
     private static final String DEFAULT_ROLES_PREFIX = "default-roles-";
 
@@ -45,12 +43,11 @@ public class UserService {
     private final AuthMetrics metrics;
     private final ObservationRegistry observationRegistry;
 
-    public Mono<TokenResponse> register(RegistrationRequest request) {
+    public Mono<TokenResponseDto> register(RegistrationRequestDto request) {
         return personClient
                 .createPerson(request)
                 .transform(span("registration.createPerson"))
-                // defer: without it login() would be called while the chain is
-                // built - before the account exists
+                // defer: otherwise login() runs while the chain is built, before the account exists
                 .flatMap(userUid -> createAccount(request, userUid)
                         .then(Mono.defer(() -> login(request))))
                 .doFirst(metrics::registrationStarted)
@@ -63,9 +60,7 @@ public class UserService {
                 .transform(span("registration"));
     }
 
-    // the Keycloak part: account -> password -> role; if password or role fails,
-    // the half-made account is rolled back
-    private Mono<Void> createAccount(RegistrationRequest request, UUID userUid) {
+    private Mono<Void> createAccount(RegistrationRequestDto request, UUID userUid) {
         return keycloakClient
                 .createAccount(request.getEmail(), request.getFirstName(), request.getLastName(), userUid.toString())
                 .transform(span("registration.createAccount"))
@@ -80,41 +75,34 @@ public class UserService {
                 .onErrorResume(cause -> compensate(userUid, cause));
     }
 
-    // the Keycloak part failed: the domain user goes too, and the caller gets the original error.
-    // Only when this delete fails as well do the two systems disagree
     private Mono<Void> compensate(UUID userUid, Throwable cause) {
-        return personClient.deletePerson(userUid)
-                .transform(span("registration.deletePerson"))
+        return personClient.compensateRegistration(userUid)
+                .transform(span("registration.compensateRegistration"))
                 .doOnSuccess(done -> log.warn("Registration of {} rolled back in person-service", userUid))
                 .onErrorMap(deleteFailure -> inconsistent(userUid, cause, deleteFailure))
                 .then(Mono.error(cause));
     }
 
-    // a retry would get 409, so the answer names the problem
-    // and the log carries the user_uid a human needs to clean it up
     private ApiException inconsistent(UUID userUid, Throwable cause, Throwable deleteFailure) {
-        log.error("Inconsistent registration: domain user {} exists in person-service, its Keycloak account "
+        log.error("Inconsistent registration: individual {} exists in person-service, its Keycloak account "
                 + "failed and deleting the user failed too", userUid, deleteFailure);
         return new ApiException(ErrorCode.REGISTRATION_INCONSISTENT, ErrorCode.REGISTRATION_INCONSISTENT.getDefaultMessage(), cause);
     }
 
-    // user_uid comes back from the token, which also proves the realm mapper works
-    private Mono<TokenResponse> login(RegistrationRequest request) {
+    private Mono<TokenResponseDto> login(RegistrationRequestDto request) {
         return tokenService.issueTokens(request.getEmail(), request.getPassword())
                 .transform(span("registration.login"));
     }
 
-    public Mono<TokenResponse> login(String email, String password) {
+    public Mono<TokenResponseDto> login(String email, String password) {
         return tokenService.login(email, password);
     }
 
-    public Mono<TokenResponse> refresh(String refreshToken) {
+    public Mono<TokenResponseDto> refresh(String refreshToken) {
         return tokenService.refresh(refreshToken);
     }
 
-    // 7 of 8 fields come from the token the security chain already verified;
-    // registeredAt is in no claim, so it costs one Keycloak call
-    public Mono<CurrentUserResponse> currentUser(Jwt jwt) {
+    public Mono<CurrentUserResponseDto> currentUser(Jwt jwt) {
         String keycloakUserId = jwt.getSubject();
         return keycloakClient.findRegisteredAt(keycloakUserId)
                 .transform(span("me.findRegisteredAt"))
@@ -122,10 +110,10 @@ public class UserService {
                 .transform(span("me"));
     }
 
-    private CurrentUserResponse toCurrentUser(Jwt jwt, String keycloakUserId, OffsetDateTime registeredAt) {
+    private CurrentUserResponseDto toCurrentUser(Jwt jwt, String keycloakUserId, OffsetDateTime registeredAt) {
         UUID userUid = KeycloakClaims.requireUserUid(jwt);
         RequestLog.userUid(userUid);
-        return new CurrentUserResponse()
+        return new CurrentUserResponseDto()
                 .userUid(userUid)
                 .keycloakUserId(keycloakUserId)
                 .email(jwt.getClaimAsString(EMAIL))

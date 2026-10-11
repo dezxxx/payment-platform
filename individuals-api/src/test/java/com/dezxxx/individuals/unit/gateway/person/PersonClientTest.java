@@ -2,15 +2,15 @@ package com.dezxxx.individuals.unit.gateway.person;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.dezxxx.individuals.api.model.RegistrationRequest;
-import com.dezxxx.individuals.api.model.RegistrationRequestAddress;
-import com.dezxxx.individuals.api.model.RegistrationRequestIndividual;
+import com.dezxxx.individuals.api.model.RegistrationRequestDto;
+import com.dezxxx.individuals.api.model.RegistrationRequestAddressDto;
+import com.dezxxx.individuals.api.model.RegistrationRequestIndividualDto;
 import com.dezxxx.individuals.config.PersonServiceProperties;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.person.PersonClient;
 import com.dezxxx.individuals.metrics.AuthMetrics;
-import com.dezxxx.person.client.api.UsersApi;
+import com.dezxxx.person.client.api.IndividualsApi;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.List;
@@ -36,10 +36,10 @@ class PersonClientTest {
     private static final PersonServiceProperties PROPERTIES =
             new PersonServiceProperties("http://person-service", Duration.ofSeconds(5));
 
-    private static final UUID USER_UID = UUID.fromString("6c8ec4d0-6fd5-4db8-bf4d-7bcbdb2f6c02");
+    private static final UUID USER_UID = UUID.fromString("7fd6212d-0f71-42a0-bf6e-7dbce6cf04fb");
 
     @Test
-    @DisplayName("given person-service creates the user, when creating, then its id is the user_uid")
+    @DisplayName("given person-service creates the individual, when creating, then its id is the user_uid")
     void createsPerson() {
         // given
         AtomicReference<ClientRequest> sent = new AtomicReference<>();
@@ -52,7 +52,7 @@ class PersonClientTest {
 
         // then
         assertThat(sent.get().method()).isEqualTo(HttpMethod.POST);
-        assertThat(sent.get().url().getPath()).isEqualTo("/api/v1/users");
+        assertThat(sent.get().url().getPath()).isEqualTo("/api/v1/individuals");
     }
 
     @Test
@@ -115,29 +115,29 @@ class PersonClientTest {
     }
 
     @Test
-    @DisplayName("given person-service deletes the user, when compensating, then DELETE goes to the user's path and completes")
-    void deletesPerson() {
+    @DisplayName("given person-service deletes the individual, when compensating, then DELETE goes to the compensation path and completes")
+    void compensatesRegistration() {
         // given
         AtomicReference<ClientRequest> sent = new AtomicReference<>();
         PersonClient client = clientAnswering(sent, ClientResponse.create(HttpStatus.NO_CONTENT).build());
 
         // when / then
-        StepVerifier.create(client.deletePerson(USER_UID)).verifyComplete();
+        StepVerifier.create(client.compensateRegistration(USER_UID)).verifyComplete();
 
         // then
         assertThat(sent.get().method()).isEqualTo(HttpMethod.DELETE);
-        assertThat(sent.get().url().getPath()).isEqualTo("/api/v1/users/" + USER_UID);
+        assertThat(sent.get().url().getPath()).isEqualTo("/api/v1/individuals/compensate-registration/" + USER_UID);
     }
 
     @Test
-    @DisplayName("given the user is already gone, when compensating, then NOT_FOUND")
+    @DisplayName("given the individual is already gone, when compensating, then NOT_FOUND")
     void deleteNotFound() {
         // given
         PersonClient client = clientAnswering(new AtomicReference<>(),
-                problem(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "User not found"));
+                problem(HttpStatus.NOT_FOUND, "INDIVIDUAL_NOT_FOUND", "Individual not found"));
 
         // when / then
-        expectError(client.deletePerson(USER_UID), ErrorCode.NOT_FOUND);
+        expectError(client.compensateRegistration(USER_UID), ErrorCode.NOT_FOUND);
     }
 
     private static void expectError(Mono<?> call, ErrorCode expected) {
@@ -154,10 +154,10 @@ class PersonClientTest {
                     return Mono.just(response);
                 })
                 .build();
-        UsersApi usersApi = HttpServiceProxyFactory.builderFor(WebClientAdapter.create(webClient))
+        IndividualsApi individualsApi = HttpServiceProxyFactory.builderFor(WebClientAdapter.create(webClient))
                 .build()
-                .createClient(UsersApi.class);
-        return new PersonClient(usersApi, PROPERTIES, new AuthMetrics(new SimpleMeterRegistry()));
+                .createClient(IndividualsApi.class);
+        return new PersonClient(individualsApi, PROPERTIES, new AuthMetrics(new SimpleMeterRegistry()));
     }
 
     private static ClientResponse json(HttpStatus status, String body) {
@@ -174,14 +174,14 @@ class PersonClientTest {
                 .build();
     }
 
-    private static RegistrationRequest request() {
-        return new RegistrationRequest()
+    private static RegistrationRequestDto request() {
+        return new RegistrationRequestDto()
                 .email("ivan.petrov@example.org")
                 .password("Str0ngP@ssw0rd")
                 .confirmPassword("Str0ngP@ssw0rd")
                 .firstName("Ivan")
                 .lastName("Petrov")
-                .address(new RegistrationRequestAddress().countryAlpha3("UKR").city("Kyiv").addressLine("1 Example St."))
-                .individual(new RegistrationRequestIndividual().passportNumber("123456789").phoneNumber("+380441234567"));
+                .address(new RegistrationRequestAddressDto().countryAlpha3("UKR").city("Kyiv").addressLine("1 Example St."))
+                .individual(new RegistrationRequestIndividualDto().passportNumber("123456789").phoneNumber("+380441234567"));
     }
 }

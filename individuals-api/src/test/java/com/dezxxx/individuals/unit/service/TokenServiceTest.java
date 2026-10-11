@@ -8,7 +8,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static com.dezxxx.individuals.unit.service.ServiceTokens.accessToken;
 
-import com.dezxxx.individuals.api.model.TokenResponse;
+import com.dezxxx.individuals.api.model.TokenResponseDto;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
@@ -194,8 +194,8 @@ class TokenServiceTest {
         verifyNoInteractions(metrics);
     }
 
-    private static TokenResponse tokensFromKeycloak() {
-        return new TokenResponse()
+    private static TokenResponseDto tokensFromKeycloak() {
+        return new TokenResponseDto()
                 .accessToken(ACCESS_TOKEN)
                 .refreshToken(REFRESH_TOKEN)
                 .expiresIn(300L)

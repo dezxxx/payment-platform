@@ -2,7 +2,7 @@ package com.dezxxx.individuals.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.dezxxx.individuals.api.model.TokenResponse;
+import com.dezxxx.individuals.api.model.TokenResponseDto;
 import com.dezxxx.individuals.integration.support.IntegrationTest;
 import com.dezxxx.individuals.integration.support.KeycloakAdminProbe;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -35,7 +35,7 @@ class AuthControllerIT extends IntegrationTest {
         assertThat(keycloak.findUserByEmail(email)).isEmpty();
 
         // when
-        TokenResponse tokens = register(email);
+        TokenResponseDto tokens = register(email);
 
         // then
         assertThat(tokens.getAccessToken()).isNotBlank();
@@ -57,7 +57,7 @@ class AuthControllerIT extends IntegrationTest {
         KeycloakAdminProbe keycloak = keycloakAdmin();
 
         // when
-        TokenResponse tokens = register(email);
+        TokenResponseDto tokens = register(email);
 
         // then
         JsonNode account = keycloak.findUserByEmail(email).orElseThrow();
@@ -75,7 +75,7 @@ class AuthControllerIT extends IntegrationTest {
         register(email);
 
         // when
-        TokenResponse tokens = client.post()
+        TokenResponseDto tokens = client.post()
                 .uri(LOGIN_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
@@ -83,7 +83,7 @@ class AuthControllerIT extends IntegrationTest {
                         """.formatted(email, PASSWORD))
                 .exchange()
                 .expectStatus().isOk()
-                .expectBody(TokenResponse.class)
+                .expectBody(TokenResponseDto.class)
                 .returnResult()
                 .getResponseBody();
 
@@ -121,14 +121,14 @@ class AuthControllerIT extends IntegrationTest {
         assertThat(keycloak.findUserByEmail(email)).isEmpty();
     }
 
-    private TokenResponse register(String email) {
-        TokenResponse tokens = client.post()
+    private TokenResponseDto register(String email) {
+        TokenResponseDto tokens = client.post()
                 .uri(REGISTRATION_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(registrationBody(email, PASSWORD, PASSWORD))
                 .exchange()
                 .expectStatus().isCreated()
-                .expectBody(TokenResponse.class)
+                .expectBody(TokenResponseDto.class)
                 .returnResult()
                 .getResponseBody();
 

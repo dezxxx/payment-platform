@@ -240,13 +240,7 @@ components:
     RegistrationRequest:
       type: object
       required: [email, password, confirmPassword, firstName, lastName, address, individual]
-      # OpenAPI has no way to say "this field equals that one", so the
-      # confirmation rule is the single constraint of this schema that the
-      # keywords below cannot express. The extension stamps our class-level
-      # constraint onto the generated model, which keeps the rule in the
-      # contract rather than in a controller someone has to remember to call.
-      # Fully qualified on purpose: the generator copies the line verbatim and
-      # adds no import for it.
+      # OpenAPI cannot compare two fields; fully qualified because the generator adds no import
       x-class-extra-annotation: "@com.dezxxx.individuals.validation.PasswordsMatch"
       properties:
         email:
@@ -266,8 +260,6 @@ components:
           minLength: 8
           maxLength: 72
           example: Str0ngP@ssw0rd
-        # Required because person.users declares first_name and last_name
-        # NOT NULL - the domain user cannot be created without them.
         firstName:
           type: string
           minLength: 1
@@ -281,7 +273,7 @@ components:
         address:
           type: object
           description: The user's address, stored by person-service. Country by ISO 3166-1 code; alpha3 wins when both are sent
-          required: [city, addressLine]
+          required: [countryAlpha3, city, addressLine]
           properties:
             countryAlpha3:
               type: string
@@ -314,13 +306,16 @@ components:
         individual:
           type: object
           description: Personal data stored by person-service
+          required: [passportNumber, phoneNumber]
           properties:
             passportNumber:
               type: string
+              minLength: 1
               maxLength: 32
               example: "123456789"
             phoneNumber:
               type: string
+              minLength: 1
               maxLength: 32
               example: "+380441234567"
 
@@ -333,10 +328,7 @@ components:
           format: email
           maxLength: 1024
           example: user@dezxxx.com
-        # No minLength here on purpose. Password policy is enforced at
-        # registration and by Keycloak; rejecting a short attempt with 400
-        # instead of 401 would leak the policy and would lock out existing
-        # users if it ever loosened. maxLength stays only as a payload guard.
+        # no minLength: a 400 for a short password would leak the policy
         password:
           type: string
           format: password
@@ -378,9 +370,6 @@ components:
 
     CurrentUserResponse:
       type: object
-      # All of these are always known for an authenticated user: the token
-      # carries sub and the roles, and the domain columns behind firstName and
-      # lastName are NOT NULL.
       required: [userUid, keycloakUserId, email, firstName, lastName, emailVerified, roles, registeredAt]
       properties:
         userUid:
@@ -399,10 +388,7 @@ components:
           type: string
           format: email
           example: user@dezxxx.com
-        # person-service owns the domain profile; the account carries a copy
-        # written at registration, and this answer is built from that copy
-        # because individuals-api has no read side to ask. So the two names can lag
-        # behind a profile edited elsewhere, and the copy is not the truth.
+        # copied into Keycloak at registration, so it can lag behind person-service
         firstName:
           type: string
           maxLength: 64
@@ -430,7 +416,6 @@ components:
             instead of answering from the token alone.
           example: "2026-08-19T12:34:56Z"
 
-    # Single error model shared by every service of the platform.
     ErrorResponse:
       type: object
       required: [timestamp, path, status, error, message, traceId]

@@ -11,10 +11,10 @@ import static org.mockito.Mockito.when;
 import static com.dezxxx.individuals.unit.service.ServiceTokens.accessToken;
 import static com.dezxxx.individuals.unit.service.ServiceTokens.tokenWithoutUserUid;
 
-import com.dezxxx.individuals.api.model.RegistrationRequest;
-import com.dezxxx.individuals.api.model.RegistrationRequestAddress;
-import com.dezxxx.individuals.api.model.RegistrationRequestIndividual;
-import com.dezxxx.individuals.api.model.TokenResponse;
+import com.dezxxx.individuals.api.model.RegistrationRequestDto;
+import com.dezxxx.individuals.api.model.RegistrationRequestAddressDto;
+import com.dezxxx.individuals.api.model.RegistrationRequestIndividualDto;
+import com.dezxxx.individuals.api.model.TokenResponseDto;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
@@ -82,7 +82,7 @@ class UserServiceTest {
                 .thenReturn(Mono.just(KEYCLOAK_USER_ID));
         when(keycloakClient.resetUserPassword(KEYCLOAK_USER_ID, PASSWORD)).thenReturn(Mono.empty());
         when(keycloakClient.assignPlatformRole(KEYCLOAK_USER_ID)).thenReturn(Mono.empty());
-        when(tokenService.issueTokens(EMAIL, PASSWORD)).thenReturn(Mono.just(new TokenResponse().userUid(USER_UID)));
+        when(tokenService.issueTokens(EMAIL, PASSWORD)).thenReturn(Mono.just(new TokenResponseDto().userUid(USER_UID)));
 
         // when / then
         StepVerifier.create(userService.register(request()))
@@ -130,7 +130,7 @@ class UserServiceTest {
                 .thenReturn(Mono.error(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE)));
         when(keycloakClient.rollbackAccountWithError(eq(KEYCLOAK_USER_ID), any()))
                 .thenAnswer(call -> Mono.error(call.getArgument(1, Throwable.class)));
-        when(personClient.deletePerson(USER_UID)).thenReturn(Mono.empty());
+        when(personClient.compensateRegistration(USER_UID)).thenReturn(Mono.empty());
 
         // when / then
         StepVerifier.create(userService.register(request()))
@@ -140,7 +140,7 @@ class UserServiceTest {
 
         // then
         verify(keycloakClient).rollbackAccountWithError(eq(KEYCLOAK_USER_ID), any());
-        verify(personClient).deletePerson(USER_UID);
+        verify(personClient).compensateRegistration(USER_UID);
         verify(tokenService, never()).issueTokens(anyString(), anyString());
         verify(metrics).registrationFailed();
         verify(metrics, never()).registrationSucceeded();
@@ -154,7 +154,7 @@ class UserServiceTest {
         when(personClient.createPerson(request())).thenReturn(Mono.just(USER_UID));
         when(keycloakClient.createAccount(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString()))
                 .thenReturn(Mono.error(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE)));
-        when(personClient.deletePerson(USER_UID)).thenReturn(Mono.empty());
+        when(personClient.compensateRegistration(USER_UID)).thenReturn(Mono.empty());
 
         // when / then
         StepVerifier.create(userService.register(request()))
@@ -166,7 +166,7 @@ class UserServiceTest {
                 .verify();
 
         // then
-        verify(personClient).deletePerson(USER_UID);
+        verify(personClient).compensateRegistration(USER_UID);
         verify(keycloakClient, never()).rollbackAccountWithError(anyString(), any());
         verify(tokenService, never()).issueTokens(anyString(), anyString());
         verify(metrics).registrationFailed();
@@ -181,7 +181,7 @@ class UserServiceTest {
         when(personClient.createPerson(request())).thenReturn(Mono.just(USER_UID));
         when(keycloakClient.createAccount(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString()))
                 .thenReturn(Mono.error(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE)));
-        when(personClient.deletePerson(USER_UID))
+        when(personClient.compensateRegistration(USER_UID))
                 .thenReturn(Mono.error(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE)));
 
         // when / then
@@ -217,21 +217,21 @@ class UserServiceTest {
 
         // then
         verify(keycloakClient, never()).rollbackAccountWithError(anyString(), any());
-        verify(personClient, never()).deletePerson(any());
+        verify(personClient, never()).compensateRegistration(any());
     }
 
-    private static RegistrationRequest request() {
-        return new RegistrationRequest()
+    private static RegistrationRequestDto request() {
+        return new RegistrationRequestDto()
                 .email(EMAIL)
                 .password(PASSWORD)
                 .confirmPassword(PASSWORD)
                 .firstName(FIRST_NAME)
                 .lastName(LAST_NAME)
-                .address(new RegistrationRequestAddress()
+                .address(new RegistrationRequestAddressDto()
                         .countryAlpha3("UKR")
                         .city("Kyiv")
                         .addressLine("1 Example St."))
-                .individual(new RegistrationRequestIndividual()
+                .individual(new RegistrationRequestIndividualDto()
                         .passportNumber("123456789")
                         .phoneNumber("+380441234567"));
     }
@@ -283,7 +283,7 @@ class UserServiceTest {
     @DisplayName("given valid credentials, when logging in, then TokenService answers and nothing else is touched")
     void loginGoesThroughTokenService() {
         // given
-        TokenResponse tokens = new TokenResponse().userUid(USER_UID);
+        TokenResponseDto tokens = new TokenResponseDto().userUid(USER_UID);
         when(tokenService.login(EMAIL, PASSWORD)).thenReturn(Mono.just(tokens));
 
         // when / then
@@ -299,7 +299,7 @@ class UserServiceTest {
     @DisplayName("given a refresh token, when refreshing, then TokenService answers with the new pair")
     void refreshGoesThroughTokenService() {
         // given
-        TokenResponse tokens = new TokenResponse().userUid(USER_UID);
+        TokenResponseDto tokens = new TokenResponseDto().userUid(USER_UID);
         when(tokenService.refresh("refresh-token")).thenReturn(Mono.just(tokens));
 
         // when / then

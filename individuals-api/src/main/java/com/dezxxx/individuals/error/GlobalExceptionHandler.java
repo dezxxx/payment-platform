@@ -1,6 +1,6 @@
 package com.dezxxx.individuals.error;
 
-import com.dezxxx.individuals.api.model.ErrorResponse;
+import com.dezxxx.individuals.api.model.ErrorResponseDto;
 import com.dezxxx.individuals.logging.RequestLog;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -17,8 +17,6 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
 import org.springframework.web.bind.support.WebExchangeBindException;
 
-// filter-chain errors never get here - ApiAuthenticationEntryPoint and
-// ApiAccessDeniedHandler answer those, sharing ErrorResponseFactory with us
 @Slf4j
 @RestControllerAdvice
 @RequiredArgsConstructor
@@ -27,12 +25,12 @@ public class GlobalExceptionHandler {
     private final ErrorResponseFactory errorResponseFactory;
 
     @ExceptionHandler(ApiException.class)
-    public ResponseEntity<ErrorResponse> handleApiException(ApiException ex, ServerWebExchange exchange) {
+    public ResponseEntity<ErrorResponseDto> handleApiException(ApiException ex, ServerWebExchange exchange) {
         return respond(ex.getErrorCode(), ex.getMessage(), ex.getDetails(), exchange, ex);
     }
 
     @ExceptionHandler(WebExchangeBindException.class)
-    public ResponseEntity<ErrorResponse> handleValidation(WebExchangeBindException ex,
+    public ResponseEntity<ErrorResponseDto> handleValidation(WebExchangeBindException ex,
                                                           ServerWebExchange exchange) {
         List<String> details = ex.getFieldErrors().stream()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
@@ -42,52 +40,48 @@ public class GlobalExceptionHandler {
                 details, exchange, ex);
     }
 
-    // its message names Java classes - logged, not returned
     @ExceptionHandler(ServerWebInputException.class)
-    public ResponseEntity<ErrorResponse> handleUnreadableInput(ServerWebInputException ex,
+    public ResponseEntity<ErrorResponseDto> handleUnreadableInput(ServerWebInputException ex,
                                                                ServerWebExchange exchange) {
         return respond(ErrorCode.VALIDATION_ERROR, "Malformed request body", List.of(), exchange, ex);
     }
 
-    // unknown path, wrong method, wrong content type - each already has its
-    // status; without this the catch-all would turn them all into 500
+    // without this the catch-all would turn 404, 405 and 415 into 500
     @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<ErrorResponse> handleResponseStatus(ResponseStatusException ex,
+    public ResponseEntity<ErrorResponseDto> handleResponseStatus(ResponseStatusException ex,
                                                               ServerWebExchange exchange) {
         ErrorCode code = fromStatus(ex.getStatusCode());
         return respond(code, code.getDefaultMessage(), List.of(), exchange, ex);
     }
 
-    // only when a controller itself rejects the caller; the filter chain
-    // case is answered by ApiAuthenticationEntryPoint
     @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex,
+    public ResponseEntity<ErrorResponseDto> handleAuthentication(AuthenticationException ex,
                                                               ServerWebExchange exchange) {
         return respond(ErrorCode.AUTHENTICATION_REQUIRED, ErrorCode.AUTHENTICATION_REQUIRED.getDefaultMessage(),
                 List.of(), exchange, ex);
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex,
+    public ResponseEntity<ErrorResponseDto> handleAccessDenied(AccessDeniedException ex,
                                                             ServerWebExchange exchange) {
         return respond(ErrorCode.ACCESS_DENIED, ErrorCode.ACCESS_DENIED.getDefaultMessage(),
                 List.of(), exchange, ex);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, ServerWebExchange exchange) {
+    public ResponseEntity<ErrorResponseDto> handleUnexpected(Exception ex, ServerWebExchange exchange) {
         return respond(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.getDefaultMessage(),
                 List.of(), exchange, ex);
     }
 
-    private ResponseEntity<ErrorResponse> respond(ErrorCode code,
+    private ResponseEntity<ErrorResponseDto> respond(ErrorCode code,
                                                   String message,
                                                   List<String> details,
                                                   ServerWebExchange exchange,
                                                   Exception ex) {
         HttpStatus status = code.getStatus();
         String path = exchange.getRequest().getPath().value();
-        ErrorResponse body = errorResponseFactory.create(code, message, details, path);
+        ErrorResponseDto body = errorResponseFactory.create(code, message, details, path);
 
         // before the log line, so that line already carries the code as a field
         RequestLog.errorCode(code.name());
@@ -100,7 +94,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(status).body(body);
     }
 
-    // statuses the framework can produce; any other 4xx is the caller's
     private static ErrorCode fromStatus(HttpStatusCode status) {
         if (status.isSameCodeAs(HttpStatus.NOT_FOUND)) {
             return ErrorCode.NOT_FOUND;

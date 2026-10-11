@@ -1,6 +1,6 @@
 package com.dezxxx.individuals.error;
 
-import com.dezxxx.individuals.api.model.ErrorResponse;
+import com.dezxxx.individuals.api.model.ErrorResponseDto;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import java.time.OffsetDateTime;
@@ -8,7 +8,6 @@ import java.time.ZoneOffset;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
-// one builder for both roads to an error: GlobalExceptionHandler and the security handlers
 @Component
 public class ErrorResponseFactory {
 
@@ -20,8 +19,8 @@ public class ErrorResponseFactory {
         this.tracer = tracer;
     }
 
-    public ErrorResponse create(ErrorCode code, String message, List<String> details, String path) {
-        ErrorResponse body = new ErrorResponse()
+    public ErrorResponseDto create(ErrorCode code, String message, List<String> details, String path) {
+        ErrorResponseDto body = new ErrorResponseDto()
                 .timestamp(OffsetDateTime.now(ZoneOffset.UTC))
                 .path(path)
                 .status(code.getStatus().value())
