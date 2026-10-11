@@ -104,7 +104,7 @@ Keycloak 24+ stores no attribute that the user profile does not declare. Line
 - `permissions: admin` - the account cannot edit its own `user_uid`
 - `group` - keeps it apart from the name fields in the console
 
-Without this block `KeycloakUserRequest` would send the attribute and Keycloak
+Without this block `KeycloakUserRequestDto` would send the attribute and Keycloak
 would silently drop it, leaving every token without the claim.
 
 ## Facts repeated outside this file
@@ -113,15 +113,15 @@ Nothing enforces these pairs. They drift silently.
 
 | Fact | Here | Also in |
 |---|---|---|
-| attribute name `user_uid` | `user.attribute` | `KeycloakUserRequest.USER_UID_ATTRIBUTE` |
+| attribute name `user_uid` | `user.attribute` | `KeycloakUserRequestDto.USER_UID_ATTRIBUTE` |
 | claim name `user_uid` | `claim.name` | `KeycloakClaims` |
 | realm name | `realm` | `application.yml`: `individuals.keycloak.realm`, `issuer-uri` |
 | client id | `clientId` | `application.yml`: `individuals.keycloak.client-id` |
 | client secret | `secret` (placeholder) | `.env`: `KEYCLOAK_CLIENT_SECRET` |
 | role name `USER` | `roles.realm[].name` | `KeycloakClient.PLATFORM_ROLE` |
-| email as username | `registrationEmailAsUsername` | `KeycloakUserRequest`: `username = email` |
+| email as username | `registrationEmailAsUsername` | `KeycloakUserRequestDto`: `username = email` |
 | password grant | `directAccessGrantsEnabled` | `KeycloakClient.login`: `grant_type=password` |
-| attribute declaration | `components` | `KeycloakUserRequest`: `attributes` |
+| attribute declaration | `components` | `KeycloakUserRequestDto`: `attributes` |
 
 A mismatch in the first two is the quiet one: the account is still created, the
 token is still valid, and `/me` answers **500** because the claim never arrived.

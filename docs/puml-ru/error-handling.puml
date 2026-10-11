@@ -33,7 +33,7 @@ Writer -> Factory : create(code, message, [], path)
 activate Factory
 Factory -> Tracer : currentSpan()
 Tracer --> Factory : traceId (или "unavailable")
-Factory --> Writer : ErrorResponse
+Factory --> Writer : ErrorResponseDto
 deactivate Factory
 note right of Writer
   Внутри цепочки фильтров не работает
@@ -61,10 +61,10 @@ Advice -> Factory : create(code, message, details, path)
 activate Factory
 Factory -> Tracer : currentSpan()
 Tracer --> Factory : traceId
-Factory --> Advice : ErrorResponse
+Factory --> Advice : ErrorResponseDto
 deactivate Factory
 Advice -> Advice : log.error для 5xx,\nlog.warn для 4xx
-Advice --> Dispatcher : ResponseEntity<ErrorResponse>
+Advice --> Dispatcher : ResponseEntity<ErrorResponseDto>
 deactivate Advice
 Dispatcher --> Client : 401 + JSON (та же форма)
 deactivate Dispatcher
@@ -121,7 +121,7 @@ note right of ApiException
 end note
 
 class ErrorResponseFactory <<@Component>> {
-  + ErrorResponse create(code, message, details, path)
+  + ErrorResponseDto create(code, message, details, path)
   - String currentTraceId()
 }
 
@@ -150,11 +150,11 @@ class ApiAccessDeniedHandler <<@Component>> {
 interface ServerAuthenticationEntryPoint <<spring-security>>
 interface ServerAccessDeniedHandler <<spring-security>>
 
-class ErrorResponse <<сгенерирован>> {
+class ErrorResponseDto <<сгенерирован>> {
   timestamp, path, status,
   error, message, traceId, details
 }
-note bottom of ErrorResponse
+note bottom of ErrorResponseDto
   Сгенерирован из individuals-api.yaml.
   Форму задаёт не код здесь, а контракт.
 end note
@@ -166,7 +166,7 @@ ApiAuthenticationEntryPoint --> SecurityErrorWriter
 ApiAccessDeniedHandler --> SecurityErrorWriter
 SecurityErrorWriter --> ErrorResponseFactory
 GlobalExceptionHandler --> ErrorResponseFactory
-ErrorResponseFactory ..> ErrorResponse : собирает
+ErrorResponseFactory ..> ErrorResponseDto : собирает
 ErrorResponseFactory ..> ErrorCode : читает статус\nи текст
 ApiException --> ErrorCode
 GlobalExceptionHandler ..> ApiException : разворачивает

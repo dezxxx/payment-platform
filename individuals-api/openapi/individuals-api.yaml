@@ -39,9 +39,11 @@ paths:
         because the create call does not accept one. The new user is then
         logged in, so no separate login is needed.
 
-        The two systems share no transaction. An account created without a
-        password is deleted again; a domain user that outlives a failed
-        Keycloak account cannot be, and is reported as REGISTRATION_INCONSISTENT.
+        The two systems share no transaction, so a failure is compensated: an
+        account created without a password or role is deleted from Keycloak, and
+        the domain user is deleted from person-service; the caller gets the
+        original error. Only when that delete fails too do the two systems
+        disagree, and the answer is REGISTRATION_INCONSISTENT.
       security: []
       requestBody:
         required: true
@@ -58,6 +60,14 @@ paths:
                   confirmPassword: Str0ngP@ssw0rd
                   firstName: Ivan
                   lastName: Ivanov
+                  address:
+                    countryAlpha3: UKR
+                    city: Kyiv
+                    zipCode: "01001"
+                    addressLine: 1 Example St.
+                  individual:
+                    passportNumber: "123456789"
+                    phoneNumber: "+380441234567"
               mismatchedConfirmation:
                 summary: Rejected with 400 - confirmation does not match
                 value:
@@ -66,6 +76,14 @@ paths:
                   confirmPassword: Str0ngP@ssw0rt
                   firstName: Ivan
                   lastName: Ivanov
+                  address:
+                    countryAlpha3: UKR
+                    city: Kyiv
+                    zipCode: "01001"
+                    addressLine: 1 Example St.
+                  individual:
+                    passportNumber: "123456789"
+                    phoneNumber: "+380441234567"
       responses:
         "201":
           description: User registered and logged in
@@ -221,14 +239,8 @@ components:
 
     RegistrationRequest:
       type: object
-      required: [email, password, confirmPassword, firstName, lastName]
-      # OpenAPI has no way to say "this field equals that one", so the
-      # confirmation rule is the single constraint of this schema that the
-      # keywords below cannot express. The extension stamps our class-level
-      # constraint onto the generated model, which keeps the rule in the
-      # contract rather than in a controller someone has to remember to call.
-      # Fully qualified on purpose: the generator copies the line verbatim and
-      # adds no import for it.
+      required: [email, password, confirmPassword, firstName, lastName, address, individual]
+      # OpenAPI cannot compare two fields; fully qualified because the generator adds no import
       x-class-extra-annotation: "@com.dezxxx.individuals.validation.PasswordsMatch"
       properties:
         email:
@@ -248,8 +260,6 @@ components:
           minLength: 8
           maxLength: 72
           example: Str0ngP@ssw0rd
-        # Required because person.users declares first_name and last_name
-        # NOT NULL - the domain user cannot be created without them.
         firstName:
           type: string
           minLength: 1
@@ -260,6 +270,54 @@ components:
           minLength: 1
           maxLength: 64
           example: Ivanov
+        address:
+          type: object
+          description: The user's address, stored by person-service. Country by ISO 3166-1 code; alpha3 wins when both are sent
+          required: [countryAlpha3, city, addressLine]
+          properties:
+            countryAlpha3:
+              type: string
+              minLength: 3
+              maxLength: 3
+              example: UKR
+            countryAlpha2:
+              type: string
+              minLength: 2
+              maxLength: 2
+              example: UA
+            city:
+              type: string
+              minLength: 1
+              maxLength: 64
+              example: Kyiv
+            state:
+              type: string
+              maxLength: 64
+              example: Kyiv
+            zipCode:
+              type: string
+              maxLength: 32
+              example: "01001"
+            addressLine:
+              type: string
+              minLength: 1
+              maxLength: 128
+              example: 1 Example St.
+        individual:
+          type: object
+          description: Personal data stored by person-service
+          required: [passportNumber, phoneNumber]
+          properties:
+            passportNumber:
+              type: string
+              minLength: 1
+              maxLength: 32
+              example: "123456789"
+            phoneNumber:
+              type: string
+              minLength: 1
+              maxLength: 32
+              example: "+380441234567"
 
     LoginRequest:
       type: object
@@ -270,10 +328,7 @@ components:
           format: email
           maxLength: 1024
           example: user@dezxxx.com
-        # No minLength here on purpose. Password policy is enforced at
-        # registration and by Keycloak; rejecting a short attempt with 400
-        # instead of 401 would leak the policy and would lock out existing
-        # users if it ever loosened. maxLength stays only as a payload guard.
+        # no minLength: a 400 for a short password would leak the policy
         password:
           type: string
           format: password
@@ -315,9 +370,6 @@ components:
 
     CurrentUserResponse:
       type: object
-      # All of these are always known for an authenticated user: the token
-      # carries sub and the roles, and the domain columns behind firstName and
-      # lastName are NOT NULL.
       required: [userUid, keycloakUserId, email, firstName, lastName, emailVerified, roles, registeredAt]
       properties:
         userUid:
@@ -336,10 +388,7 @@ components:
           type: string
           format: email
           example: user@dezxxx.com
-        # person-service owns the domain profile; the account carries a copy
-        # written at registration, and this answer is built from that copy
-        # because individuals-api has no read side to ask. So the two names can lag
-        # behind a profile edited elsewhere, and the copy is not the truth.
+        # copied into Keycloak at registration, so it can lag behind person-service
         firstName:
           type: string
           maxLength: 64
@@ -367,7 +416,6 @@ components:
             instead of answering from the token alone.
           example: "2026-08-19T12:34:56Z"
 
-    # Single error model shared by every service of the platform.
     ErrorResponse:
       type: object
       required: [timestamp, path, status, error, message, traceId]

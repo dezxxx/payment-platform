@@ -12,7 +12,7 @@ node "docker compose network" {
   database "keycloak-postgres\nhost 5433 -> 5432" as KCDB
   database "person-postgres\nhost 5434 -> 5432" as PSDB
   node "nexus\nhost 8083 -> 8081" as NEXUS
-  node "person-service\nWireMock stub, host 8082" as PS
+  node "person-service\nhost 8082 -> 8082" as PS
   node "prometheus\nhost 9090 -> 9090" as PROM
   node "alloy\nhost 12345 -> 12345" as ALLOY
   database "loki\nhost 3100 -> 3100" as LOKI
@@ -22,20 +22,25 @@ node "docker compose network" {
 
 Client --> API : POST /api/v1/auth/...
 API --> KC : Admin REST API\nand OIDC token endpoint
-API --> PS : POST /api/v1/persons/registration
+API --> PS : POST /api/v1/individuals\nDELETE /api/v1/individuals/compensate-registration/{id} (compensation)
+PS --> PSDB : JDBC
 KC --> KCDB : JDBC
 
 PROM --> API : scrape /actuator/prometheus
+PROM --> PS : scrape /actuator/prometheus
 ALLOY --> API : read stdout\nvia the Docker socket
+ALLOY --> PS : read stdout
 ALLOY --> LOKI : push
-API --> TEMPO : OTLP push /v1/traces
+API --> ALLOY : OTLP push /v1/traces
+PS --> ALLOY : OTLP push /v1/traces
+ALLOY --> TEMPO : OTLP, batched
 
 GRAF --> PROM
 GRAF --> LOKI
 GRAF --> TEMPO
 
-Developer --> NEXUS : make publish\n(person-client)
-API ..> NEXUS : image build downloads person-client\nthrough host.docker.internal:8083
+Developer --> NEXUS : make publish\n(person-service-client)
+API ..> NEXUS : image build downloads person-service-client\nthrough host.docker.internal:8083
 
 note right of PROM
   Prometheus pulls, the application pushes.
@@ -45,8 +50,8 @@ note right of PROM
 end note
 
 note bottom of NEXUS
-  Not on any runtime path. person-client is
-  published here, and the individuals-api image
+  Not on any runtime path. person-service-client
+  is published here by person-service, and the individuals-api image
   build resolves it by Maven coordinates - which
   is what keeps modules from depending on each
   other through project(":..."). make up starts
@@ -58,25 +63,24 @@ note bottom of NEXUS
 end note
 
 note right of PS
-  Stands in for person-service until module 2:
-  a new userUid per registration, 409 on a second
-  registration of the Postman users. Mappings in
-  infra/person-service-stub.
+  The individual aggregate (module 2). Starts only once
+  person-postgres is healthy - Flyway migrates at
+  start-up - and individuals-api waits for it to be
+  healthy in turn.
 end note
 
 note bottom of PSDB
-  Runs in module 1 only so the Flyway
-  migrations have something to apply to.
-  Nothing connects to it yet.
+  person-service's database: schema person,
+  and the Envers history in person_history.
 end note
 
 note right of ALLOY
-  Needed because the application writes to
-  stdout and Docker keeps that in a file that
-  dies with the container. The Loki docker
-  driver would have done it too, but it is a
-  host plugin - and "docker compose up brings
-  everything up" is an acceptance criterion.
+  The agent for logs and traces. Logs: the
+  applications write to stdout, and Docker keeps
+  that in a file that dies with the container.
+  Traces: the services push OTLP to Alloy, which
+  batches them and passes them on to Tempo - a
+  service never depends on Tempo being up.
 end note
 
 @enduml

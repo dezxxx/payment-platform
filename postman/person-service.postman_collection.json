@@ -1,0 +1,774 @@
+{
+  "info": {
+    "name": "person-service",
+    "description": "Every endpoint of person-service and every error it answers with, for one individual, Ivan Petrov.\n\nNothing is copied by hand: the create request stores the individual id and the next requests use it. Run the whole collection with Postman's Runner, top to bottom. Every run makes a fresh email, so the collection can be run again on the same database: the individual is soft deleted at the end and its archived row stays.\n\nbaseUrl is http://localhost:8082 - person-service in docker compose (make up). Started from the IDE instead, it runs on 8092 while compose holds 8082: change baseUrl.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8082"
+    },
+    {
+      "key": "email",
+      "value": ""
+    },
+    {
+      "key": "emailUpper",
+      "value": ""
+    },
+    {
+      "key": "emailMixed",
+      "value": ""
+    },
+    {
+      "key": "individualId",
+      "value": ""
+    },
+    {
+      "key": "compensatedEmail",
+      "value": ""
+    },
+    {
+      "key": "compensatedId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Infrastructure",
+      "item": [
+        {
+          "name": "Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/health"
+          }
+        },
+        {
+          "name": "Swagger UI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/swagger-ui/index.html"
+          }
+        },
+        {
+          "name": "Contract served to Swagger UI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('our contract', () => pm.expect(pm.response.text()).to.include('/api/v1/individuals'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/openapi/person-service.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Ivan - the whole life of an individual",
+      "item": [
+        {
+          "name": "Create individual",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const email = `ivan.petrov.${Date.now()}@example.org`;",
+                  "pm.collectionVariables.set('email', email);",
+                  "pm.collectionVariables.set('emailUpper', email.replace('ivan.petrov', 'IVAN.Petrov'));",
+                  "pm.collectionVariables.set('emailMixed', email.replace('ivan.petrov', 'Ivan.PETROV'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const i = pm.response.json();",
+                  "pm.collectionVariables.set('individualId', i.id);",
+                  "pm.test('individual id is a UUID', () => pm.expect(i.id).to.match(/^[0-9a-f-]{36}$/));",
+                  "pm.test('individual on top, user inside', () => { pm.expect(i.user).to.be.an('object'); pm.expect(i.user.id).to.not.eql(i.id); });",
+                  "pm.test('status NEW', () => pm.expect(i.status).to.eql('NEW'));",
+                  "pm.test('passport and phone as sent', () => { pm.expect(i.passportNumber).to.eql('123456789'); pm.expect(i.phoneNumber).to.eql('+380441234567'); });",
+                  "pm.test('email as sent', () => pm.expect(i.user.email).to.eql(pm.collectionVariables.get('email')));",
+                  "pm.test('filled', () => pm.expect(i.user.filled).to.eql(true));",
+                  "pm.test('country resolved', () => { pm.expect(i.user.address.countryAlpha3).to.eql('UKR'); pm.expect(i.user.address.countryAlpha2).to.eql('UA'); });",
+                  "pm.test('createdAt present, in UTC', () => pm.expect(i.user.createdAt).to.match(/Z$/));",
+                  "pm.test('createdAt is now, not shifted by a time zone', () => pm.expect(Math.abs(Date.now() - Date.parse(i.user.createdAt))).to.be.below(60000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/individuals",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passportNumber\": \"123456789\",\n  \"phoneNumber\": \"+380441234567\",\n  \"user\": {\n    \"email\": \"{{email}}\",\n    \"firstName\": \"Ivan\",\n    \"lastName\": \"Petrov\",\n    \"address\": {\n      \"countryAlpha3\": \"UKR\",\n      \"countryAlpha2\": \"UA\",\n      \"city\": \"Kyiv\",\n      \"state\": \"Kyiv\",\n      \"zipCode\": \"01001\",\n      \"addressLine\": \"1 Example St.\"\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('the same individual', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('individualId')));",
+                  "pm.test('aggregate whole', () => { const i = pm.response.json(); pm.expect(i.user).to.be.an('object'); pm.expect(i.user.address).to.be.an('object'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/individuals/{{individualId}}"
+          }
+        },
+        {
+          "name": "Get by email, other letter case",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('email is case-insensitive', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('individualId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/individuals/by-email?email={{emailUpper}}"
+          }
+        },
+        {
+          "name": "Update individual, user and address in one request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const i = pm.response.json();",
+                  "pm.test('individual changed', () => pm.expect(i.phoneNumber).to.eql('+380441234568'));",
+                  "pm.test('user changed', () => pm.expect(i.user.lastName).to.eql('Petrov-Senior'));",
+                  "pm.test('address changed', () => pm.expect(i.user.address.city).to.eql('Lviv'));",
+                  "pm.test('the rest kept (PATCH)', () => { pm.expect(i.passportNumber).to.eql('123456789'); pm.expect(i.user.firstName).to.eql('Ivan'); pm.expect(i.user.address.zipCode).to.eql('01001'); });",
+                  "pm.test('updatedAt moved on', () => pm.expect(Date.parse(i.user.updatedAt)).to.be.above(Date.parse(i.user.createdAt)));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/individuals/{{individualId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"+380441234568\",\n  \"user\": {\n    \"lastName\": \"Petrov-Senior\",\n    \"address\": {\n      \"city\": \"Lviv\"\n    }\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Failures - RFC 9457",
+      "item": [
+        {
+          "name": "409 - the same email again, other case",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409', () => pm.response.to.have.status(409));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = EMAIL_ALREADY_EXISTS', () => pm.expect(p.error).to.eql('EMAIL_ALREADY_EXISTS'));",
+                  "pm.test('status in body = 409', () => pm.expect(p.status).to.eql(409));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/individuals",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passportNumber\": \"123456789\",\n  \"phoneNumber\": \"+380441234567\",\n  \"user\": {\n    \"email\": \"{{emailMixed}}\",\n    \"firstName\": \"Ivan\",\n    \"lastName\": \"Petrov\",\n    \"address\": {\n      \"countryAlpha3\": \"UKR\",\n      \"countryAlpha2\": \"UA\",\n      \"city\": \"Kyiv\",\n      \"state\": \"Kyiv\",\n      \"zipCode\": \"01001\",\n      \"addressLine\": \"1 Example St.\"\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - fields break the contract",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));",
+                  "pm.test('details name the fields', () => { const d = p.details.join(' '); ['user.email', 'user.firstName', 'user.lastName'].forEach(f => pm.expect(d).to.include(f)); });",
+                  "pm.test('details in English even when the client asks for Russian', () => pm.expect(p.details.join(' ')).to.include('must'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "ru"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/individuals",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": {\n    \"email\": \"not-an-email\",\n    \"firstName\": \"\",\n    \"address\": {\n      \"city\": \"Kyiv\",\n      \"addressLine\": \"1\"\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - not JSON at all",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = MALFORMED_REQUEST', () => pm.expect(p.error).to.eql('MALFORMED_REQUEST'));",
+                  "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/individuals",
+            "body": {
+              "mode": "raw",
+              "raw": "{ not json"
+            }
+          }
+        },
+        {
+          "name": "400 - unknown country code",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = COUNTRY_NOT_FOUND', () => pm.expect(p.error).to.eql('COUNTRY_NOT_FOUND'));",
+                  "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));",
+                  "pm.test('names the code', () => pm.expect(p.detail).to.include('XXX'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/individuals",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passportNumber\": \"123456789\",\n  \"phoneNumber\": \"+380441234567\",\n  \"user\": {\n    \"email\": \"nobody@example.org\",\n    \"firstName\": \"Ivan\",\n    \"lastName\": \"Petrov\",\n    \"address\": {\n      \"city\": \"Kyiv\",\n      \"addressLine\": \"1 Example St.\",\n      \"countryAlpha3\": \"XXX\"\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - email parameter is not an email",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/individuals/by-email?email=nope"
+          }
+        },
+        {
+          "name": "400 - id is not a UUID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/individuals/not-a-uuid"
+          }
+        },
+        {
+          "name": "404 - no such individual",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = INDIVIDUAL_NOT_FOUND', () => pm.expect(p.error).to.eql('INDIVIDUAL_NOT_FOUND'));",
+                  "pm.test('status in body = 404', () => pm.expect(p.status).to.eql(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/individuals/00000000-0000-0000-0000-000000000000"
+          }
+        },
+        {
+          "name": "405 - method not supported",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('405', () => pm.response.to.have.status(405));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = METHOD_NOT_ALLOWED', () => pm.expect(p.error).to.eql('METHOD_NOT_ALLOWED'));",
+                  "pm.test('status in body = 405', () => pm.expect(p.status).to.eql(405));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/individuals/{{individualId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "415 - not a JSON content type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('415', () => pm.response.to.have.status(415));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = UNSUPPORTED_MEDIA_TYPE', () => pm.expect(p.error).to.eql('UNSUPPORTED_MEDIA_TYPE'));",
+                  "pm.test('status in body = 415', () => pm.expect(p.status).to.eql(415));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/individuals",
+            "body": {
+              "mode": "raw",
+              "raw": "Ivan"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Delete - soft delete, then the compensation individuals-api calls",
+      "item": [
+        {
+          "name": "Delete individual - soft, it becomes ARCHIVED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/individuals/{{individualId}}"
+          }
+        },
+        {
+          "name": "Archived is not found by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = INDIVIDUAL_NOT_FOUND', () => pm.expect(p.error).to.eql('INDIVIDUAL_NOT_FOUND'));",
+                  "pm.test('status in body = 404', () => pm.expect(p.status).to.eql(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/individuals/{{individualId}}"
+          }
+        },
+        {
+          "name": "Archived is not found by email",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "pm.test('application/problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+                  "const p = pm.response.json();",
+                  "pm.test('RFC 9457 fields', () => ['type', 'title', 'status', 'detail', 'instance'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('platform fields', () => ['timestamp', 'error', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f)));",
+                  "pm.test('error = INDIVIDUAL_NOT_FOUND', () => pm.expect(p.error).to.eql('INDIVIDUAL_NOT_FOUND'));",
+                  "pm.test('status in body = 404', () => pm.expect(p.status).to.eql(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/individuals/by-email?email={{email}}"
+          }
+        },
+        {
+          "name": "Create an individual whose registration fails",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('compensatedEmail', `anna.smirnova.${Date.now()}@example.org`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('compensatedId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passportNumber\": \"987654321\",\n  \"phoneNumber\": \"+380441234569\",\n  \"user\": {\n    \"email\": \"{{compensatedEmail}}\",\n    \"firstName\": \"Anna\",\n    \"lastName\": \"Smirnova\",\n    \"address\": {\n      \"countryAlpha3\": \"UKR\",\n      \"city\": \"Kyiv\",\n      \"addressLine\": \"2 Example St.\"\n    }\n  }\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/individuals"
+          }
+        },
+        {
+          "name": "Compensate registration - hard delete",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/individuals/compensate-registration/{{compensatedId}}"
+          }
+        },
+        {
+          "name": "Compensated is gone, its email is free again",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('a new individual', () => pm.expect(pm.response.json().id).to.not.eql(pm.collectionVariables.get('compensatedId')));",
+                  "pm.collectionVariables.set('compensatedId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passportNumber\": \"987654321\",\n  \"phoneNumber\": \"+380441234569\",\n  \"user\": {\n    \"email\": \"{{compensatedEmail}}\",\n    \"firstName\": \"Anna\",\n    \"lastName\": \"Smirnova\",\n    \"address\": {\n      \"countryAlpha3\": \"UKR\",\n      \"city\": \"Kyiv\",\n      \"addressLine\": \"2 Example St.\"\n    }\n  }\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/individuals"
+          }
+        },
+        {
+          "name": "Clean up - compensate the second one too",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/individuals/compensate-registration/{{compensatedId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Observability - what the requests above left behind",
+      "item": [
+        {
+          "name": "Prometheus scrape",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP requests counted', () => pm.expect(body).to.include('http_server_requests_seconds_count'));",
+                  "pm.test('p95 buckets for HTTP requests', () => pm.expect(body).to.include('http_server_requests_seconds_bucket'));",
+                  "['create', 'getById', 'getByEmail', 'update', 'delete', 'compensateRegistration'].forEach(op => pm.test(`IndividualService ${op} timed`, () => pm.expect(body).to.match(new RegExp(`individual_operations_seconds_count\\\\{[^}]*operation=\"${op}\"`))));",
+                  "pm.test('failures timed apart from successes', () => pm.expect(body).to.match(/individual_operations_seconds_count\\{[^}]*error=\"PersonException\"/));",
+                  "pm.test('database pool exposed', () => pm.expect(body).to.include('hikaricp_connections_active'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/prometheus"
+          }
+        },
+        {
+          "name": "Metrics endpoint",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('lists individual.operations', () => pm.expect(pm.response.json().names).to.include('individual.operations'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/metrics"
+          }
+        },
+        {
+          "name": "Info endpoint",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/info"
+          }
+        }
+      ]
+    }
+  ]
+}

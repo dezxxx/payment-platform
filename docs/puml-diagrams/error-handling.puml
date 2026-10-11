@@ -33,7 +33,7 @@ Writer -> Factory : create(code, message, [], path)
 activate Factory
 Factory -> Tracer : currentSpan()
 Tracer --> Factory : traceId (or "unavailable")
-Factory --> Writer : ErrorResponse
+Factory --> Writer : ErrorResponseDto
 deactivate Factory
 note right of Writer
   No message converter runs in the
@@ -61,10 +61,10 @@ Advice -> Factory : create(code, message, details, path)
 activate Factory
 Factory -> Tracer : currentSpan()
 Tracer --> Factory : traceId
-Factory --> Advice : ErrorResponse
+Factory --> Advice : ErrorResponseDto
 deactivate Factory
 Advice -> Advice : log.error for 5xx,\nlog.warn for 4xx
-Advice --> Dispatcher : ResponseEntity<ErrorResponse>
+Advice --> Dispatcher : ResponseEntity<ErrorResponseDto>
 deactivate Advice
 Dispatcher --> Client : 401 + JSON (same shape)
 deactivate Dispatcher
@@ -122,7 +122,7 @@ note right of ApiException
 end note
 
 class ErrorResponseFactory <<@Component>> {
-  + ErrorResponse create(code, message, details, path)
+  + ErrorResponseDto create(code, message, details, path)
   - String currentTraceId()
 }
 
@@ -151,11 +151,11 @@ class ApiAccessDeniedHandler <<@Component>> {
 interface ServerAuthenticationEntryPoint <<spring-security>>
 interface ServerAccessDeniedHandler <<spring-security>>
 
-class ErrorResponse <<generated>> {
+class ErrorResponseDto <<generated>> {
   timestamp, path, status,
   error, message, traceId, details
 }
-note bottom of ErrorResponse
+note bottom of ErrorResponseDto
   Generated from individuals-api.yaml.
   Nothing here defines the shape -
   the contract does.
@@ -168,7 +168,7 @@ ApiAuthenticationEntryPoint --> SecurityErrorWriter
 ApiAccessDeniedHandler --> SecurityErrorWriter
 SecurityErrorWriter --> ErrorResponseFactory
 GlobalExceptionHandler --> ErrorResponseFactory
-ErrorResponseFactory ..> ErrorResponse : builds
+ErrorResponseFactory ..> ErrorResponseDto : builds
 ErrorResponseFactory ..> ErrorCode : reads status\nand message
 ApiException --> ErrorCode
 GlobalExceptionHandler ..> ApiException : unwraps

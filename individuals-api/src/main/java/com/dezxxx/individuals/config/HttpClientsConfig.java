@@ -1,6 +1,6 @@
 package com.dezxxx.individuals.config;
 
-import com.dezxxx.person.client.api.PersonsApi;
+import com.dezxxx.person.client.api.IndividualsApi;
 import io.netty.channel.ChannelOption;
 import java.time.Duration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -36,11 +36,11 @@ public class HttpClientsConfig {
     }
 
     @Bean
-    PersonsApi personsApi(WebClient personWebClient) {
+    IndividualsApi individualsApi(WebClient personWebClient) {
         return HttpServiceProxyFactory
                 .builderFor(WebClientAdapter.create(personWebClient))
                 .build()
-                .createClient(PersonsApi.class);
+                .createClient(IndividualsApi.class);
     }
 
     private static ReactorClientHttpConnector connector(Duration responseTimeout) {

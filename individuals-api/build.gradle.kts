@@ -48,6 +48,7 @@ openApiGenerate {
 
     apiPackage.set("com.dezxxx.individuals.api")
     modelPackage.set("com.dezxxx.individuals.api.model")
+    modelNameSuffix.set("Dto")
     invokerPackage.set("com.dezxxx.individuals.api")
 
     generateApiTests.set(false)
@@ -145,7 +146,6 @@ val integrationTest = tasks.register<Test>("integrationTest") {
     classpath = sourceSets.test.get().runtimeClasspath
     filter { includeTestsMatching("com.dezxxx.individuals.integration.*") }
 
-    // person-service's migration scripts, located by Gradle rather than guessed by the test
     systemProperty(
         "person.migrations.dir",
         layout.projectDirectory

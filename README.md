@@ -18,10 +18,11 @@ Java 25 · Spring Boot 4.1 · WebFlux · Keycloak 26.7 · Gradle 9.5.1 · Docker
              │  registration · login · refresh · /me    │
              └────────┬────────────────────────┬────────┘
                       │                        │
-              accounts & tokens          the domain user
+              accounts & tokens          the individual
                       ▼                        ▼
              Keycloak      :8080       person-service  :8082
-             (OIDC + Admin REST)       (module 2; a WireMock stub for now)
+             (OIDC + Admin REST)       (module 2: the individual aggregate with its
+                                        address and personal data)
 ```
 
 Two systems, two identifiers, and they are not interchangeable:
@@ -32,8 +33,9 @@ Two systems, two identifiers, and they are not interchangeable:
 | `sub` | Keycloak | Which account a token belongs to. A technical link, nothing more. |
 
 Registration writes to both systems and there is no transaction across them, so
-the flow carries an explicit **compensation**: an account created without a
-password is deleted again. See §4 of `CONTEXT.md`.
+the flow carries an explicit **compensation**: when the Keycloak part fails, the
+half-made account is deleted and so is the individual in person-service, and the
+caller gets the original error. See §4 of `CONTEXT.md`.
 
 ## The API
 
@@ -84,22 +86,22 @@ IDE. The steps behind it, if you would rather run them by hand, are below.
 
 **3. Build by hand.** This folder is a Git root, not a Gradle project: every
 module is an independent build with its own wrapper, and they reach each other
-only through published artifacts. So `person-client` is built and published
-first, and `individuals-api` resolves it by coordinates. Until Nexus is up, the
-local Maven repository covers that:
+only through published artifacts. So person-service publishes
+`person-service-client` first, and `individuals-api` resolves it by coordinates.
+Until Nexus is up, the local Maven repository covers that:
 
 ```bash
-cd person-client && ./gradlew publishToMavenLocal && cd ..
+cd person-service && ./gradlew publishClientPublicationToMavenLocal build && cd ..
 cd individuals-api && ./gradlew build && cd ..
 ```
 
 `build` runs the integration tests too, so **Docker has to be running** — they
-start a Keycloak and a PostgreSQL of their own, and the stack itself should be
+start a Keycloak and PostgreSQL of their own, and the stack itself should be
 down, or the two compete for memory. For the fast loop use `./gradlew test`
-inside `individuals-api`, which is unit tests only and needs nothing.
+inside a module, which is unit tests only and needs nothing.
 
 **4. Start the stack by hand.** Images are pinned in `.env`. The individuals-api
-image builds the application itself and downloads `person-client` from Nexus,
+image builds the application itself and downloads `person-service-client` from Nexus,
 so Nexus goes first (it must already hold the artifact - `make publish`):
 
 ```bash
@@ -107,16 +109,18 @@ docker compose up -d --wait nexus
 docker compose up -d --build
 ```
 
-person-service has no code in module 1, so compose runs a WireMock stub under
-its name (`infra/person-service-stub`): every registration gets a new
-`userUid`, and the two Postman users get **409** on a second registration.
+person-service starts once its PostgreSQL is healthy, and individuals-api once
+person-service is: registration begins there. The two Postman users get **409**
+on a second registration, because person-service already holds their email.
 
 | | URL |
 |---|---|
 | individuals-api | http://localhost:8081 |
 | Swagger UI (our contract) | http://localhost:8081/swagger-ui.html |
+| person-service | http://localhost:8082 |
+| Swagger UI of person-service | http://localhost:8082/swagger-ui.html |
 | Keycloak | http://localhost:8080 |
-| Grafana | http://localhost:3000 |
+| Grafana (dashboards individuals-api and person-service) | http://localhost:3000 |
 | Prometheus | http://localhost:9090 |
 
 The full port map, including why Nexus runs on 8083 instead of its own default,
@@ -127,10 +131,8 @@ is in §5 of `CONTEXT.md`.
 ```
 payment-platform/
 ├── individuals-api/      the orchestrator — module 1's deliverable
-├── person-client/        generated DTOs + HTTP client, published to Nexus
-├── person-service/       contract + Flyway migrations only (module 2)
-├── infra/                prometheus, tempo, loki, alloy, grafana provisioning,
-│                         person-service stub
+├── person-service/       the individual aggregate (module 2); publishes person-service-client to Nexus
+├── infra/                prometheus, tempo, loki, alloy, grafana provisioning
 ├── docs/                 PlantUML diagrams + two cheatsheets
 ├── postman/
 └── docker-compose.yml
@@ -154,7 +156,8 @@ payload.
 | [`CONTEXT.md`](CONTEXT.md) | The working document: decisions, rules, the registration flow, progress. The long read. |
 | [`CONTEXT.ru.md`](CONTEXT.ru.md) | Russian mirror. English wins if the two disagree. |
 | [`docs/puml-diagrams/`](docs/puml-diagrams) | Diagrams: registration and its rollback, `/me`, the clients, how a failure becomes a response — and [`observability.puml`](docs/puml-diagrams/observability.puml), which is the one to open first if the metrics, logs and traces blur into one thing. A Russian mirror of all of them lives in [`docs/puml-ru`](docs/puml-ru). |
-| [`postman/`](postman) | Postman collection: two users through every endpoint, the failures, Swagger and metrics, with the tokens carried between requests for you. Import it, press Run on a fresh stack. |
+| [`person-service/docs/`](person-service/docs) | person-service's own diagrams, kept inside the module: [`person-service-flow.puml`](person-service/docs/puml-diagrams/person-service-flow.puml) — a user created through person-service, and the compensation that deletes it when Keycloak fails. Russian mirror in [`puml-ru`](person-service/docs/puml-ru). |
+| [`postman/`](postman) | Two Postman collections. `individuals-api`: two users through every endpoint, the failures, Swagger and metrics, with the tokens carried between requests for you - import it, press Run on a fresh stack. `person-service`: one individual through all six operations, every RFC 9457 failure, the soft delete and the compensation individuals-api calls; each run takes a fresh email, so it runs again on the same database. |
 
 ## Status
 
@@ -164,9 +167,9 @@ Module 1 is not finished. What is honest as of today:
 |---|---|
 | ✅ Working | Contract, Gradle build, Keycloak realm, `KeycloakClient` and `PersonClient`, `UserService` with compensation, `TokenService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — all eight meters, and JSON logs carrying every field the module requires |
 | 🐳 Compose | `make up` brings up eleven services and builds the app inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
-| 🧪 Tests | **53 tests, green: 36 unit and 17 integration.** Every test case the handout lists is covered, and each carries its code — `UT-REG-001`, `IT-KC-001` — in its display name. Integration runs against a real Keycloak and a real PostgreSQL in containers. Coverage on the key services is **100%**, with the build failing below 80% |
+| 🧪 Tests | **individuals-api: 67 tests, green — 50 unit and 17 integration**; every test case the module 1 handout lists carries its code (`UT-REG-001`, `IT-KC-001`) in its display name, against a real Keycloak and PostgreSQL in containers; coverage on the key services 100%. **person-service: 57 tests, green — 38 unit and 19 integration** on a real PostgreSQL, every scenario of the module 2 handout; **97% of lines**. Both builds fail below 80% |
 | 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, 20 requests, tokens captured automatically, 52 assertions |
-| 📦 Nexus | In the compose file, and `person-client` is resolved from it rather than from the local Maven repository |
-| 🚧 Missing | `person-service` itself is module 2 — migrations only. Until then a WireMock stub answers in its place |
+| 📦 Nexus | In the compose file. person-service publishes `person-service-client` into it, and individuals-api resolves the client from it by coordinates |
+| ✅ Module 2 | **`person-service`**: the contract (`/api/v1/individuals`, six operations, RFC 9457 errors), Flyway migrations, JPA, transactions, the Envers audit, Swagger UI, metrics, JSON logs and traces with a Grafana dashboard, a Docker image in compose, tests, and `person-service-client` in Nexus. individuals-api registers through it, with address and personal data, and compensates a failed Keycloak part by deleting the individual. Waiting for the manual test and the PR into `main` |
 
-The ordered to-do list lives in §8 of `CONTEXT.md` and is kept current.
+The ordered to-do lists live in §8 (module 1) and §8a (module 2) of `CONTEXT.md` and are kept current.

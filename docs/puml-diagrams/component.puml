@@ -6,29 +6,28 @@ skinparam shadowing false
 
 package "payment-platform monorepo" {
   component "person-service" as PS
-  component "person-client" as PC
   component "individuals-api" as API
 
   artifact "person-service.yaml" as PSY
   artifact "individuals-api.yaml" as IAY
-  artifact "V001, V002\nFlyway migrations" as MIG
+  artifact "V001..V005\nFlyway migrations" as MIG
 }
 
 database "Nexus" as NEXUS
-artifact "com.dezxxx:person-client:1.0.0-SNAPSHOT" as PCJ
+artifact "com.dezxxx:person-service-client:1.0.0-SNAPSHOT" as PCJ
 
 PS *-- PSY
 PS *-- MIG
 API *-- IAY
 
-PSY --> PC : openApiGenerate\nDTOs + @HttpExchange
+PSY --> PS : openApiGenerate\nIndividualsApi server interface\nopenApiGenerateClient\nDTOs + @HttpExchange IndividualsApi
 IAY --> API : openApiGenerate\nAuthApi interface only
-PC --> PCJ : publish
+PS --> PCJ : make publish\n(the client jar only)
 PCJ --> NEXUS
 NEXUS --> API : resolved by Maven coordinates\ninside the image build
 
 note bottom of API
-  Never project(":person-client").
+  Never project(":person-service").
   Cross-module contracts travel as
   published artifacts, so any module
   can move to its own repository
@@ -36,10 +35,10 @@ note bottom of API
 end note
 
 note right of PS
-  Module 1 ships no code here.
-  Only the frozen contract and
-  the migrations the next module
-  will run.
+  One contract, two generations: the server
+  interface stays inside person-service, the
+  client goes into its own source set and its
+  own jar - person-service.jar never carries it.
 end note
 
 @enduml

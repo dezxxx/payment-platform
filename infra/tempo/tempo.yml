@@ -1,4 +1,3 @@
-# Tempo: receives OTLP traces over HTTP (4318) and keeps them on disk.
 
 server:
   http_listen_port: 3200
@@ -8,8 +7,7 @@ distributor:
     otlp:
       protocols:
         http:
-          # written out: the default is localhost, which accepts nothing
-          # from other containers
+          # the default is localhost, which accepts nothing from other containers
           endpoint: 0.0.0.0:4318
 
 storage:

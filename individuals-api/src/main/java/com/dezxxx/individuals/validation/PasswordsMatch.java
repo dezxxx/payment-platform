@@ -8,8 +8,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-// OpenAPI checks fields one by one and cannot compare two; the contract puts this
-// on RegistrationRequest via x-class-extra-annotation
+// put on RegistrationRequestDto by x-class-extra-annotation in the contract
 @Documented
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)

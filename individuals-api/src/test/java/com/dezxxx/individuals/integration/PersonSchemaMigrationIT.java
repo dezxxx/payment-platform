@@ -29,6 +29,8 @@ class PersonSchemaMigrationIT {
 
     private static final String SCHEMA = "person";
 
+    private static final String HISTORY_SCHEMA = "person_history";
+
     private static final int ISO_3166_1_ENTRIES = 249;
 
     @Container
@@ -41,6 +43,7 @@ class PersonSchemaMigrationIT {
         try (Connection connection = connect();
                 Statement statement = connection.createStatement()) {
             statement.execute("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE");
+            statement.execute("DROP SCHEMA IF EXISTS " + HISTORY_SCHEMA + " CASCADE");
             statement.execute("DROP TABLE IF EXISTS public.flyway_schema_history");
         }
     }
@@ -68,7 +71,7 @@ class PersonSchemaMigrationIT {
         // then
         assertThat(result.success).isTrue();
         assertThat(result.migrations).isNotEmpty();
-        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("002");
+        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("005");
 
         try (Connection connection = connect()) {
 

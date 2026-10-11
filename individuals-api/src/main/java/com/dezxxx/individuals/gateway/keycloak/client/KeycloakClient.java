@@ -1,6 +1,6 @@
 package com.dezxxx.individuals.gateway.keycloak.client;
 
-import com.dezxxx.individuals.api.model.TokenResponse;
+import com.dezxxx.individuals.api.model.TokenResponseDto;
 import com.dezxxx.individuals.config.KeycloakProperties;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
@@ -52,8 +52,7 @@ public class KeycloakClient {
     // our own client failed to authenticate; Keycloak 26 says unauthorized_client
     private static final Set<String> CLIENT_AUTH_FAILURES = Set.of("invalid_client", "unauthorized_client");
 
-    // a cached token is dropped this long before it really expires,
-    // so a call started with it never outlives it
+    // dropped this long before expiry, so a call started with it never outlives it
     private static final Duration EXPIRY_MARGIN = Duration.ofSeconds(10);
 
     private final WebClient keycloakWebClient;
@@ -71,20 +70,19 @@ public class KeycloakClient {
         this.metrics = metrics;
     }
 
-    public Mono<TokenResponse> login(String email, String password) {
+    public Mono<TokenResponseDto> login(String email, String password) {
         MultiValueMap<String, String> form = clientForm("password");
         form.add("username", email);
         form.add("password", password);
         return requestToken(form).map(KeycloakClient::toTokenResponse);
     }
 
-    public Mono<TokenResponse> refresh(String refreshToken) {
+    public Mono<TokenResponseDto> refresh(String refreshToken) {
         MultiValueMap<String, String> form = clientForm("refresh_token");
         form.add("refresh_token", refreshToken);
         return requestToken(form).map(KeycloakClient::toTokenResponse);
     }
 
-    // the token is cached, so registration asks Keycloak for it once, not four times
     public Mono<String> adminLogin() {
         return Mono.defer(() -> {
             CachedToken cached = adminToken.get();
@@ -98,9 +96,8 @@ public class KeycloakClient {
         });
     }
 
-    // creates the account without a password, returns its id (the future sub)
     public Mono<String> createAccount(String email, String firstName, String lastName, String userUid) {
-        KeycloakUserRequest body = KeycloakUserRequest.forRegistration(email, firstName, lastName, userUid);
+        KeycloakUserRequestDto body = KeycloakUserRequestDto.forRegistration(email, firstName, lastName, userUid);
         return withAdminToken(token -> keycloakWebClient.post()
                 .uri(properties.usersUri())
                 .headers(headers -> headers.setBearerAuth(token))
@@ -125,7 +122,7 @@ public class KeycloakClient {
                 .then());
     }
 
-    // grants USER: read the role to get its id, then map it (Keycloak maps by id)
+    // Keycloak maps roles by id, so the role is read first
     public Mono<Void> assignPlatformRole(String keycloakUserId) {
         return findRealmRole(PLATFORM_ROLE)
                 .flatMap(role -> withAdminToken(token -> keycloakWebClient.post()
@@ -139,8 +136,7 @@ public class KeycloakClient {
                         .then()));
     }
 
-    // compensation: deletes a half-made account and passes the original error on;
-    // a failed delete is only logged, so it never hides the real cause
+    // a failed delete is only logged, so it never hides the original error
     public Mono<Void> rollbackAccountWithError(String keycloakUserId, Throwable cause) {
         log.warn("Registration failed after Keycloak account {} was created, removing it", keycloakUserId, cause);
         return withAdminToken(token -> keycloakWebClient.delete()
@@ -182,13 +178,13 @@ public class KeycloakClient {
                 .transform(GatewayErrors.transportFailures(KEYCLOAK, properties.baseUrl()));
     }
 
-    private Mono<KeycloakTokenResponse> requestToken(MultiValueMap<String, String> form) {
+    private Mono<KeycloakTokenResponseDto> requestToken(MultiValueMap<String, String> form) {
         return metrics.timeKeycloak(keycloakWebClient.post()
                         .uri(properties.tokenUri())
                         .body(BodyInserters.fromFormData(form))
                         .retrieve()
                         .onStatus(HttpStatusCode::isError, KeycloakClient::translate)
-                        .bodyToMono(KeycloakTokenResponse.class))
+                        .bodyToMono(KeycloakTokenResponseDto.class))
                 .transform(GatewayErrors.transportFailures(KEYCLOAK, properties.baseUrl()));
     }
 
@@ -200,8 +196,8 @@ public class KeycloakClient {
         return form;
     }
 
-    private static TokenResponse toTokenResponse(KeycloakTokenResponse source) {
-        return new TokenResponse()
+    private static TokenResponseDto toTokenResponse(KeycloakTokenResponseDto source) {
+        return new TokenResponseDto()
                 .accessToken(source.accessToken())
                 .refreshToken(source.refreshToken())
                 .expiresIn(source.expiresIn())
@@ -231,8 +227,7 @@ public class KeycloakClient {
         return Instant.ofEpochMilli(account.createdTimestamp()).atOffset(ZoneOffset.UTC);
     }
 
-    // Keycloak's error answer -> our ApiException. Keycloak's text goes to the log
-    // only: it leaks internals and would let anyone probe which emails exist.
+    // Keycloak's text goes to the log only: it leaks internals and lets anyone probe emails
     private static Mono<Throwable> translate(ClientResponse response) {
         HttpStatusCode status = response.statusCode();
         return response.bodyToMono(KeycloakError.class)
@@ -246,8 +241,7 @@ public class KeycloakClient {
                 });
     }
 
-    // Keycloak's statuses mean different things than ours: a wrong password is
-    // 400 there and 401 here; a 4xx we did not expect is our bad request -> 500
+    // a wrong password is 400 in Keycloak and 401 here; an unexpected 4xx is our bug, so 500
     private static ErrorCode classify(HttpStatusCode status, KeycloakError body) {
         String error = body.error();
         if (error != null && CLIENT_AUTH_FAILURES.contains(error)) {
@@ -268,8 +262,7 @@ public class KeycloakClient {
         return ErrorCode.INTERNAL_ERROR;
     }
 
-    // Keycloak's error body in both of its shapes:
-    // OIDC {error, error_description}, Admin API {errorMessage}
+    // both shapes: OIDC {error, error_description} and Admin API {errorMessage}
     private record KeycloakError(
             String error,
             @JsonProperty("error_description") String errorDescription,
@@ -290,7 +283,7 @@ public class KeycloakClient {
 
     private record CachedToken(String value, Instant expiresAt) {
 
-        static CachedToken from(KeycloakTokenResponse response) {
+        static CachedToken from(KeycloakTokenResponseDto response) {
             long lifetime = response.expiresIn() == null ? 0 : response.expiresIn();
             return new CachedToken(response.accessToken(), Instant.now().plusSeconds(lifetime));
         }
@@ -300,8 +293,7 @@ public class KeycloakClient {
         }
     }
 
-    // body of reset-password. temporary must be false: with true the reset still
-    // answers 204, but the next login fails with "Account is not fully set up"
+    // temporary=true still answers 204, but the next login fails with "Account is not fully set up"
     private record KeycloakCredential(String type, String value, boolean temporary) {
 
         static KeycloakCredential password(String value) {

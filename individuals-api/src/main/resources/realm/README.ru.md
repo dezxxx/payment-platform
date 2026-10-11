@@ -105,7 +105,7 @@ Keycloak 24+ не сохраняет атрибут, который не объ�
 - `permissions: admin` — сам пользователь свой `user_uid` не меняет
 - `group` — в консоли лежит отдельно от имени и фамилии
 
-Без этого блока `KeycloakUserRequest` отправил бы атрибут, Keycloak молча бы
+Без этого блока `KeycloakUserRequestDto` отправил бы атрибут, Keycloak молча бы
 его отбросил, и claim'а не было бы ни в одном токене.
 
 ## Факты, повторённые вне этого файла
@@ -114,15 +114,15 @@ Keycloak 24+ не сохраняет атрибут, который не объ�
 
 | Факт | Здесь | Ещё в |
 |---|---|---|
-| имя атрибута `user_uid` | `user.attribute` | `KeycloakUserRequest.USER_UID_ATTRIBUTE` |
+| имя атрибута `user_uid` | `user.attribute` | `KeycloakUserRequestDto.USER_UID_ATTRIBUTE` |
 | имя claim'а `user_uid` | `claim.name` | `KeycloakClaims` |
 | имя realm | `realm` | `application.yml`: `individuals.keycloak.realm`, `issuer-uri` |
 | id клиента | `clientId` | `application.yml`: `individuals.keycloak.client-id` |
 | секрет клиента | `secret` (заглушка) | `.env`: `KEYCLOAK_CLIENT_SECRET` |
 | имя роли `USER` | `roles.realm[].name` | `KeycloakClient.PLATFORM_ROLE` |
-| почта как логин | `registrationEmailAsUsername` | `KeycloakUserRequest`: `username = email` |
+| почта как логин | `registrationEmailAsUsername` | `KeycloakUserRequestDto`: `username = email` |
 | вход по паролю | `directAccessGrantsEnabled` | `KeycloakClient.login`: `grant_type=password` |
-| объявление атрибута | `components` | `KeycloakUserRequest`: `attributes` |
+| объявление атрибута | `components` | `KeycloakUserRequestDto`: `attributes` |
 
 Первые две пары — самые тихие: учётка создастся, токен будет действителен, а
 `/me` ответит **500**, потому что claim не доехал.

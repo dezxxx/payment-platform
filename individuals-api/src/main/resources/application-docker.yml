@@ -16,4 +16,4 @@ management:
     tracing:
       export:
         otlp:
-          endpoint: http://tempo:4318/v1/traces
+          endpoint: http://alloy:4318/v1/traces

@@ -1,15 +1,9 @@
-// Grafana Alloy: reads the stdout of every container and ships it to Loki.
-// Not the Loki docker driver - that is a host plugin, and "docker compose up
-// brings everything up" is an acceptance criterion. Promtail is end of life.
-
-// 1. find the containers (Docker socket, mounted read-only)
 discovery.docker "containers" {
   host             = "unix:///var/run/docker.sock"
   refresh_interval = "10s"
 }
 
-// 2. Docker metadata -> Loki labels. Only few-valued fields become labels:
-//    each label combination is a separate stream. Never a trace id or user id
+// only few-valued fields become labels: each combination is a separate stream
 discovery.relabel "containers" {
   targets = discovery.docker.containers.targets
 
@@ -31,14 +25,12 @@ discovery.relabel "containers" {
   }
 }
 
-// 3. read the log streams
 loki.source.docker "containers" {
   host       = "unix:///var/run/docker.sock"
   targets    = discovery.relabel.containers.output
   forward_to = [loki.process.structured.receiver]
 }
 
-// 4. parse individuals-api's JSON lines; plain-text lines pass through as is
 loki.process "structured" {
   stage.json {
     expressions = {
@@ -46,21 +38,22 @@ loki.process "structured" {
       logger   = "log.logger",
       trace_id = "traceId",
       span_id  = "spanId",
+      user_uid = "user_uid",
     }
   }
 
-  // level has few values - safe as a label
   stage.labels {
     values = {
       level = "",
     }
   }
 
-  // trace id is one per request: metadata, not a label, or Loki drowns in streams
+  // trace id and user_uid as metadata, not labels, or Loki drowns in streams
   stage.structured_metadata {
     values = {
       trace_id = "",
       span_id  = "",
+      user_uid = "",
       logger   = "",
     }
   }
@@ -68,9 +61,30 @@ loki.process "structured" {
   forward_to = [loki.write.default.receiver]
 }
 
-// 5. push to Loki
 loki.write "default" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+otelcol.receiver.otlp "default" {
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    traces = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  output {
+    traces = [otelcol.exporter.otlphttp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlphttp "tempo" {
+  client {
+    endpoint = "http://tempo:4318"
   }
 }

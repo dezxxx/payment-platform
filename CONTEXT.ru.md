@@ -16,7 +16,7 @@
 
 | Компонент | Источник правды для |
 |---|---|
-| `person-service` | доменного пользователя, адреса, данных физлица |
+| `person-service` | физлиц: у каждого его user (учётка) и адрес user |
 | Keycloak | учётной записи, токенов, ролей, атрибутов аутентификации |
 | `individuals-api` | ничего — только координирует двух выше |
 
@@ -93,10 +93,10 @@
 | Базовый пакет | `com.dezxxx.individuals` | — |
 | Maven group | `com.dezxxx` | `gradle.properties` каждого модуля |
 | Java | 25 (Gradle toolchain, игнорирует `JAVA_HOME`) | `gradle.properties` каждого модуля |
-| Spring Boot | 4.1.0 | `gradle/libs.versions.toml` |
+| Spring Boot | 4.1.0 | `gradle/libs.versions.toml`; person-service — свой `build.gradle.kts` |
 | Gradle | 9.5.1 через Wrapper | `gradle/wrapper/` |
 | Lombok | да — 1.18.46 | корневой `build.gradle.kts` |
-| OpenAPI Generator | 7.14.0 | `gradle/libs.versions.toml` |
+| OpenAPI Generator | 7.25.0 в person-service (первая линейка с `useSpringBoot4`); в individuals-api и person-client пока 7.14.0, до следующей правки этих модулей | person-service — свой `build.gradle.kts`; остальные — `gradle/libs.versions.toml` |
 | Инструмент сборки | только Gradle Kotlin DSL | — |
 | Образ Keycloak | 26.7.2 | `.env` |
 | Testcontainers | 2.0.5, из Boot BOM | id артефактов отличаются от 1.x — см. раздел 9 |
@@ -106,11 +106,13 @@ Gradle toolchain сам подтягивает JDK 25, поэтому на чт�
 
 ### Политика версий
 
-**Ни одна версия никогда не пишется прямо в build-скрипт.** Их держат три слоя:
+**У каждого инструмента одна версия во всех модулях.** Никто не должен
+выяснять, на каком Gradle, Boot или генераторе работает какой модуль.
 
 | Файл | Держит |
 |---|---|
-| `gradle/libs.versions.toml` | все библиотеки, плагины и теги контейнеров сборки |
+| `build.gradle.kts` person-service | версии трёх его плагинов; версии библиотек приходят из BOM Spring Boot, поэтому ни в одной строке зависимостей версии нет |
+| `gradle/libs.versions.toml` | то же для individuals-api и person-client, пока они не перейдут на схему person-service — потом файл уйдёт |
 | `gradle.properties` | координаты, toolchain, URL Nexus |
 | `.env` | теги образов, порты и учётные данные для docker-compose |
 
@@ -578,15 +580,13 @@ payment-platform/              Git root, а НЕ проект Gradle
 ├── gradle/libs.versions.toml  все версии — обычный файл, его читает каждый модуль
 ├── docker-compose.yml
 ├── .env                       теги образов, порты, секреты (не в git)
-├── infra/                     провижининг prometheus, tempo, grafana
-│                              и заглушка person-service (WireMock)
-├── postman/                   коллекция: все эндпоинты и их отказы
+├── infra/                     провижининг prometheus, tempo, loki, alloy, grafana
+├── postman/                   коллекция на каждый сервис: все эндпоинты и их отказы
 ├── docs/puml-diagrams/        PlantUML: компоненты, деплой, последовательность
 │                              регистрации, слои, клиенты, ошибки, наблюдаемость
 ├── docs/puml-ru/              те же диаграммы на русском
-├── person-client/             сгенерированные DTO + HTTP-клиенты -> Nexus
 ├── individuals-api/           оркестратор
-└── person-service/            только контракт + миграции Flyway (модуль 2)
+└── person-service/            агрегат пользователя; ещё публикует person-service-client -> Nexus
 ```
 
 Каждый модуль — самостоятельная сборка Gradle: свой `settings.gradle.kts`,
@@ -595,9 +595,9 @@ payment-platform/              Git root, а НЕ проект Gradle
 роль Git root», а межмодульные зависимости идут только через опубликованные
 артефакты.
 
-Общий остаётся один файл — `gradle/libs.versions.toml`, каждый модуль
-подключает его как `from(files("../gradle/libs.versions.toml"))`. Версии
-держатся вместе, а папка проектом не становится.
+individuals-api пока подключает `gradle/libs.versions.toml` как
+`from(files("../gradle/libs.versions.toml"))`. person-service ничего не читает за
+пределами своей папки: версии плагинов — в его собственном `build.gradle.kts`.
 
 ---
 
@@ -609,21 +609,24 @@ payment-platform/              Git root, а НЕ проект Gradle
 
 Что он запускает, на случай, если make не установлен:
 
-`person-client` обязан существовать артефактом до того, как `individuals-api`
-начнёт резолвиться. Корневой сборки, которая сделала бы и то и другое, нет —
-каждый модуль собирается из своей папки; пока Nexus не поднят, передачу
-покрывает `mavenLocal()`:
+`person-service-client` обязан существовать артефактом до того, как
+`individuals-api` начнёт резолвиться. Собирает и публикует его person-service;
+корневой сборки, которая сделала бы и то и другое, нет — каждый модуль собирается
+из своей папки. Пока Nexus не поднят, передачу покрывает `mavenLocal()`:
 
 ```bash
-cd person-client   && ./gradlew publishToMavenLocal
+cd person-service  && ./gradlew publishClientPublicationToMavenLocal
+cd person-service  && ./gradlew check      # контракт, unit + интеграционные тесты, порог покрытия 80%
 cd individuals-api && ./gradlew build
-cd person-service  && ./gradlew check      # проверяет контракт
 ```
+
+В Nexus: `make publish` (`publishClientPublicationToNexusRepository`, с
+заданными `NEXUS_USERNAME` / `NEXUS_PASSWORD`).
 
 **Образ сам собирает individuals-api**, как в эталоне преподавателя: стадия на
 JDK выполняет `bootJar`, стадия на JRE запускает jar. Контекст сборки — корень
 репозитория, потому что модуль читает оттуда `gradle/libs.versions.toml`.
-`person-client` скачивается из Nexus через `host.docker.internal:8083` —
+`person-service-client` скачивается из Nexus через `host.docker.internal:8083` —
 docker build идёт вне сети compose и доходит до Nexus через порт хоста.
 Поэтому Nexus должен быть поднят и уже хранить артефакт:
 
@@ -972,6 +975,147 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 - Сообщения коммитов на английском, `type: short description`.
 - Общение по-русски, код и комментарии на английском.
 - `CONTEXT.md` и `CONTEXT.ru.md` правятся вместе; английский — основной.
+
+---
+
+## 8a. Прогресс — модуль 2 (person-service)
+
+Сценарий — практика модуля 2, шаг за шагом, в порядке её «шагов реализации».
+
+### Решения
+
+| Решение | Значение |
+|---|---|
+| Веб-стек | Spring MVC поверх JPA — блокирующий, в отличие от individuals-api |
+| Маппинг DTO ↔ сущность | руками, без MapStruct |
+| Корень агрегата | **физлицо (individual)**. User — учётная запись (email, имя, адрес), которую держит физлицо, а позже и юрлицо; никогда не наоборот. `IndividualEntity` владеет `user` (`individuals.user_id`, cascade ALL), `UserEntity` о физлице не знает. `/api/v1/users` из ТЗ с user наверху переделан после ревью |
+| Имена DTO | у сгенерированных Java-классов суффикс `Dto` (`modelNameSuffix`): `IndividualResponseDto` рядом с `IndividualEntity` — в коде сразу видно, что есть что. Схемы: `CreateIndividualRequest`, `UpdateIndividualRequest`, `IndividualResponse`, `ProblemResponse`; user и address — вложенные объекты внутри них |
+| API | `/api/v1/individuals`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204 (мягкое), DELETE `/compensate-registration/{id}` → 204 (полное), обслуживает `IndividualRestControllerV1`. Тело: физлицо сверху (`passportNumber`, `phoneNumber`, `status`…), внутри его `user`, внутри user — `address` |
+| Создание | `passportNumber`, `phoneNumber`, `user`, его `address` и `countryAlpha3` **обязательны**: агрегат рождается целиком (физлицо, user, адрес в одной транзакции), а PATCH меняет только то, что уже есть. Неизвестный код страны → 400 |
+| Идентификатор | `individuals.id` (UUID) — доменный идентификатор: его возвращает API и принимает в `/{id}`; individuals-api кладёт его в Keycloak как `user_uid`. person-service о Keycloak ничего не знает |
+| Email | уникален без учёта регистра (индекс `lower(email)`); через PATCH не меняется |
+| Ошибки | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) плюс общие для курса `timestamp`, `error`, `traceId`, `details` как доп. поля — одно тело устраивает оба задания. `type` = `https://example.org/problems/<код-в-kebab-case>`, как в примере ТЗ, `title` — название HTTP-статуса, `detail` — текст из `ErrorCode`. Один `GlobalExceptionHandler` наследует `ResponseEntityExceptionHandler`, поэтому ошибки самого Spring (кривой JSON, 405, 415, `@Valid`) получают то же тело. Тексты ошибок всегда по-английски (`spring.web.locale: en`, фиксированный resolver) |
+| Миграции | по одной на шаг: схема → таблицы → индексы и ограничения → страны; аудитные таблицы Envers — V005 |
+| Удаление | две операции. `DELETE /{id}` — мягкое удаление: физлицо получает `ARCHIVED` и `archived_at`, user и адрес не меняются, а все чтения (`/{id}`, `/by-email`, PATCH, DELETE) находят только активных. `DELETE /compensate-registration/{id}` — полное удаление агрегата, его вызывает только individuals-api, когда в регистрации упала часть Keycloak: данные несостоявшейся регистрации не храним. Email архивного физлица остаётся занятым |
+| Схема | DDL из ТЗ ужесточён под агрегат: `individuals.user_id`, `passport_number`, `phone_number`, `users.address_id`, `addresses.country_id` — NOT NULL; у физлица есть `created`/`updated`, как у user и адреса; `users.secret_key` удалён (не использовался, а person-service не хранит секретов других систем). `status` — `NEW`, `VERIFIED` или `ARCHIVED` (enum `IndividualStatus`, CHECK в базе, enum в контракте); создание ставит `NEW`, мягкое удаление — `ARCHIVED`; `VERIFIED` — основа для будущей верификации |
+| Индексы | там, где они нужны запросу или внешнему ключу, и никогда дважды: UNIQUE уже сам является индексом |
+| Аудит | Hibernate Envers пишет историю в свою схему `person_history` (`users_history`, `addresses_history`, `individuals_history`, `revinfo`), Spring Data Envers её читает (`RevisionRepository` у User и Individual). Флаги изменённых полей у всех трёх аудируемых сущностей — ТЗ требует минимум User и Individual, а PATCH чаще всего меняет адрес. Страны не аудируются: их заполняет миграция, через API они не меняются. Удалённый пользователь сохраняет данные в последней ревизии (`store_data_at_delete`) |
+| Сущности | `IndividualEntity` — корень агрегата: владеет user, user владеет адресом (`@OneToOne`, cascade ALL), поэтому весь агрегат сохраняется и удаляется через физлицо; все связи LAZY |
+| Время | в сущностях `Instant` — точка во времени, одинаковая, где бы ни работал сервер; ложится в обычные колонки `TIMESTAMP` из DDL (`preferred_instant_jdbc_type`) и хранится в UTC (`hibernate.jdbc.time_zone`); в JSON — с `Z`. От `LocalDateTime` отказались: `@CreationTimestamp` заполнял его местным временем сервера |
+| Локальный порт | 8082 в compose; 8092 при запуске из IDE (`SERVER_PORT=8092 ./gradlew bootRun`), потому что 8082 занят compose |
+| История Flyway | `person.flyway_schema_history`, рядом с таблицами (`spring.flyway.default-schema: person`). Если оставить её на `search_path`, она «переезжает»: пользователь БД тоже зовётся `person`, поэтому `"$user"` до V001 указывал на `public`, а после — на `person`, и второй старт падал |
+| Репозитории | четыре, по одному на сущность, как у преподавателя. Email ищется через `lower(email) = lower(:email)`, а не встроенным `…IgnoreCase` (тот делает `upper()` и не может использовать `uk_users_email_lower`) |
+| Исключения | одно `PersonException` с `ErrorCode` (статус + текст), тот же образец, что `ApiException` в модуле 1. `VALIDATION_ERROR` / `MALFORMED_REQUEST` / `COUNTRY_NOT_FOUND` 400, `USER_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` / `CONCURRENT_MODIFICATION` 409, от фреймворка `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR` 500. Второе создание, проскочившее проверку email, останавливает `uk_users_email_lower`, и ответ всё равно 409 |
+| Транзакции | `IndividualService` — `@Transactional(readOnly = true)`; создание, изменение и удаление открывают пишущую транзакцию. Ответ собирается внутри транзакции: ленивые связи грузятся там, и ничего ленивого из сервиса не выходит |
+| Клиент | `person-service-client` заменяет `person-client`; individuals-api переходит на него и получает компенсацию регистрации — `DELETE /compensate-registration/{id}`, если упала часть Keycloak |
+
+### Сделано
+
+- [x] Сборка: Spring MVC, JPA, Flyway, Envers, actuator, OTLP; версии плагинов в
+      собственном `build.gradle.kts`, без общего каталога
+- [x] Контракт переписан по заданию и проходит валидацию
+- [x] Серверные интерфейсы генерируются в `build/generated/openapi`
+      (`interfaceOnly` + `delegatePattern` + `useSpringBoot4`, `@Nullable` из JSpecify)
+- [x] Flow-диаграмма внутри модуля, `person-service/docs/puml-diagrams/person-service-flow.puml`
+      (русская копия в `puml-ru/`): клиент → individuals-api → person-service
+      → Keycloak → клиент, с компенсацией `DELETE`, если Keycloak упал
+- [x] `person-service-client` генерируется своей задачей (`spring-http-interface`,
+      реактивный — для WebFlux в individuals-api) в свой source set и свой jar;
+      в `person-service.jar` из него ничего не попадает
+- [x] Миграции V001–V004 по DDL из задания, с отличиями:
+      `countries.name` — `VARCHAR(64)`, а не 32 (семь названий ISO длиннее);
+      ограничения уникальности и внешние ключи — в V003 рядом с индексами, а не
+      в таблицах; у `addresses.country_id` появился индекс; `users.address_id`
+      — UNIQUE: двое могут жить по одному адресу, но у каждого своя строка
+      адреса, и переезд одного никогда не переселяет другого; индексы
+      `idx_individuals_user_id` и `idx_users_address_id` из задания убраны как
+      дубли этих UNIQUE
+- [x] JPA-сущности `UserEntity`, `AddressEntity`, `IndividualEntity`,
+      `CountryEntity` и минимальный `application.yml` (`ddl-auto: validate`,
+      UTC, `open-in-view: false`). Проверено на compose-базе: Flyway применяет
+      V001–V004, Hibernate принимает все сущности
+- [x] Три маппера руками, по одному на сущность, как в проекте преподавателя:
+      `AddressMapper`, `IndividualMapper` и `UserMapper` для агрегата, который
+      делегирует двум другим. Сущность ↔ сгенерированный DTO и ничего больше —
+      ни запросов в базу, ни бизнес-решений. Страну ищет сервис и передаёт
+      готовой; в PATCH `null` значит «не трогать». Перевод времени в UTC, нужный
+      обоим мапперам, лежит в `util/DateTimeUtil`
+- [x] `IndividualService` с шестью операциями, четыре репозитория, `PersonException`
+      + `ErrorCode`. Создание проверяет email, ищет страну (сначала alpha3, потом
+      alpha2), ставит статус `NEW` и `filled`; изменение делает `flush`, чтобы в
+      ответе уже были новая версия и время. Стартует на compose-базе: Spring Data
+      принимает все запросы репозиториев
+- [x] Envers: V005 создаёт `person_history` с тремя таблицами истории и
+      `revinfo` (своя `RevisionInfoEntity`); `@Audited(withModifiedFlag = true)` у
+      User, Address, Individual; флаги `*_mod` названы по колонкам. Проверка схемы
+      при старте проходит на compose-базе; через API создание, PATCH и удаление
+      оставляют ревизии 0, 1 и 2
+- [x] `IndividualRestControllerV1` реализует сгенерированный `IndividualsApi`: пять методов в одну
+      строку, 201 / 200 / 204, без логики. Swagger UI на `/swagger-ui.html` показывает
+      сам файл контракта (springdoc, так же, как в individuals-api)
+- [x] Слой ошибок (шаг 7): `ProblemResponse` в контракте несёт поля курса,
+      `GlobalExceptionHandler` отвечает на любую ошибку в формате RFC 9457. Проверено
+      вживую: 400 / 404 / 405 / 409 / 415, а из 12 параллельных PATCH проигравшие
+      оптимистическую блокировку получают 409 `CONCURRENT_MODIFICATION`
+- [x] Postman-коллекция `postman/person-service.postman_collection.json`: 22
+      запроса, 106 проверок — пять операций, каждая ошибка со своим телом RFC 9457,
+      удаление и то, что они оставили в `/actuator/prometheus`; повторно запускается
+      на той же базе
+- [x] Наблюдаемость, сторона сервиса: открыты `health`, `info`, `prometheus`,
+      `metrics`; JSON-логи ECS с `traceId`, `spanId`, `service.name` и `user_uid`;
+      трейсы по OTLP в Tempo, каждый метод `IndividualService` — спан (`individualService.create`…)
+      под HTTP-спаном и таймер `individual_operations_seconds{operation}`. Проверено с
+      локальным Tempo: `spanId` строки лога — это спан `individualService.create` того же трейса.
+      `user_uid` — ещё и атрибут спана `individualService.*`, Tempo находит запросы физлица
+      (`{span.user_uid="..."}`); метрикой-меткой — никогда: ряд на каждого пользователя
+      утопит Prometheus. Имя `user_uid`, а не `user.id` из OpenTelemetry, чтобы одно имя
+      находило пользователя в individuals-api, токене Keycloak и person-service
+
+- [x] Docker-образ и compose: `person-service/Dockerfile` собирает jar внутри образа
+      (контекст — папка `person-service`, свой id кэша Gradle, чтобы собираться рядом с
+      individuals-api); compose запускает настоящий сервис на 8082 только после того,
+      как `person-postgres` стал healthy, healthcheck на `/actuator/health` (bash
+      `/dev/tcp` — в JRE-образе нет curl). Prometheus собирает `person-service:8082`,
+      Alloy хранит `user_uid` как structured metadata, в Grafana дашборд
+      `person-service`. Проверено на чистом стенде: обе Postman-коллекции зелёные,
+      строка из Loki открывает свой трейс в Tempo
+- [x] Тесты person-service, given / when / then: 39 unit (IndividualService, мапперы,
+      GlobalExceptionHandler, DateTimeUtil, UserUidLogFilter) и 19 интеграционных на
+      настоящем PostgreSQL (Testcontainers): все сценарии из ТЗ — создание, повтор
+      email -> 409, чтение по id и по email, один PATCH физлица, user и адреса, откат
+      частичного изменения, удаление без единой оставшейся строки, ревизии Envers и
+      флаги изменений, health и метрики. Покрытие 97% строк, сборка падает ниже 80%
+      (`./gradlew check`)
+- [x] `person-service-client` публикует в Nexus сам person-service (`make publish`):
+      jar клиента и pom со списком его зависимостей
+- [x] individuals-api на новом клиенте, из Nexus по координатам:
+      - регистрация принимает адрес и individual и передаёт их в
+        `POST /api/v1/individuals`; неизвестный код страны — 400 `VALIDATION_ERROR` с
+        указанием адреса
+      - компенсация: если часть в Keycloak упала, физлицо удаляется
+        (`DELETE /api/v1/individuals/compensate-registration/{id}`), а вызывающий получает исходную ошибку;
+        `REGISTRATION_INCONSISTENT` — только если и удаление упало. Проверено вживую:
+        Keycloak остановлен -> 503, строки не осталось, в истории Envers создание и
+        удаление
+      - `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`
+      - ждёт healthy person-service и healthy Keycloak и имеет свой healthcheck; заглушка WireMock и
+        старый модуль `person-client` удалены
+- [x] Оба сервиса отвечают по-английски независимо от `Accept-Language` клиента и
+      языка сервера (`spring.web.locale: en`, фиксированный resolver): API отдаёт
+      стабильные тексты и коды, переводит интерфейс
+- [x] Трейсы идут через Alloy, агента: оба сервиса отправляют OTLP на
+      `alloy:4318`, Alloy собирает их в пачки и передаёт в Tempo — как ТЗ и
+      предпочитает вместо прямого экспорта. Одна регистрация — один трейс через оба
+      сервиса (`registration` -> `http post /api/v1/individuals` -> `individualService.create`)
+- [x] Проверено на чистом стенде: обе Postman-коллекции зелёные (individuals-api
+      20 запросов / 52 проверки, person-service 22 / 106), обе сборки со всеми
+      тестами зелёные
+
+### Дальше
+
+- [ ] Ваше полное ручное тестирование приложения
+- [ ] Решить, какие коммиты и в какие ветки, затем push и PR
+      `module-2-person-service` -> `main`
 
 ---
 

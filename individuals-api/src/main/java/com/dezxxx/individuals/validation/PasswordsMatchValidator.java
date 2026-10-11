@@ -1,17 +1,15 @@
 package com.dezxxx.individuals.validation;
 
-import com.dezxxx.individuals.api.model.RegistrationRequest;
+import com.dezxxx.individuals.api.model.RegistrationRequestDto;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
 
-// typed on the generated RegistrationRequest: a renamed field breaks the build
-public class PasswordsMatchValidator implements ConstraintValidator<PasswordsMatch, RegistrationRequest> {
+public class PasswordsMatchValidator implements ConstraintValidator<PasswordsMatch, RegistrationRequestDto> {
 
     private static final String CONFIRMATION_FIELD = "confirmPassword";
 
-    // a missing value is @NotNull's job - do not report it twice
     @Override
-    public boolean isValid(RegistrationRequest request, ConstraintValidatorContext context) {
+    public boolean isValid(RegistrationRequestDto request, ConstraintValidatorContext context) {
         if (request == null || request.getPassword() == null || request.getConfirmPassword() == null) {
             return true;
         }
@@ -22,8 +20,7 @@ public class PasswordsMatchValidator implements ConstraintValidator<PasswordsMat
         return false;
     }
 
-    // a class-level error has no field, and details are built from field
-    // errors only - so move it onto confirmPassword, or details stay empty
+    // details are built from field errors only, so the error moves onto confirmPassword
     private static void reportOnConfirmation(ConstraintValidatorContext context) {
         context.disableDefaultConstraintViolation();
         context.buildConstraintViolationWithTemplate(context.getDefaultConstraintMessageTemplate())

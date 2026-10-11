@@ -1,0 +1,69 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: person-service
+  web:
+    # validation messages follow the client's Accept-Language or the server locale unless fixed
+    locale: en
+    locale-resolver: fixed
+  datasource:
+    url: jdbc:postgresql://${PERSON_DB_HOST:localhost}:${PERSON_DB_PORT:5434}/${PERSON_DB_NAME:person}
+    username: ${PERSON_DB_USER:person}
+    password: ${PERSON_DB_PASSWORD:person}
+  flyway:
+    # without it Flyway follows search_path, which points to public before V001
+    default-schema: person
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      # TIMESTAMP columns have no zone: Instant is stored as UTC, not as the server clock
+      hibernate.jdbc.time_zone: UTC
+      hibernate.type.preferred_instant_jdbc_type: TIMESTAMP
+      org.hibernate.envers.default_schema: person_history
+      org.hibernate.envers.audit_table_suffix: _history
+      org.hibernate.envers.revision_field_name: revision
+      org.hibernate.envers.revision_type_field_name: revision_type
+      org.hibernate.envers.modified_column_naming_strategy: improved
+      org.hibernate.envers.modified_flag_suffix: _mod
+      org.hibernate.envers.store_data_at_delete: true
+
+springdoc:
+  swagger-ui:
+    url: /openapi/person-service.yaml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,prometheus,metrics"
+  metrics:
+    distribution:
+      # buckets let Grafana draw the 95th percentile; only this meter, they cost scrape size
+      percentiles-histogram:
+        http.server.requests: true
+  observations:
+    annotations:
+      enabled: true
+  tracing:
+    sampling:
+      # every request is traced - fine locally, not for production
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        # off: Prometheus scrapes the metrics; an OTLP push would only log failures
+        enabled: false
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  structured:
+    format:
+      console: ecs

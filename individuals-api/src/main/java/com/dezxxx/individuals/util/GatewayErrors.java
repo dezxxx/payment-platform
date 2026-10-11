@@ -13,8 +13,6 @@ public final class GatewayErrors {
         throw new UnsupportedOperationException("Utility class");
     }
 
-    // connection refused, DNS failure, timeout -> 503: not the caller's fault,
-    // a retry may work. An ApiException is already ours and passes through.
     public static <T> Function<Mono<T>, Mono<T>> transportFailures(String dependency, String baseUrl) {
         return mono -> mono.onErrorMap(
                 ex -> !(ex instanceof ApiException),

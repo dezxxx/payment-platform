@@ -5,9 +5,7 @@ import java.util.function.Function;
 import reactor.core.observability.micrometer.Micrometer;
 import reactor.core.publisher.Mono;
 
-// The span opens on subscribe and closes when the Mono ends, so its time is real,
-// and the HTTP calls made inside it become its children.
-// Not @WithSpan (needs a second tracing library) and not @Observed (does not handle Mono).
+// not @Observed: it does not handle Mono
 public final class Spans {
 
     private Spans() {

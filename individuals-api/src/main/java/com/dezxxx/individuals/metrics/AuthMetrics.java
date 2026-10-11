@@ -6,9 +6,7 @@ import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
-// All our metrics, and the only place their names are written - a dashboard
-// depends on these strings. Dotted Micrometer names: Prometheus adds _total
-// itself, so auth.registration is scraped as auth_registration_total
+// Prometheus adds _total itself: auth.registration is scraped as auth_registration_total
 @Component
 public class AuthMetrics {
 
@@ -48,7 +46,6 @@ public class AuthMetrics {
                 "Time spent inside one call to person-service");
     }
 
-    // attempts that passed validation - a 400 never reaches the service
     public void registrationStarted() {
         registrations.increment();
     }
@@ -65,7 +62,6 @@ public class AuthMetrics {
         logins.increment();
     }
 
-    // wrong password and Keycloak down count the same; the ErrorCode tells them apart
     public void loginFailed() {
         loginFailures.increment();
     }
@@ -82,8 +78,7 @@ public class AuthMetrics {
         return time(personServiceRequests, call);
     }
 
-    // defer: the stopwatch starts on subscribe, not when the chain is built.
-    // doFinally: failed and cancelled calls took time too
+    // defer: the stopwatch starts on subscribe; doFinally: failed and cancelled calls count too
     private <T> Mono<T> time(Timer timer, Mono<T> call) {
         return Mono.defer(() -> {
             Timer.Sample sample = Timer.start(registry);

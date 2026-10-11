@@ -1,6 +1,6 @@
 package com.dezxxx.individuals.service;
 
-import com.dezxxx.individuals.api.model.TokenResponse;
+import com.dezxxx.individuals.api.model.TokenResponseDto;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
@@ -29,7 +29,7 @@ public class TokenService {
 
     private final ObservationRegistry observationRegistry;
 
-    public Mono<TokenResponse> login(String email, String password) {
+    public Mono<TokenResponseDto> login(String email, String password) {
         return keycloakClient.login(email, password)
                 .transform(span("login.getToken"))
                 .flatMap(tokens -> withUserUid(tokens).transform(span("login.readUserUid")))
@@ -39,16 +39,13 @@ public class TokenService {
                 .transform(span("login"));
     }
 
-    // no login counters: the user did not log in, registration did
-    public Mono<TokenResponse> issueTokens(String email, String password) {
+    public Mono<TokenResponseDto> issueTokens(String email, String password) {
         return keycloakClient.login(email, password)
                 .flatMap(this::withUserUid);
     }
 
-    // refresh token -> new pair. Keycloak answers invalid_grant both to a wrong
-    // password and to a dead refresh token; here no password was sent, so the
-    // refusal is renamed to REFRESH_TOKEN_INVALID - "session ended", not "wrong password"
-    public Mono<TokenResponse> refresh(String refreshToken) {
+    // invalid_grant here means a dead refresh token, not a wrong password: no password was sent
+    public Mono<TokenResponseDto> refresh(String refreshToken) {
         return keycloakClient.refresh(refreshToken)
                 .transform(span("refresh.getToken"))
                 .flatMap(tokens -> withUserUid(tokens).transform(span("refresh.readUserUid")))
@@ -66,17 +63,14 @@ public class TokenService {
         return cause instanceof ApiException api && api.getErrorCode() == ErrorCode.INVALID_CREDENTIALS;
     }
 
-    // Keycloak's token answer has no user_uid - it sits inside the access token,
-    // so the token is decoded and the claim copied into the response
-    private Mono<TokenResponse> withUserUid(TokenResponse tokens) {
+    // user_uid is not in Keycloak's answer, only inside the access token
+    private Mono<TokenResponseDto> withUserUid(TokenResponseDto tokens) {
         return jwtDecoder.decode(tokens.getAccessToken())
                 .map(jwt -> {
                     UUID userUid = KeycloakClaims.requireUserUid(jwt);
                     RequestLog.userUid(userUid);
                     return tokens.userUid(userUid);
                 })
-                // our own fresh token failed our own decoder: keys rotated or
-                // clocks disagree - not the caller's fault
                 .onErrorMap(ex -> !(ex instanceof ApiException), ex -> {
                     log.error("Could not read the access token Keycloak just issued", ex);
                     return new ApiException(ErrorCode.INTERNAL_ERROR);

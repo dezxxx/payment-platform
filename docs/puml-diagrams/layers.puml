@@ -80,7 +80,7 @@ note bottom of gateway
   a second implementation would be the reason to
   add one, and there is none.
 
-  Nothing above this layer may see person-client
+  Nothing above this layer may see person-service-client
   types or Keycloak's own shapes. Only the domain
   user_uid and our own types cross upwards.
 end note
@@ -94,7 +94,7 @@ end note
 
 note bottom of error
   Controllers declare throws Exception, so
-  errors land here and become one ErrorResponse
+  errors land here and become one ErrorResponseDto
   carrying the traceId. SecurityErrorWriter is
   the second road: what the filter chain rejects
   never reaches an advice.

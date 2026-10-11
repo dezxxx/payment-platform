@@ -2,7 +2,9 @@ package com.dezxxx.individuals.unit.validation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.dezxxx.individuals.api.model.RegistrationRequest;
+import com.dezxxx.individuals.api.model.RegistrationRequestDto;
+import com.dezxxx.individuals.api.model.RegistrationRequestAddressDto;
+import com.dezxxx.individuals.api.model.RegistrationRequestIndividualDto;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -38,7 +40,7 @@ class PasswordsMatchValidatorTest {
     @Test
     @DisplayName("accepts a request whose confirmation repeats the password")
     void acceptsMatchingConfirmation() {
-        Set<ConstraintViolation<RegistrationRequest>> violations = validator.validate(request(PASSWORD, PASSWORD));
+        Set<ConstraintViolation<RegistrationRequestDto>> violations = validator.validate(request(PASSWORD, PASSWORD));
 
         assertThat(violations).isEmpty();
     }
@@ -46,11 +48,11 @@ class PasswordsMatchValidatorTest {
     @Test
     @DisplayName("UT-REG-002: rejects a mismatch and reports it on confirmPassword")
     void reportsMismatchOnTheConfirmationField() {
-        Set<ConstraintViolation<RegistrationRequest>> violations =
+        Set<ConstraintViolation<RegistrationRequestDto>> violations =
                 validator.validate(request(PASSWORD, "Str0ngP@ssw0rt"));
 
         assertThat(violations).hasSize(1);
-        ConstraintViolation<RegistrationRequest> violation = violations.iterator().next();
+        ConstraintViolation<RegistrationRequestDto> violation = violations.iterator().next();
         assertThat(violation.getPropertyPath()).hasToString("confirmPassword");
         assertThat(violation.getMessage()).isEqualTo(MISMATCH_MESSAGE);
     }
@@ -58,19 +60,21 @@ class PasswordsMatchValidatorTest {
     @Test
     @DisplayName("stays silent when a value is missing, leaving that to @NotNull")
     void ignoresMissingValues() {
-        Set<ConstraintViolation<RegistrationRequest>> violations = validator.validate(request(PASSWORD, null));
+        Set<ConstraintViolation<RegistrationRequestDto>> violations = validator.validate(request(PASSWORD, null));
 
         assertThat(violations)
                 .extracting(ConstraintViolation::getMessage)
                 .doesNotContain(MISMATCH_MESSAGE);
     }
 
-    private static RegistrationRequest request(String password, String confirmPassword) {
-        return new RegistrationRequest()
+    private static RegistrationRequestDto request(String password, String confirmPassword) {
+        return new RegistrationRequestDto()
                 .email("user@dezxxx.com")
                 .password(password)
                 .confirmPassword(confirmPassword)
                 .firstName("Ivan")
-                .lastName("Ivanov");
+                .lastName("Ivanov")
+                .address(new RegistrationRequestAddressDto().countryAlpha3("UKR").city("Kyiv").addressLine("1 Example St."))
+                .individual(new RegistrationRequestIndividualDto().passportNumber("123456789").phoneNumber("+380441234567"));
     }
 }

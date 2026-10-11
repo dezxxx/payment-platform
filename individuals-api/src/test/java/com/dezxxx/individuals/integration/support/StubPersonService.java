@@ -12,7 +12,9 @@ import reactor.netty.http.server.HttpServer;
 
 public final class StubPersonService {
 
-    private static final String REGISTRATION_PATH = "/api/v1/persons/registration";
+    private static final String INDIVIDUALS_PATH = "/api/v1/individuals";
+
+    private static final String COMPENSATION_PATH = "/api/v1/individuals/compensate-registration/{id}";
 
     private final List<String> receivedBodies = new CopyOnWriteArrayList<>();
 
@@ -23,18 +25,20 @@ public final class StubPersonService {
     public void start() {
         server = HttpServer.create()
                 .port(0)
-                .route(routes -> routes.post(REGISTRATION_PATH, (request, response) ->
-                        request.receive()
-                                .aggregate()
-                                .asString(StandardCharsets.UTF_8)
-                                .defaultIfEmpty("")
-                                .flatMap(body -> {
-                                    receivedBodies.add(body);
-                                    return response.status(HttpResponseStatus.CREATED)
-                                            .header(HttpHeaderNames.CONTENT_TYPE, "application/json")
-                                            .sendString(Mono.just("{\"userUid\":\"" + userUid + "\"}"))
-                                            .then();
-                                })))
+                .route(routes -> routes
+                        .delete(COMPENSATION_PATH, (request, response) -> response.status(HttpResponseStatus.NO_CONTENT).send())
+                        .post(INDIVIDUALS_PATH, (request, response) ->
+                            request.receive()
+                                    .aggregate()
+                                    .asString(StandardCharsets.UTF_8)
+                                    .defaultIfEmpty("")
+                                    .flatMap(body -> {
+                                        receivedBodies.add(body);
+                                        return response.status(HttpResponseStatus.CREATED)
+                                                .header(HttpHeaderNames.CONTENT_TYPE, "application/json")
+                                                .sendString(Mono.just("{\"id\":\"" + userUid + "\"}"))
+                                                .then();
+                                    })))
                 .bindNow();
     }
 

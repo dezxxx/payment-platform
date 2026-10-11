@@ -91,4 +91,28 @@ class ErrorContractIT extends IntegrationTest {
                 .jsonPath("$.error").isEqualTo("VALIDATION_ERROR")
                 .jsonPath("$.details[0]").isEqualTo("confirmPassword: must match password");
     }
+
+    @Test
+    @DisplayName("given no passport, phone or country, when registering, then 400 names each field")
+    void requiresIndividualData() {
+        // given
+        String body = registrationBody(freshEmail("no-individual"), "Str0ngPass!", "Str0ngPass!")
+                .replace("\"countryAlpha3\": \"UKR\",", "")
+                .replace("\"passportNumber\": \"123456789\",", "")
+                .replace("\"phoneNumber\": \"+380441234567\"", "");
+
+        // when
+        client.post()
+                .uri("/api/v1/auth/registration")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .exchange()
+                // then
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("VALIDATION_ERROR")
+                .jsonPath("$.details[?(@ =~ /individual.passportNumber: .*/)]").exists()
+                .jsonPath("$.details[?(@ =~ /individual.phoneNumber: .*/)]").exists()
+                .jsonPath("$.details[?(@ =~ /address.countryAlpha3: .*/)]").exists();
+    }
 }

@@ -11,8 +11,10 @@ import static org.mockito.Mockito.when;
 import static com.dezxxx.individuals.unit.service.ServiceTokens.accessToken;
 import static com.dezxxx.individuals.unit.service.ServiceTokens.tokenWithoutUserUid;
 
-import com.dezxxx.individuals.api.model.RegistrationRequest;
-import com.dezxxx.individuals.api.model.TokenResponse;
+import com.dezxxx.individuals.api.model.RegistrationRequestDto;
+import com.dezxxx.individuals.api.model.RegistrationRequestAddressDto;
+import com.dezxxx.individuals.api.model.RegistrationRequestIndividualDto;
+import com.dezxxx.individuals.api.model.TokenResponseDto;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
@@ -75,12 +77,12 @@ class UserServiceTest {
     @DisplayName("given every step succeeds, when registering, then it walks them in order and stamps user_uid")
     void registersInOrder() {
         // given
-        when(personClient.createPerson(EMAIL, FIRST_NAME, LAST_NAME)).thenReturn(Mono.just(USER_UID));
+        when(personClient.createPerson(request())).thenReturn(Mono.just(USER_UID));
         when(keycloakClient.createAccount(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString()))
                 .thenReturn(Mono.just(KEYCLOAK_USER_ID));
         when(keycloakClient.resetUserPassword(KEYCLOAK_USER_ID, PASSWORD)).thenReturn(Mono.empty());
         when(keycloakClient.assignPlatformRole(KEYCLOAK_USER_ID)).thenReturn(Mono.empty());
-        when(tokenService.issueTokens(EMAIL, PASSWORD)).thenReturn(Mono.just(new TokenResponse().userUid(USER_UID)));
+        when(tokenService.issueTokens(EMAIL, PASSWORD)).thenReturn(Mono.just(new TokenResponseDto().userUid(USER_UID)));
 
         // when / then
         StepVerifier.create(userService.register(request()))
@@ -89,7 +91,7 @@ class UserServiceTest {
 
         // then
         InOrder inOrder = Mockito.inOrder(personClient, keycloakClient, tokenService);
-        inOrder.verify(personClient).createPerson(EMAIL, FIRST_NAME, LAST_NAME);
+        inOrder.verify(personClient).createPerson(request());
         inOrder.verify(keycloakClient).createAccount(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString());
         inOrder.verify(keycloakClient).resetUserPassword(KEYCLOAK_USER_ID, PASSWORD);
         inOrder.verify(keycloakClient).assignPlatformRole(KEYCLOAK_USER_ID);
@@ -104,7 +106,7 @@ class UserServiceTest {
     @DisplayName("given person-service refuses, when registering, then Keycloak is never touched")
     void stopsBeforeKeycloakWhenTheDomainUserIsRefused() {
         // given
-        when(personClient.createPerson(EMAIL, FIRST_NAME, LAST_NAME))
+        when(personClient.createPerson(request()))
                 .thenReturn(Mono.error(new ApiException(ErrorCode.USER_ALREADY_EXISTS)));
 
         // when / then
@@ -118,25 +120,27 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("given the password cannot be set, when registering, then the account is deleted again")
+    @DisplayName("given the password cannot be set, when registering, then the account and the domain user are deleted and the original error comes back")
     void compensatesWhenThePasswordFails() {
         // given
-        when(personClient.createPerson(EMAIL, FIRST_NAME, LAST_NAME)).thenReturn(Mono.just(USER_UID));
+        when(personClient.createPerson(request())).thenReturn(Mono.just(USER_UID));
         when(keycloakClient.createAccount(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString()))
                 .thenReturn(Mono.just(KEYCLOAK_USER_ID));
         when(keycloakClient.resetUserPassword(KEYCLOAK_USER_ID, PASSWORD))
                 .thenReturn(Mono.error(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE)));
         when(keycloakClient.rollbackAccountWithError(eq(KEYCLOAK_USER_ID), any()))
                 .thenAnswer(call -> Mono.error(call.getArgument(1, Throwable.class)));
+        when(personClient.compensateRegistration(USER_UID)).thenReturn(Mono.empty());
 
         // when / then
         StepVerifier.create(userService.register(request()))
                 .expectErrorSatisfies(error -> assertThat(((ApiException) error).getErrorCode())
-                        .isEqualTo(ErrorCode.REGISTRATION_INCONSISTENT))
+                        .isEqualTo(ErrorCode.DEPENDENCY_UNAVAILABLE))
                 .verify();
 
         // then
         verify(keycloakClient).rollbackAccountWithError(eq(KEYCLOAK_USER_ID), any());
+        verify(personClient).compensateRegistration(USER_UID);
         verify(tokenService, never()).issueTokens(anyString(), anyString());
         verify(metrics).registrationFailed();
         verify(metrics, never()).registrationSucceeded();
@@ -144,11 +148,40 @@ class UserServiceTest {
 
     @Test
     @DisplayName("UT-REG-004: given Keycloak is unreachable after the domain user exists, "
-            + "then it answers 503 and records the partial failure")
-    void reportsInconsistencyWhenTheAccountFails() {
+            + "then it answers 503 and the domain user is deleted again")
+    void compensatesWhenTheAccountFails() {
         // given
-        when(personClient.createPerson(EMAIL, FIRST_NAME, LAST_NAME)).thenReturn(Mono.just(USER_UID));
+        when(personClient.createPerson(request())).thenReturn(Mono.just(USER_UID));
         when(keycloakClient.createAccount(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString()))
+                .thenReturn(Mono.error(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE)));
+        when(personClient.compensateRegistration(USER_UID)).thenReturn(Mono.empty());
+
+        // when / then
+        StepVerifier.create(userService.register(request()))
+                .expectErrorSatisfies(error -> {
+                    ErrorCode code = ((ApiException) error).getErrorCode();
+                    assertThat(code).isEqualTo(ErrorCode.DEPENDENCY_UNAVAILABLE);
+                    assertThat(code.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+                })
+                .verify();
+
+        // then
+        verify(personClient).compensateRegistration(USER_UID);
+        verify(keycloakClient, never()).rollbackAccountWithError(anyString(), any());
+        verify(tokenService, never()).issueTokens(anyString(), anyString());
+        verify(metrics).registrationFailed();
+        verify(metrics, never()).registrationSucceeded();
+    }
+
+    @Test
+    @DisplayName("given the Keycloak part fails and deleting the domain user fails too, when registering, "
+            + "then 503 REGISTRATION_INCONSISTENT")
+    void reportsInconsistencyWhenCompensationFails() {
+        // given
+        when(personClient.createPerson(request())).thenReturn(Mono.just(USER_UID));
+        when(keycloakClient.createAccount(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString()))
+                .thenReturn(Mono.error(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE)));
+        when(personClient.compensateRegistration(USER_UID))
                 .thenReturn(Mono.error(new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE)));
 
         // when / then
@@ -161,17 +194,14 @@ class UserServiceTest {
                 .verify();
 
         // then
-        verify(keycloakClient, never()).rollbackAccountWithError(anyString(), any());
-        verify(tokenService, never()).issueTokens(anyString(), anyString());
         verify(metrics).registrationFailed();
-        verify(metrics, never()).registrationSucceeded();
     }
 
     @Test
     @DisplayName("given only the final login fails, when registering, then the finished account is kept")
     void doesNotCompensateWhenTheFinalLoginFails() {
         // given
-        when(personClient.createPerson(EMAIL, FIRST_NAME, LAST_NAME)).thenReturn(Mono.just(USER_UID));
+        when(personClient.createPerson(request())).thenReturn(Mono.just(USER_UID));
         when(keycloakClient.createAccount(EMAIL, FIRST_NAME, LAST_NAME, USER_UID.toString()))
                 .thenReturn(Mono.just(KEYCLOAK_USER_ID));
         when(keycloakClient.resetUserPassword(KEYCLOAK_USER_ID, PASSWORD)).thenReturn(Mono.empty());
@@ -187,15 +217,23 @@ class UserServiceTest {
 
         // then
         verify(keycloakClient, never()).rollbackAccountWithError(anyString(), any());
+        verify(personClient, never()).compensateRegistration(any());
     }
 
-    private static RegistrationRequest request() {
-        return new RegistrationRequest()
+    private static RegistrationRequestDto request() {
+        return new RegistrationRequestDto()
                 .email(EMAIL)
                 .password(PASSWORD)
                 .confirmPassword(PASSWORD)
                 .firstName(FIRST_NAME)
-                .lastName(LAST_NAME);
+                .lastName(LAST_NAME)
+                .address(new RegistrationRequestAddressDto()
+                        .countryAlpha3("UKR")
+                        .city("Kyiv")
+                        .addressLine("1 Example St."))
+                .individual(new RegistrationRequestIndividualDto()
+                        .passportNumber("123456789")
+                        .phoneNumber("+380441234567"));
     }
 
     private static final OffsetDateTime REGISTERED_AT =
@@ -245,7 +283,7 @@ class UserServiceTest {
     @DisplayName("given valid credentials, when logging in, then TokenService answers and nothing else is touched")
     void loginGoesThroughTokenService() {
         // given
-        TokenResponse tokens = new TokenResponse().userUid(USER_UID);
+        TokenResponseDto tokens = new TokenResponseDto().userUid(USER_UID);
         when(tokenService.login(EMAIL, PASSWORD)).thenReturn(Mono.just(tokens));
 
         // when / then
@@ -261,7 +299,7 @@ class UserServiceTest {
     @DisplayName("given a refresh token, when refreshing, then TokenService answers with the new pair")
     void refreshGoesThroughTokenService() {
         // given
-        TokenResponse tokens = new TokenResponse().userUid(USER_UID);
+        TokenResponseDto tokens = new TokenResponseDto().userUid(USER_UID);
         when(tokenService.refresh("refresh-token")).thenReturn(Mono.just(tokens));
 
         // when / then

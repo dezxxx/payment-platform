@@ -1,6 +1,6 @@
 package com.dezxxx.individuals.error;
 
-import com.dezxxx.individuals.api.model.ErrorResponse;
+import com.dezxxx.individuals.api.model.ErrorResponseDto;
 import com.dezxxx.individuals.logging.RequestLog;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
@@ -15,7 +15,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-// in the filter chain there is no @ExceptionHandler, so the body is written by hand
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -32,13 +31,12 @@ public class SecurityErrorWriter {
         response.setStatusCode(code.getStatus());
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
 
-        ErrorResponse body = errorResponseFactory.create(code, code.getDefaultMessage(), List.of(), path);
+        ErrorResponseDto body = errorResponseFactory.create(code, code.getDefaultMessage(), List.of(), path);
 
         byte[] bytes;
         try {
             bytes = objectMapper.writeValueAsBytes(body);
         } catch (JacksonException ex) {
-            // cannot really happen; the status is set - just close the response
             log.error("Failed to serialise the error response for {}", path, ex);
             return response.setComplete();
         }

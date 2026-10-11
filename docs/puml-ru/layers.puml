@@ -81,7 +81,7 @@ note bottom of gateway
   а её нет.
 
   Ничто выше этого слоя не должно видеть типы
-  person-client или собственные формы Keycloak.
+  person-service-client или собственные формы Keycloak.
   Наверх переходят только доменный user_uid и
   наши собственные типы.
 end note
@@ -97,7 +97,7 @@ end note
 note bottom of error
   Контроллеры объявляют throws Exception,
   поэтому ошибки попадают сюда и становятся
-  одним ErrorResponse с traceId.
+  одним ErrorResponseDto с traceId.
   SecurityErrorWriter - вторая дорога: то, что
   отбила охрана, до advice не доходит.
 end note

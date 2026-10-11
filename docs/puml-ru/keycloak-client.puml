@@ -6,20 +6,21 @@ skinparam shadowing false
 
 participant "AuthController" as Ctl
 participant "UserService" as Svc
-participant "PersonClient\n(над сгенерированным PersonsApi)" as Person
+participant "PersonClient\n(над сгенерированным IndividualsApi)" as Person
 participant "KeycloakClient" as Kcl
 participant "person-service" as Ps
 participant "Keycloak" as Kc
 
-Ctl -> Svc : register(RegistrationRequest)
+Ctl -> Svc : register(RegistrationRequestDto)
 activate Svc
 
-== 1. сначала создаётся доменный пользователь ==
+== 1. сначала создаётся физлицо ==
 
-Svc -> Person : createPerson(email, firstName, lastName)
+Svc -> Person : createPerson(request)
 activate Person
-Person -> Ps : POST /api/v1/persons/registration\n{ "email", "firstName", "lastName" }
-Ps --> Person : 201 { "userUid": "6f1d2a4e-..." }
+Person -> Ps : POST /api/v1/individuals\n{ "passportNumber", "phoneNumber",
+  "user": { "email", "firstName", "lastName", "address" } }
+Ps --> Person : 201 { "id": "6f1d2a4e-...", ... }
 Person --> Svc : userUid
 deactivate Person
 
@@ -123,7 +124,7 @@ Svc -> Kcl : TokenService.issueTokens -> login(email, password)
 activate Kcl
 Kcl -> Kc : POST /realms/{realm}/protocol/openid-connect/token\nформа: grant_type=password
 Kc --> Kcl : 200 { access_token, refresh_token, expires_in, token_type }
-Kcl --> Svc : TokenResponse (TokenService добавляет user_uid из токена)
+Kcl --> Svc : TokenResponseDto (TokenService добавляет user_uid из токена)
 deactivate Kcl
 
 == 7. ответ ==
@@ -141,7 +142,7 @@ skinparam shadowing false
 
 start
 
-:person-service создал доменного пользователя;
+:person-service создал физлицо;
 :Keycloak создал учётку
 (пароля пока нет);
 
@@ -163,13 +164,13 @@ else (нет)
     свободен, вызывающий может просто
     попробовать ещё раз.
 
-    Доменный пользователь в person-service
-    НЕ откатывается - в его контракте нет
-    операции удаления. Записано как известное
-    ограничение в CONTEXT.md.
+    Затем UserService удаляет и
+    физлицо: DELETE /api/v1/individuals/compensate-registration/{id}
+    в person-service.
   end note
   :ответить клиенту исходной ошибкой
-  (как REGISTRATION_INCONSISTENT);
+  (REGISTRATION_INCONSISTENT - только если
+  и это удаление упало);
   stop
 endif
 
@@ -195,7 +196,7 @@ rectangle "Admin API\nGET /admin/realms/{realm}/users/{sub}" as Adm {
   card "createdTimestamp -> registeredAt" as c8
 }
 
-rectangle "CurrentUserResponse\n8 обязательных полей" as Out
+rectangle "CurrentUserResponseDto\n8 обязательных полей" as Out
 
 Tok --> Out : семь полей, без обращений по сети
 Adm --> Out : восьмое\n(KeycloakClient.findRegisteredAt)
@@ -230,7 +231,8 @@ package service {
 
 package "gateway.person" {
   class PersonClient <<@Component>> {
-    + Mono<UUID> createPerson(email,\n                       firstName, lastName)
+    + Mono<UUID> createPerson(request)
+    + Mono<Void> compensateRegistration(userUid)
     - translate(error)
   }
 }
@@ -238,8 +240,8 @@ package "gateway.person" {
 package "gateway.keycloak.client" {
   class KeycloakClient <<@Component>> {
     .. token endpoint ..
-    + Mono<TokenResponse> login(email, password)
-    + Mono<TokenResponse> refresh(refreshToken)
+    + Mono<TokenResponseDto> login(email, password)
+    + Mono<TokenResponseDto> refresh(refreshToken)
     + Mono<String> adminLogin()
     .. Admin API ..
     + Mono<String> createAccount(email, firstName,\n                         lastName, userUid)

@@ -8,10 +8,7 @@ import reactor.core.publisher.Hooks;
 public class IndividualsApiApplication {
 
     public static void main(String[] args) {
-        // On the reactive stack the current span lives in the Reactor context,
-        // not in a ThreadLocal, so Tracer.currentSpan() would return null and
-        // every error body would carry no trace id. This restores the bridge
-        // between the two, and is also what puts traceId into the JSON logs.
+        // the span lives in the Reactor context: without this, error bodies and logs lose the traceId
         Hooks.enableAutomaticContextPropagation();
         SpringApplication.run(IndividualsApiApplication.class, args);
     }

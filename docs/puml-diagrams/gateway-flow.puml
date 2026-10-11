@@ -56,9 +56,9 @@ end note
 Ctl -> Usr : register(request)
 activate Usr
 
-Usr -> PC : createPerson(email, firstName, lastName)
-PC -> PS : POST /api/v1/persons/registration
-PS --> PC : 201 { "userUid": "6f1d2a4e-..." }
+Usr -> PC : createPerson(request)
+PC -> PS : POST /api/v1/individuals
+PS --> PC : 201 { "id": "6f1d2a4e-...", ... }
 PC --> Usr : UUID
 note right of PC
   No password is sent here.
@@ -97,10 +97,10 @@ Usr -> Tok : issueTokens(email, password)
 Tok -> KC : login(email, password)
 KC -> K : POST /token  grant_type=password
 K --> KC : 200 { access_token, refresh_token,\n       expires_in, token_type }
-KC --> Tok : TokenResponse
+KC --> Tok : TokenResponseDto
 Tok -> Tok : user_uid read from the access token
-Tok --> Usr : TokenResponse + userUid
-Usr --> Ctl : TokenResponse
+Tok --> Usr : TokenResponseDto + userUid
+Usr --> Ctl : TokenResponseDto
 deactivate Usr
 
 Ctl --> U : 201 Created\n{ accessToken, refreshToken,\n  expiresIn, tokenType, userUid }
@@ -121,7 +121,7 @@ Usr -> KC : findRegisteredAt(sub)
 KC -> K : GET /admin/realms/{realm}/users/{sub}
 K --> KC : 200 { ..., "createdTimestamp": 1755600000000 }
 KC --> Usr : OffsetDateTime (UTC)
-Usr --> Ctl : CurrentUserResponse
+Usr --> Ctl : CurrentUserResponseDto
 Ctl --> U : 200 { userUid, keycloakUserId, email,\n     firstName, lastName, emailVerified,\n     roles, registeredAt }
 
 @enduml
@@ -261,12 +261,13 @@ if (@Valid passed?) then (no)
 else (yes)
 endif
 
-:person-service\nPOST /persons/registration;
+:person-service\nPOST /api/v1/individuals;
 
 if (created?) then (no)
   #FFE0E0:409 -> **409** USER_ALREADY_EXISTS
   5xx -> **503** DEPENDENCY_UNAVAILABLE
-  400 -> **500** INTERNAL_ERROR;
+  400 COUNTRY_NOT_FOUND -> **400** VALIDATION_ERROR
+  other 400 -> **500** INTERNAL_ERROR;
   note right
     Still nothing created.
     The caller may simply try again.
@@ -277,21 +278,22 @@ endif
 
 :user_uid issued;
 note right #FFFFCC
-  From here on, ANY failure leaves
-  person-service and Keycloak
-  disagreeing about this person.
+  From here on, a Keycloak failure is
+  compensated: the individual is deleted
+  again (DELETE /api/v1/individuals/compensate-registration/{id}).
 end note
 
 :Keycloak\nPOST /admin/.../users;
 
 if (created?) then (no)
-  #FFCCCC:**503** REGISTRATION_INCONSISTENT;
+  #FFCCCC:DELETE person-service /api/v1/individuals/compensate-registration/{id};
+  #FFCCCC:the original failure, e.g. **503** DEPENDENCY_UNAVAILABLE;
   note right
-    Domain user exists, account does not.
-    Nothing to roll back in Keycloak.
-    person-service has no delete - the split
-    is logged with the user_uid and left for
-    a human. Module 1's accepted limit.
+    Compensation: nothing is left anywhere,
+    the caller can simply try again. Only if
+    that delete fails too: **503**
+    REGISTRATION_INCONSISTENT, user_uid logged
+    for a manual clean-up.
   end note
   stop
 else (yes)
@@ -308,7 +310,8 @@ if (password set?) then (no)
     while its address stays taken, so
     registering again answers 409 forever.
   end note
-  #FFCCCC:**503** REGISTRATION_INCONSISTENT;
+  #FFCCCC:DELETE person-service /api/v1/individuals/compensate-registration/{id};
+  #FFCCCC:the original failure;
   stop
 else (yes)
 endif
@@ -322,7 +325,8 @@ if (role granted?) then (no)
     the role is useless and its address is
     already taken.
   end note
-  #FFCCCC:**503** REGISTRATION_INCONSISTENT;
+  #FFCCCC:DELETE person-service /api/v1/individuals/compensate-registration/{id};
+  #FFCCCC:the original failure;
   stop
 else (yes)
 endif

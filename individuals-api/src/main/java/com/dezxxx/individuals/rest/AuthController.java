@@ -1,11 +1,11 @@
 package com.dezxxx.individuals.rest;
 
 import com.dezxxx.individuals.api.AuthApi;
-import com.dezxxx.individuals.api.model.CurrentUserResponse;
-import com.dezxxx.individuals.api.model.LoginRequest;
-import com.dezxxx.individuals.api.model.RefreshTokenRequest;
-import com.dezxxx.individuals.api.model.RegistrationRequest;
-import com.dezxxx.individuals.api.model.TokenResponse;
+import com.dezxxx.individuals.api.model.CurrentUserResponseDto;
+import com.dezxxx.individuals.api.model.LoginRequestDto;
+import com.dezxxx.individuals.api.model.RefreshTokenRequestDto;
+import com.dezxxx.individuals.api.model.RegistrationRequestDto;
+import com.dezxxx.individuals.api.model.TokenResponseDto;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.service.UserService;
@@ -24,7 +24,7 @@ public class AuthController implements AuthApi {
     private final UserService userService;
 
     @Override
-    public Mono<ResponseEntity<TokenResponse>> register(Mono<RegistrationRequest> registrationRequest,
+    public Mono<ResponseEntity<TokenResponseDto>> register(Mono<RegistrationRequestDto> registrationRequest,
                                                         ServerWebExchange exchange) {
         return registrationRequest
                 .flatMap(userService::register)
@@ -32,7 +32,7 @@ public class AuthController implements AuthApi {
     }
 
     @Override
-    public Mono<ResponseEntity<TokenResponse>> login(Mono<LoginRequest> loginRequest,
+    public Mono<ResponseEntity<TokenResponseDto>> login(Mono<LoginRequestDto> loginRequest,
                                                      ServerWebExchange exchange) {
         return loginRequest
                 .flatMap(request -> userService.login(request.getEmail(), request.getPassword()))
@@ -40,7 +40,7 @@ public class AuthController implements AuthApi {
     }
 
     @Override
-    public Mono<ResponseEntity<TokenResponse>> refreshToken(Mono<RefreshTokenRequest> refreshTokenRequest,
+    public Mono<ResponseEntity<TokenResponseDto>> refreshToken(Mono<RefreshTokenRequestDto> refreshTokenRequest,
                                                             ServerWebExchange exchange) {
         return refreshTokenRequest
                 .flatMap(request -> userService.refresh(request.getRefreshToken()))
@@ -48,7 +48,7 @@ public class AuthController implements AuthApi {
     }
 
     @Override
-    public Mono<ResponseEntity<CurrentUserResponse>> getCurrentUser(ServerWebExchange exchange) {
+    public Mono<ResponseEntity<CurrentUserResponseDto>> getCurrentUser(ServerWebExchange exchange) {
         return exchange.getPrincipal()
                 .cast(JwtAuthenticationToken.class)
                 .map(JwtAuthenticationToken::getToken)

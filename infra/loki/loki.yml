@@ -1,12 +1,7 @@
-# Loki: log store for the local stack. One process, files on disk - not
-# production shaped, it only has to run on one machine.
-
-# single tenant, so no X-Scope-OrgID header on every push and query
 auth_enabled: false
 
 server:
   http_listen_port: 3100
-  # Loki's own INFO lines would drown ours
   log_level: warn
 
 common:
@@ -23,7 +18,6 @@ common:
 
 schema_config:
   configs:
-    # v13 + tsdb: the current schema
     - from: 2024-01-01
       store: tsdb
       object_store: filesystem

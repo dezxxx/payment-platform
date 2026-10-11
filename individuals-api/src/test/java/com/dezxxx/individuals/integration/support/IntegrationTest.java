@@ -89,7 +89,17 @@ public abstract class IntegrationTest {
                   "password": "%s",
                   "confirmPassword": "%s",
                   "firstName": "Ivan",
-                  "lastName": "Ivanov"
+                  "lastName": "Ivanov",
+                  "address": {
+                    "countryAlpha3": "UKR",
+                    "city": "Kyiv",
+                    "zipCode": "01001",
+                    "addressLine": "1 Example St."
+                  },
+                  "individual": {
+                    "passportNumber": "123456789",
+                    "phoneNumber": "+380441234567"
+                  }
                 }
                 """.formatted(email, password, confirmation);
     }

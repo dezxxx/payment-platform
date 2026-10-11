@@ -12,7 +12,7 @@ node "сеть docker compose" {
   database "keycloak-postgres\nхост 5433 -> 5432" as KCDB
   database "person-postgres\nхост 5434 -> 5432" as PSDB
   node "nexus\nхост 8083 -> 8081" as NEXUS
-  node "person-service\nзаглушка WireMock, хост 8082" as PS
+  node "person-service\nхост 8082 -> 8082" as PS
   node "prometheus\nхост 9090 -> 9090" as PROM
   node "alloy\nхост 12345 -> 12345" as ALLOY
   database "loki\nхост 3100 -> 3100" as LOKI
@@ -22,20 +22,25 @@ node "сеть docker compose" {
 
 Client --> API : POST /api/v1/auth/...
 API --> KC : Admin REST API\nи точка выдачи токенов OIDC
-API --> PS : POST /api/v1/persons/registration
+API --> PS : POST /api/v1/individuals\nDELETE /api/v1/individuals/compensate-registration/{id} (компенсация)
+PS --> PSDB : JDBC
 KC --> KCDB : JDBC
 
 PROM --> API : опрос /actuator/prometheus
+PROM --> PS : /actuator/prometheus
 ALLOY --> API : читает stdout\nчерез сокет Docker
+ALLOY --> PS : stdout
 ALLOY --> LOKI : push
-API --> TEMPO : отправка по OTLP /v1/traces
+API --> ALLOY : отправка по OTLP /v1/traces
+PS --> ALLOY : OTLP /v1/traces
+ALLOY --> TEMPO : OTLP, пачками
 
 GRAF --> PROM
 GRAF --> LOKI
 GRAF --> TEMPO
 
-Developer --> NEXUS : make publish\n(person-client)
-API ..> NEXUS : сборка образа скачивает person-client\nчерез host.docker.internal:8083
+Developer --> NEXUS : make publish\n(person-service-client)
+API ..> NEXUS : сборка образа скачивает person-service-client\nчерез host.docker.internal:8083
 
 note right of PROM
   Prometheus забирает, приложение отправляет.
@@ -45,8 +50,8 @@ note right of PROM
 end note
 
 note bottom of NEXUS
-  Не участвует в работе сервиса. Сюда публикуется
-  person-client, а сборка образа individuals-api
+  Не участвует в работе сервиса. Сюда person-service
+  публикует person-service-client, а сборка образа individuals-api
   подключает его по координатам Maven - именно
   это не даёт модулям зависеть друг от друга
   через project(":..."). make up поднимает Nexus
@@ -58,25 +63,24 @@ note bottom of NEXUS
 end note
 
 note right of PS
-  Замещает person-service до модуля 2:
-  новый userUid на каждую регистрацию, 409 на
-  повторную регистрацию пользователей Postman.
-  Маппинги в infra/person-service-stub.
+  Агрегат пользователя (модуль 2). Стартует только
+  после healthy person-postgres - Flyway мигрирует
+  при старте, - а individuals-api в свою очередь
+  ждёт healthy person-service.
 end note
 
 note bottom of PSDB
-  В модуле 1 поднимается только затем, чтобы
-  миграциям Flyway было что применять.
-  Пока к ней никто не подключается.
+  База person-service: схема person и история
+  Envers в person_history.
 end note
 
 note right of ALLOY
-  Нужен потому, что приложение пишет в stdout,
-  а Docker держит это в файле, который умирает
-  вместе с контейнером. Драйвер Loki для Docker
-  сделал бы то же самое, но это плагин хоста -
-  а "docker compose up поднимает всё" входит
-  в критерии приёмки.
+  Агент для логов и трейсов. Логи: приложения
+  пишут в stdout, а Docker держит это в файле,
+  который умирает вместе с контейнером. Трейсы:
+  сервисы отправляют OTLP в Alloy, он собирает
+  их в пачки и передаёт в Tempo - сервис не
+  зависит от того, жив ли Tempo.
 end note
 
 @enduml
