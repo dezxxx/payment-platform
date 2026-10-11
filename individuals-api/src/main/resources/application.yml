@@ -6,10 +6,8 @@ spring:
     locale: en
     locale-resolver: fixed
   jackson:
-    # no "details": null in error bodies - an absent field instead
     default-property-inclusion: non_null
   reactor:
-    # carries traceId/spanId and our MDC fields across thread hops;
     # only exactly "auto" switches it on
     context-propagation: auto
   security:

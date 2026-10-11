@@ -1,6 +1,3 @@
-# What Prometheus scrapes: each service by its compose name and container
-# port. Each app must expose /actuator/prometheus (application.yml).
-
 global:
   scrape_interval: 15s
   scrape_timeout: 10s

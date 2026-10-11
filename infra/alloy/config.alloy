@@ -1,16 +1,9 @@
-// Grafana Alloy: reads the stdout of every container and ships it to Loki, and
-// passes the OTLP traces of the services on to Tempo.
-// Not the Loki docker driver - that is a host plugin, and the stack must come up
-// with docker compose alone. Promtail is end of life.
-
-// 1. find the containers (Docker socket, mounted read-only)
 discovery.docker "containers" {
   host             = "unix:///var/run/docker.sock"
   refresh_interval = "10s"
 }
 
-// 2. Docker metadata -> Loki labels. Only few-valued fields become labels:
-//    each label combination is a separate stream. Never a trace id or user id
+// only few-valued fields become labels: each combination is a separate stream
 discovery.relabel "containers" {
   targets = discovery.docker.containers.targets
 
@@ -32,14 +25,12 @@ discovery.relabel "containers" {
   }
 }
 
-// 3. read the log streams
 loki.source.docker "containers" {
   host       = "unix:///var/run/docker.sock"
   targets    = discovery.relabel.containers.output
   forward_to = [loki.process.structured.receiver]
 }
 
-// 4. parse individuals-api's JSON lines; plain-text lines pass through as is
 loki.process "structured" {
   stage.json {
     expressions = {
@@ -51,15 +42,13 @@ loki.process "structured" {
     }
   }
 
-  // level has few values - safe as a label
   stage.labels {
     values = {
       level = "",
     }
   }
 
-  // trace id and user_uid have a value per request or user: metadata, not labels,
-  // or Loki drowns in streams
+  // trace id and user_uid as metadata, not labels, or Loki drowns in streams
   stage.structured_metadata {
     values = {
       trace_id = "",
@@ -72,15 +61,12 @@ loki.process "structured" {
   forward_to = [loki.write.default.receiver]
 }
 
-// 5. push to Loki
 loki.write "default" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
   }
 }
 
-// Traces: the services push OTLP here, Alloy batches them and passes them on to Tempo,
-// so a service never depends on Tempo being up
 otelcol.receiver.otlp "default" {
   http {
     endpoint = "0.0.0.0:4318"

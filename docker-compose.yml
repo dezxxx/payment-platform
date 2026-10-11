@@ -1,6 +1,3 @@
-# Local stack of the payment platform. Start it with: make
-# Images, ports and passwords come from .env (copy .env.example first).
-
 services:
 
   keycloak-postgres:
@@ -26,7 +23,6 @@ services:
       keycloak-postgres:
         condition: service_healthy
     environment:
-      # Keycloak 26 names (KEYCLOAK_ADMIN* are deprecated)
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KC_DB: postgres
@@ -37,8 +33,7 @@ services:
       KC_HEALTH_ENABLED: "true"
     volumes:
       - ./individuals-api/src/main/resources/realm/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
-    # healthy only once the realm is imported and HTTP answers, so up --wait
-    # really waits. No curl in the image - bash talks to the port directly
+    # no curl in the image: bash talks to the port directly
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1.0 200' <&3"]
       interval: 10s
@@ -52,7 +47,6 @@ services:
     build:
       context: ./person-service
     depends_on:
-      # Flyway migrates at start-up: the database must already accept connections
       person-postgres:
         condition: service_healthy
       alloy:
@@ -92,8 +86,7 @@ services:
 
   individuals-api:
     build:
-      # root as context: the build needs gradle/libs.versions.toml;
-      # person-service-client comes from Nexus, so Nexus must be up first (make up)
+      # root context: the build needs gradle/libs.versions.toml and pulls person-service-client from Nexus
       context: .
       dockerfile: individuals-api/Dockerfile
       args:
@@ -102,7 +95,6 @@ services:
       extra_hosts:
         - "host.docker.internal:host-gateway"
     depends_on:
-      # registration starts in person-service: it must already answer
       person-service:
         condition: service_healthy
       keycloak:
@@ -159,9 +151,8 @@ services:
     image: ${ALLOY_IMAGE}
     command:
       - run
-      # remembers how far each log was read, so a restart does not replay it all
       - --storage.path=/var/lib/alloy/data
-      # its UI shows the log and trace pipelines; 0.0.0.0 so it is reachable from the host
+      # 0.0.0.0 so its UI is reachable from the host
       - --server.http.listen-addr=0.0.0.0:12345
       - /etc/alloy/config.alloy
     depends_on:
@@ -173,7 +164,6 @@ services:
     user: root
     volumes:
       - ./infra/alloy/config.alloy:/etc/alloy/config.alloy:ro
-      # read-only: Alloy only lists containers and reads their logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy-data:/var/lib/alloy/data
 
@@ -193,21 +183,15 @@ services:
     ports:
       - "${GRAFANA_PORT}:3000"
 
-  # Artifact repository: person-service-client is published here, and the
-  # individuals-api image build downloads it. Host port 8083, because
-  # individuals-api owns 8081.
   nexus:
     image: ${NEXUS_IMAGE}
     environment:
-      # known admin password instead of a random one - local only
       NEXUS_SECURITY_RANDOMPASSWORD: "false"
-      # less memory than the default 2.7 GB
       INSTALL4J_ADD_VM_PARAMS: "-Xms1200m -Xmx1200m -XX:MaxDirectMemorySize=2g -Djava.util.prefs.userRoot=/nexus-data/javaprefs"
     volumes:
       - nexus-data:/nexus-data
     ports:
       - "${NEXUS_PORT}:8081"
-    # make up waits for this before the image build; Nexus starts in 1-2 minutes
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:8081/service/rest/v1/status"]
       interval: 10s

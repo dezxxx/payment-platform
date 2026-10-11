@@ -33,8 +33,7 @@ dependencyResolutionManagement {
                     username = user
                     password = pass
                 }
-                // Preemptive: Nexus answers an unauthenticated read with 403,
-                // and Gradle only retries after a 401.
+                // preemptive: Nexus answers an anonymous read with 403, and Gradle retries only after a 401
                 authentication { create<BasicAuthentication>("basic") }
             }
         }
