@@ -5,7 +5,7 @@ spring:
   application:
     name: person-service
   web:
-    # validation messages follow the server locale unless fixed
+    # validation messages follow the client's Accept-Language or the server locale unless fixed
     locale: en
     locale-resolver: fixed
   datasource:
