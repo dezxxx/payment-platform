@@ -1,15 +1,11 @@
--- Envers history lives apart from the working data
 CREATE SCHEMA IF NOT EXISTS person_history;
 
--- one row per transaction that changed audited data
 CREATE TABLE person_history.revinfo (
     rev BIGSERIAL PRIMARY KEY,
     revtstmp BIGINT NOT NULL
 );
 
 -- revision_type: 0 = created, 1 = changed, 2 = deleted.
--- Data columns are nullable: they copy the entity as it was at that revision.
--- Every *_mod column says whether that field changed in the revision (withModifiedFlag).
 -- version is not copied: Envers skips the optimistic locking field.
 
 CREATE TABLE person_history.addresses_history (
@@ -54,8 +50,6 @@ CREATE TABLE person_history.users_history (
     filled_mod BOOLEAN,
     address_id UUID,
     address_id_mod BOOLEAN,
-    -- no individual column here (individuals.user_id holds the link), only the flag
-    individual_mod BOOLEAN,
     CONSTRAINT pk_users_history PRIMARY KEY (id, revision),
     CONSTRAINT fk_users_history_revision FOREIGN KEY (revision) REFERENCES person_history.revinfo (rev)
 );
@@ -66,6 +60,10 @@ CREATE TABLE person_history.individuals_history (
     revision_type SMALLINT NOT NULL,
     user_id UUID,
     user_id_mod BOOLEAN,
+    created TIMESTAMP,
+    created_mod BOOLEAN,
+    updated TIMESTAMP,
+    updated_mod BOOLEAN,
     passport_number VARCHAR(32),
     passport_number_mod BOOLEAN,
     phone_number VARCHAR(32),

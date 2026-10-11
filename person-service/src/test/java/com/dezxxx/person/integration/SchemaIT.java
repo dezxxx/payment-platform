@@ -3,9 +3,10 @@ package com.dezxxx.person.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.dezxxx.person.api.model.UserResponseDto;
+import com.dezxxx.person.api.model.IndividualResponseDto;
 import com.dezxxx.person.integration.support.IntegrationTest;
 import com.dezxxx.person.repository.CountryRepository;
+import com.dezxxx.person.repository.IndividualRepository;
 import com.dezxxx.person.repository.UserRepository;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +16,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 
 @DisplayName("Flyway schema and repositories")
 class SchemaIT extends IntegrationTest {
+
+    @Autowired
+    private IndividualRepository individualRepository;
 
     @Autowired
     private UserRepository userRepository;
@@ -51,25 +55,28 @@ class SchemaIT extends IntegrationTest {
     void emailIndexIgnoresCase() {
         // given
         String email = freshEmail("index");
-        createUser(email);
+        createIndividual(email);
 
         // when / then
         assertThatThrownBy(() -> jdbc.update(
-                "insert into person.users (id, email, created, updated, first_name, last_name)"
-                        + " values (gen_random_uuid(), ?, now(), now(), 'A', 'B')", email.toUpperCase()))
+                "with a as (insert into person.addresses (id, created, updated, country_id, address, city)"
+                        + " select gen_random_uuid(), now(), now(), id, '1', 'Kyiv' from person.countries where alpha3 = 'UKR'"
+                        + " returning id)"
+                        + " insert into person.users (id, email, created, updated, first_name, last_name, address_id)"
+                        + " select gen_random_uuid(), ?, now(), now(), 'A', 'B', a.id from a", email.toUpperCase()))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("uk_users_email_lower");
     }
 
     @Test
-    @DisplayName("given a stored user, when searching by email in another case, then the repository finds it")
+    @DisplayName("given a stored individual, when searching by email in another case, then the repositories find it")
     void repositoryIgnoresCase() {
         // given
         String email = freshEmail("repository");
-        UserResponseDto created = createUser(email);
+        IndividualResponseDto created = createIndividual(email);
 
         // when / then
-        assertThat(userRepository.findByEmail(email.toUpperCase())).get().extracting("id").isEqualTo(created.getId());
+        assertThat(individualRepository.findActiveByEmail(email.toUpperCase())).get().extracting("id").isEqualTo(created.getId());
         assertThat(userRepository.existsByEmail(email.toUpperCase())).isTrue();
         assertThat(userRepository.existsByEmail(freshEmail("nobody"))).isFalse();
     }

@@ -8,7 +8,6 @@ import java.io.IOException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-// the thread serves other requests next; without this it would log someone else's user_uid
 @Component
 public class UserUidLogFilter extends OncePerRequestFilter {
 

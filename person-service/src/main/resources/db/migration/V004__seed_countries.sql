@@ -1,15 +1,4 @@
--- Reference data: ISO 3166-1 countries and territories.
---
--- Names are the ISO 3166-1 English short names; alpha2 and alpha3 are the
--- load-bearing columns - they are what other systems address a country by,
--- and both carry a UNIQUE constraint.
---
--- Every row starts ACTIVE. INACTIVE is for territories the platform stops
--- serving; it is a business decision, never a property of the standard, so it
--- is changed by data, not by a migration.
---
--- ON CONFLICT keeps the statement replayable in a scratch database that was
--- partially seeded by hand. Flyway still applies this migration exactly once.
+-- ON CONFLICT keeps the script replayable in a partially seeded scratch database
 
 INSERT INTO person.countries (name, alpha2, alpha3, status) VALUES
     ('Afghanistan', 'AF', 'AFG', 'ACTIVE'),

@@ -21,10 +21,10 @@ class ObservabilityIT extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("given a user was created, when Prometheus scrapes, then the operation timer and the HTTP histogram are there")
+    @DisplayName("given an individual was created, when Prometheus scrapes, then the operation timer and the HTTP histogram are there")
     void exposesMetrics() {
         // given
-        createUser(freshEmail("metrics"));
+        createIndividual(freshEmail("metrics"));
 
         // when
         String scrape = client.get().uri("/actuator/prometheus")
@@ -36,7 +36,7 @@ class ObservabilityIT extends IntegrationTest {
 
         // then
         assertThat(scrape)
-                .contains("user_operations_seconds_count{")
+                .contains("individual_operations_seconds_count{")
                 .contains("operation=\"create\"")
                 .contains("http_server_requests_seconds_bucket{")
                 .contains("hikaricp_connections_active");

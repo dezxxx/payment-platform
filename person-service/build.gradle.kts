@@ -131,6 +131,8 @@ openApiGenerate {
     generatorName.set("spring")
     inputSpec.set(contract.asFile.absolutePath)
     outputDir.set(generatedDir)
+    // wipe the folder first: a renamed schema would otherwise leave its old class behind
+    cleanupOutput.set(true)
 
     apiPackage.set("com.dezxxx.person.api")
     modelPackage.set("com.dezxxx.person.api.model")
@@ -165,6 +167,7 @@ val openApiGenerateClient = tasks.register<GenerateTask>("openApiGenerateClient"
     library.set("spring-http-interface")
     inputSpec.set(contract.asFile.absolutePath)
     outputDir.set(generatedClientDir)
+    cleanupOutput.set(true)
 
     apiPackage.set("com.dezxxx.person.client.api")
     modelPackage.set("com.dezxxx.person.client.model")

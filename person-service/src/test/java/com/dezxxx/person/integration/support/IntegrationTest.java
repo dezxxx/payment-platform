@@ -1,9 +1,9 @@
 package com.dezxxx.person.integration.support;
 
-import com.dezxxx.person.api.model.CreateUserRequestAddressDto;
-import com.dezxxx.person.api.model.CreateUserRequestDto;
-import com.dezxxx.person.api.model.CreateUserRequestIndividualDto;
-import com.dezxxx.person.api.model.UserResponseDto;
+import com.dezxxx.person.api.model.CreateIndividualRequestDto;
+import com.dezxxx.person.api.model.CreateIndividualRequestUserAddressDto;
+import com.dezxxx.person.api.model.CreateIndividualRequestUserDto;
+import com.dezxxx.person.api.model.IndividualResponseDto;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
@@ -39,30 +39,30 @@ public abstract class IntegrationTest {
         return prefix + "-" + UUID.randomUUID() + "@example.org";
     }
 
-    protected static CreateUserRequestDto createRequest(String email) {
-        return new CreateUserRequestDto()
-                .email(email)
-                .firstName("Ivan")
-                .lastName("Petrov")
-                .address(new CreateUserRequestAddressDto()
-                        .countryAlpha3("UKR")
-                        .countryAlpha2("UA")
-                        .city("Kyiv")
-                        .state("Kyiv")
-                        .zipCode("01001")
-                        .addressLine("1 Example St."))
-                .individual(new CreateUserRequestIndividualDto()
-                        .passportNumber("123456789")
-                        .phoneNumber("+380441234567"));
+    protected static CreateIndividualRequestDto createRequest(String email) {
+        return new CreateIndividualRequestDto()
+                .passportNumber("123456789")
+                .phoneNumber("+380441234567")
+                .user(new CreateIndividualRequestUserDto()
+                        .email(email)
+                        .firstName("Ivan")
+                        .lastName("Petrov")
+                        .address(new CreateIndividualRequestUserAddressDto()
+                                .countryAlpha3("UKR")
+                                .countryAlpha2("UA")
+                                .city("Kyiv")
+                                .state("Kyiv")
+                                .zipCode("01001")
+                                .addressLine("1 Example St.")));
     }
 
-    protected UserResponseDto createUser(String email) {
-        return client.post().uri("/api/v1/users")
+    protected IndividualResponseDto createIndividual(String email) {
+        return client.post().uri("/api/v1/individuals")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(createRequest(email))
                 .exchange()
                 .expectStatus().isCreated()
-                .expectBody(UserResponseDto.class)
+                .expectBody(IndividualResponseDto.class)
                 .returnResult()
                 .getResponseBody();
     }

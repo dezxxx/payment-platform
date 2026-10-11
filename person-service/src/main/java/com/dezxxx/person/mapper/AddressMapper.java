@@ -1,8 +1,8 @@
 package com.dezxxx.person.mapper;
 
-import com.dezxxx.person.api.model.CreateUserRequestAddressDto;
-import com.dezxxx.person.api.model.UpdateUserRequestAddressDto;
-import com.dezxxx.person.api.model.UserResponseAddressDto;
+import com.dezxxx.person.api.model.CreateIndividualRequestUserAddressDto;
+import com.dezxxx.person.api.model.IndividualResponseUserAddressDto;
+import com.dezxxx.person.api.model.UpdateIndividualRequestUserAddressDto;
 import com.dezxxx.person.entity.AddressEntity;
 import com.dezxxx.person.entity.CountryEntity;
 import org.springframework.stereotype.Component;
@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class AddressMapper {
 
-    public AddressEntity toAddressEntity(CreateUserRequestAddressDto request, CountryEntity country) {
+    public AddressEntity toAddressEntity(CreateIndividualRequestUserAddressDto request, CountryEntity country) {
         AddressEntity address = new AddressEntity();
         address.setCountry(country);
         address.setCity(request.getCity());
@@ -20,21 +20,18 @@ public class AddressMapper {
         return address;
     }
 
-    public UserResponseAddressDto toAddressResponse(AddressEntity address) {
-        UserResponseAddressDto response = new UserResponseAddressDto()
+    public IndividualResponseUserAddressDto toAddressResponse(AddressEntity address) {
+        return new IndividualResponseUserAddressDto()
                 .id(address.getId())
+                .countryAlpha3(address.getCountry().getAlpha3())
+                .countryAlpha2(address.getCountry().getAlpha2())
                 .city(address.getCity())
                 .state(address.getState())
                 .zipCode(address.getZipCode())
                 .addressLine(address.getAddress());
-        if (address.getCountry() != null) {
-            response.countryAlpha2(address.getCountry().getAlpha2())
-                    .countryAlpha3(address.getCountry().getAlpha3());
-        }
-        return response;
     }
 
-    public void updateAddress(AddressEntity address, UpdateUserRequestAddressDto request, CountryEntity country) {
+    public void updateAddress(AddressEntity address, UpdateIndividualRequestUserAddressDto request, CountryEntity country) {
         if (country != null) {
             address.setCountry(country);
         }

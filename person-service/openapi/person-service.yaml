@@ -3,9 +3,10 @@ openapi: 3.0.3
 info:
   title: person-service
   description: |
-    Source of truth for the user aggregate: user + address + individual data.
+    Source of truth for individuals. An individual is the aggregate root: it holds
+    its user account (email, name), and the user holds the address.
     Create, update and delete are atomic for the whole aggregate.
-  version: 2.0.0
+  version: 3.0.0
   contact:
     name: dezxxx
     email: web7tudio@gmail.com
@@ -20,45 +21,45 @@ servers:
     description: Docker network
 
 tags:
-  - name: users
-    description: User aggregate
+  - name: individuals
+    description: Individual aggregate - individual + user + address
 
 paths:
 
-  /api/v1/users:
+  /api/v1/individuals:
     post:
-      tags: [users]
-      operationId: createUser
-      summary: Create a user with address and individual data in one transaction
+      tags: [individuals]
+      operationId: createIndividual
+      summary: Create an individual with its user and address in one transaction
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateUserRequest"
+              $ref: "#/components/schemas/CreateIndividualRequest"
             examples:
               full:
                 value:
-                  email: ivan.petrov@example.org
-                  firstName: Ivan
-                  lastName: Petrov
-                  address:
-                    countryAlpha3: UKR
-                    countryAlpha2: UA
-                    city: Kyiv
-                    state: Kyiv
-                    zipCode: "01001"
-                    addressLine: 1 Example St.
-                  individual:
-                    passportNumber: "123456789"
-                    phoneNumber: "+380441234567"
+                  passportNumber: "123456789"
+                  phoneNumber: "+380441234567"
+                  user:
+                    email: ivan.petrov@example.org
+                    firstName: Ivan
+                    lastName: Petrov
+                    address:
+                      countryAlpha3: UKR
+                      countryAlpha2: UA
+                      city: Kyiv
+                      state: Kyiv
+                      zipCode: "01001"
+                      addressLine: 1 Example St.
       responses:
         "201":
-          description: User created
+          description: Individual created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserResponse"
+                $ref: "#/components/schemas/IndividualResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "409":
@@ -66,20 +67,20 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/users/{id}:
+  /api/v1/individuals/{id}:
     parameters:
-      - $ref: "#/components/parameters/UserId"
+      - $ref: "#/components/parameters/IndividualId"
     get:
-      tags: [users]
-      operationId: getUserById
-      summary: Get the whole user aggregate
+      tags: [individuals]
+      operationId: getIndividualById
+      summary: Get the whole individual aggregate
       responses:
         "200":
-          description: User
+          description: Individual
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserResponse"
+                $ref: "#/components/schemas/IndividualResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -87,29 +88,31 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
     patch:
-      tags: [users]
-      operationId: updateUser
+      tags: [individuals]
+      operationId: updateIndividual
       summary: Partially update the aggregate - only the fields sent are changed
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateUserRequest"
+              $ref: "#/components/schemas/UpdateIndividualRequest"
             examples:
               rename-and-move:
                 value:
-                  firstName: Ivan
-                  lastName: Petrov-Senior
-                  address:
-                    city: Lviv
+                  phoneNumber: "+380441234568"
+                  user:
+                    firstName: Ivan
+                    lastName: Petrov-Senior
+                    address:
+                      city: Lviv
       responses:
         "200":
-          description: User after the update
+          description: Individual after the update
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserResponse"
+                $ref: "#/components/schemas/IndividualResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -119,12 +122,12 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
     delete:
-      tags: [users]
-      operationId: deleteUser
-      summary: Delete the whole aggregate in one transaction
+      tags: [individuals]
+      operationId: deleteIndividual
+      summary: Soft delete - the individual becomes ARCHIVED, its data stays, it is no longer found
       responses:
         "204":
-          description: User deleted
+          description: Individual archived
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -132,11 +135,28 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/users/by-email:
+  /api/v1/individuals/compensate-registration/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IndividualId"
+    delete:
+      tags: [individuals]
+      operationId: compensateRegistration
+      summary: Hard delete of the whole aggregate - undoes a registration that failed after this step
+      responses:
+        "204":
+          description: Individual, its user and address deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/individuals/by-email:
     get:
-      tags: [users]
-      operationId: getUserByEmail
-      summary: Find a user by email, case-insensitive
+      tags: [individuals]
+      operationId: getIndividualByEmail
+      summary: Find an individual by the email of its user, case-insensitive
       parameters:
         - name: email
           in: query
@@ -148,11 +168,11 @@ paths:
           example: ivan.petrov@example.org
       responses:
         "200":
-          description: User
+          description: Individual
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserResponse"
+                $ref: "#/components/schemas/IndividualResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -163,158 +183,160 @@ paths:
 components:
 
   parameters:
-    UserId:
+    IndividualId:
       name: id
       in: path
       required: true
       schema:
         type: string
         format: uuid
-      example: 6c8ec4d0-6fd5-4db8-bf4d-7bcbdb2f6c02
+      example: 7fd6212d-0f71-42a0-bf6e-7dbce6cf04fb
 
   schemas:
 
-    CreateUserRequest:
+    CreateIndividualRequest:
       type: object
-      required: [email, firstName, lastName, address, individual]
+      required: [passportNumber, phoneNumber, user]
       properties:
-        email:
-          type: string
-          format: email
-          maxLength: 1024
-          example: ivan.petrov@example.org
-        firstName:
+        passportNumber:
           type: string
           minLength: 1
-          maxLength: 64
-          example: Ivan
-        lastName:
+          maxLength: 32
+          example: "123456789"
+        phoneNumber:
           type: string
           minLength: 1
-          maxLength: 64
-          example: Petrov
-        address:
+          maxLength: 32
+          example: "+380441234567"
+        user:
           type: object
-          required: [city, addressLine]
+          required: [email, firstName, lastName, address]
           properties:
-            countryAlpha3:
+            email:
               type: string
-              minLength: 3
-              maxLength: 3
-              example: UKR
-            countryAlpha2:
-              type: string
-              minLength: 2
-              maxLength: 2
-              example: UA
-            city:
+              format: email
+              maxLength: 1024
+              example: ivan.petrov@example.org
+            firstName:
               type: string
               minLength: 1
               maxLength: 64
-              example: Kyiv
-            state:
-              type: string
-              maxLength: 64
-              example: Kyiv
-            zipCode:
-              type: string
-              maxLength: 32
-              example: "01001"
-            addressLine:
+              example: Ivan
+            lastName:
               type: string
               minLength: 1
-              maxLength: 128
-              example: 1 Example St.
-        individual:
-          type: object
-          properties:
-            passportNumber:
-              type: string
-              maxLength: 32
-              example: "123456789"
-            phoneNumber:
-              type: string
-              maxLength: 32
-              example: "+380441234567"
+              maxLength: 64
+              example: Petrov
+            address:
+              type: object
+              required: [countryAlpha3, city, addressLine]
+              properties:
+                countryAlpha3:
+                  type: string
+                  minLength: 3
+                  maxLength: 3
+                  example: UKR
+                countryAlpha2:
+                  type: string
+                  minLength: 2
+                  maxLength: 2
+                  example: UA
+                city:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  example: Kyiv
+                state:
+                  type: string
+                  maxLength: 64
+                  example: Kyiv
+                zipCode:
+                  type: string
+                  maxLength: 32
+                  example: "01001"
+                addressLine:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                  example: 1 Example St.
 
-    # email is not here: it is the user's login and is not changed by PATCH
-    UpdateUserRequest:
+    UpdateIndividualRequest:
       type: object
       properties:
-        firstName:
+        passportNumber:
           type: string
           minLength: 1
-          maxLength: 64
-          example: Ivan
-        lastName:
+          maxLength: 32
+          example: "123456789"
+        phoneNumber:
           type: string
           minLength: 1
-          maxLength: 64
-          example: Petrov-Senior
-        address:
+          maxLength: 32
+          example: "+380441234568"
+        # email is not here: it is the login and is not changed by PATCH
+        user:
           type: object
           properties:
-            countryAlpha3:
-              type: string
-              minLength: 3
-              maxLength: 3
-              example: UKR
-            countryAlpha2:
-              type: string
-              minLength: 2
-              maxLength: 2
-              example: UA
-            city:
+            firstName:
               type: string
               minLength: 1
               maxLength: 64
-              example: Lviv
-            state:
-              type: string
-              maxLength: 64
-              example: Kyiv
-            zipCode:
-              type: string
-              maxLength: 32
-              example: "01001"
-            addressLine:
+              example: Ivan
+            lastName:
               type: string
               minLength: 1
-              maxLength: 128
-              example: 1 Example St.
-        individual:
-          type: object
-          properties:
-            passportNumber:
-              type: string
-              maxLength: 32
-              example: "123456789"
-            phoneNumber:
-              type: string
-              maxLength: 32
-              example: "+380441234567"
+              maxLength: 64
+              example: Petrov-Senior
+            address:
+              type: object
+              properties:
+                countryAlpha3:
+                  type: string
+                  minLength: 3
+                  maxLength: 3
+                  example: UKR
+                countryAlpha2:
+                  type: string
+                  minLength: 2
+                  maxLength: 2
+                  example: UA
+                city:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  example: Lviv
+                state:
+                  type: string
+                  maxLength: 64
+                  example: Lviv
+                zipCode:
+                  type: string
+                  maxLength: 32
+                  example: "79000"
+                addressLine:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                  example: 2 Example St.
 
-    UserResponse:
+    IndividualResponse:
       type: object
-      required: [id, email, firstName, lastName, filled, createdAt, updatedAt]
+      required: [id, passportNumber, phoneNumber, status, createdAt, updatedAt, user]
       properties:
         id:
           type: string
           format: uuid
-          example: 6c8ec4d0-6fd5-4db8-bf4d-7bcbdb2f6c02
-        email:
+          example: 7fd6212d-0f71-42a0-bf6e-7dbce6cf04fb
+        passportNumber:
           type: string
-          format: email
-          example: ivan.petrov@example.org
-        firstName:
+          example: "123456789"
+        phoneNumber:
           type: string
-          example: Ivan
-        lastName:
+          example: "+380441234567"
+        status:
           type: string
-          example: Petrov
-        filled:
-          type: boolean
-          example: true
+          enum: [NEW, VERIFIED, ARCHIVED]
+          example: NEW
         createdAt:
           type: string
           format: date-time
@@ -323,61 +345,72 @@ components:
           type: string
           format: date-time
           example: "2026-06-08T10:15:30Z"
-        address:
+        verifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+          example: null
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+          example: null
+        user:
           type: object
-          required: [id, city, addressLine]
+          required: [id, email, firstName, lastName, filled, createdAt, updatedAt, address]
           properties:
             id:
               type: string
               format: uuid
-              example: 6e6d5e5e-5c7d-4f0e-9f9a-34a0b3f8d101
-            countryAlpha3:
+              example: 6c8ec4d0-6fd5-4db8-bf4d-7bcbdb2f6c02
+            email:
               type: string
-              example: UKR
-            countryAlpha2:
+              format: email
+              example: ivan.petrov@example.org
+            firstName:
               type: string
-              example: UA
-            city:
+              example: Ivan
+            lastName:
               type: string
-              example: Kyiv
-            state:
-              type: string
-              example: Kyiv
-            zipCode:
-              type: string
-              example: "01001"
-            addressLine:
-              type: string
-              example: 1 Example St.
-        individual:
-          type: object
-          required: [id, status]
-          properties:
-            id:
-              type: string
-              format: uuid
-              example: 7fd6212d-0f71-42a0-bf6e-7dbce6cf04fb
-            passportNumber:
-              type: string
-              example: "123456789"
-            phoneNumber:
-              type: string
-              example: "+380441234567"
-            status:
-              type: string
-              example: NEW
-            verifiedAt:
+              example: Petrov
+            filled:
+              type: boolean
+              example: true
+            createdAt:
               type: string
               format: date-time
-              nullable: true
-              example: null
-            archivedAt:
+              example: "2026-06-08T10:15:30Z"
+            updatedAt:
               type: string
               format: date-time
-              nullable: true
-              example: null
+              example: "2026-06-08T10:15:30Z"
+            address:
+              type: object
+              required: [id, countryAlpha3, countryAlpha2, city, addressLine]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                  example: 6e6d5e5e-5c7d-4f0e-9f9a-34a0b3f8d101
+                countryAlpha3:
+                  type: string
+                  example: UKR
+                countryAlpha2:
+                  type: string
+                  example: UA
+                city:
+                  type: string
+                  example: Kyiv
+                state:
+                  type: string
+                  example: Kyiv
+                zipCode:
+                  type: string
+                  example: "01001"
+                addressLine:
+                  type: string
+                  example: 1 Example St.
 
-    # RFC 9457 Problem Details
     ProblemResponse:
       type: object
       description: >
@@ -400,10 +433,10 @@ components:
           example: 409
         detail:
           type: string
-          example: A user with this email already exists
+          example: An individual with this email already exists
         instance:
           type: string
-          example: /api/v1/users
+          example: /api/v1/individuals
         timestamp:
           type: string
           format: date-time
@@ -431,13 +464,13 @@ components:
           schema:
             $ref: "#/components/schemas/ProblemResponse"
     NotFound:
-      description: User not found
+      description: Individual not found
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/ProblemResponse"
     Conflict:
-      description: Email already taken, or the user was changed by someone else meanwhile
+      description: Email already taken, or the individual was changed by someone else meanwhile
       content:
         application/problem+json:
           schema:

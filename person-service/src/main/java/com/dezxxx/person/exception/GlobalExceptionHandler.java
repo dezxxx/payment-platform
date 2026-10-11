@@ -31,13 +31,6 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
-// Spring picks a handler by the exception class:
-//   PersonException                         (our service) -> its ErrorCode
-//   bad JSON, @Valid, 405, 415, unknown path (Spring)      -> handleExceptionInternal
-//   ObjectOptimisticLockingFailureException (Hibernate)    -> 409 CONCURRENT_MODIFICATION
-//   DataIntegrityViolationException         (database)     -> 409 EMAIL_ALREADY_EXISTS
-//   ConstraintViolationException            (@RequestParam)-> 400 VALIDATION_ERROR
-//   anything else                                          -> 500 INTERNAL_ERROR
 @Slf4j
 @RestControllerAdvice
 @RequiredArgsConstructor
@@ -92,7 +85,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                                                              HttpStatusCode statusCode, WebRequest request) {
         ErrorCode code = codeFor(ex, statusCode);
         if (code == null) {
-            // a rare framework status we have no code for (406...): keep Spring's answer, add our fields
             ProblemDetail problem = ProblemDetail.forStatus(statusCode);
             addPlatformFields(problem, HttpStatus.valueOf(statusCode.value()).name(), List.of());
             problem.setInstance(URI.create(path(request)));

@@ -1,7 +1,7 @@
 {
   "uid": "person-service",
   "title": "person-service",
-  "description": "The user aggregate: HTTP traffic, UserService operations, the database pool and the logs of person-service.",
+  "description": "The individual aggregate: HTTP traffic, IndividualService operations, the database pool and the logs of person-service.",
   "tags": [
     "payment-platform"
   ],
@@ -80,7 +80,7 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "UserService operations per second",
+      "title": "IndividualService operations per second",
       "description": "One series per operation and outcome: error=\"none\" succeeded, anything else names the exception.",
       "datasource": {
         "type": "prometheus",
@@ -104,7 +104,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (operation, error) (rate(user_operations_seconds_count{job=\"person-service\"}[1m]))",
+          "expr": "sum by (operation, error) (rate(individual_operations_seconds_count{job=\"person-service\"}[1m]))",
           "legendFormat": "{{operation}} ({{error}})"
         }
       ]
@@ -112,7 +112,7 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "UserService operation time, average",
+      "title": "IndividualService operation time, average",
       "description": "Time inside the service method, transaction included - the HTTP layer excluded.",
       "datasource": {
         "type": "prometheus",
@@ -136,7 +136,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (operation) (rate(user_operations_seconds_sum{job=\"person-service\"}[5m])) / sum by (operation) (rate(user_operations_seconds_count{job=\"person-service\"}[5m]))",
+          "expr": "sum by (operation) (rate(individual_operations_seconds_sum{job=\"person-service\"}[5m])) / sum by (operation) (rate(individual_operations_seconds_count{job=\"person-service\"}[5m]))",
           "legendFormat": "{{operation}}"
         }
       ]
@@ -223,7 +223,7 @@
     {
       "id": 7,
       "type": "stat",
-      "title": "Users created",
+      "title": "Individuals created",
       "description": "Since the application started; resets when the service restarts.",
       "datasource": {
         "type": "prometheus",
@@ -273,7 +273,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(user_operations_seconds_count{job=\"person-service\", operation=\"create\", error=\"none\"}) or vector(0)",
+          "expr": "sum(individual_operations_seconds_count{job=\"person-service\", operation=\"create\", error=\"none\"}) or vector(0)",
           "instant": true
         }
       ]
@@ -281,7 +281,7 @@
     {
       "id": 8,
       "type": "stat",
-      "title": "Users updated",
+      "title": "Individuals updated",
       "description": "Since the application started; resets when the service restarts.",
       "datasource": {
         "type": "prometheus",
@@ -331,7 +331,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(user_operations_seconds_count{job=\"person-service\", operation=\"update\", error=\"none\"}) or vector(0)",
+          "expr": "sum(individual_operations_seconds_count{job=\"person-service\", operation=\"update\", error=\"none\"}) or vector(0)",
           "instant": true
         }
       ]
@@ -339,7 +339,7 @@
     {
       "id": 9,
       "type": "stat",
-      "title": "Users deleted",
+      "title": "Individuals archived",
       "description": "Since the application started; resets when the service restarts.",
       "datasource": {
         "type": "prometheus",
@@ -389,7 +389,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(user_operations_seconds_count{job=\"person-service\", operation=\"delete\", error=\"none\"}) or vector(0)",
+          "expr": "sum(individual_operations_seconds_count{job=\"person-service\", operation=\"delete\", error=\"none\"}) or vector(0)",
           "instant": true
         }
       ]
@@ -447,7 +447,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(user_operations_seconds_count{job=\"person-service\", error!=\"none\"}) or vector(0)",
+          "expr": "sum(individual_operations_seconds_count{job=\"person-service\", error!=\"none\"}) or vector(0)",
           "instant": true
         }
       ]
@@ -483,7 +483,7 @@
       "id": 12,
       "type": "logs",
       "title": "All logs of the service",
-      "description": "Expand a line: trace_id opens its trace in Tempo, user_uid finds the user in every service.",
+      "description": "Expand a line: trace_id opens its trace in Tempo, user_uid finds the individual in every service.",
       "datasource": {
         "type": "loki",
         "uid": "loki"

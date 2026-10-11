@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.dezxxx.person.entity.UserEntity;
+import com.dezxxx.person.entity.IndividualEntity;
 import com.dezxxx.person.exception.ErrorCode;
 import com.dezxxx.person.exception.GlobalExceptionHandler;
 import com.dezxxx.person.exception.PersonException;
@@ -39,7 +39,7 @@ import org.springframework.web.context.request.WebRequest;
 @DisplayName("GlobalExceptionHandler")
 class GlobalExceptionHandlerTest {
 
-    private static final String PATH = "/api/v1/users";
+    private static final String PATH = "/api/v1/individuals";
 
     private static final String TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
 
@@ -87,7 +87,7 @@ class GlobalExceptionHandlerTest {
         when(tracer.currentSpan()).thenReturn(null);
 
         // when
-        ProblemDetail problem = handler.handlePerson(new PersonException(ErrorCode.USER_NOT_FOUND), request).getBody();
+        ProblemDetail problem = handler.handlePerson(new PersonException(ErrorCode.INDIVIDUAL_NOT_FOUND), request).getBody();
 
         // then
         assertThat(problem.getProperties()).containsEntry("traceId", "unavailable");
@@ -97,7 +97,7 @@ class GlobalExceptionHandlerTest {
     @DisplayName("given a stale version, when handled, then 409 CONCURRENT_MODIFICATION")
     void handlesOptimisticLock() {
         // given
-        ObjectOptimisticLockingFailureException ex = new ObjectOptimisticLockingFailureException(UserEntity.class, UUID.randomUUID());
+        ObjectOptimisticLockingFailureException ex = new ObjectOptimisticLockingFailureException(IndividualEntity.class, UUID.randomUUID());
 
         // when
         ResponseEntity<ProblemDetail> response = handler.handleOptimisticLock(ex, request);
@@ -143,7 +143,7 @@ class GlobalExceptionHandlerTest {
     void handlesConstraintViolation() {
         // given
         Path path = mock(Path.class);
-        when(path.toString()).thenReturn("getUserByEmail.email");
+        when(path.toString()).thenReturn("getIndividualByEmail.email");
         ConstraintViolation<?> violation = mock(ConstraintViolation.class);
         when(violation.getPropertyPath()).thenReturn(path);
         when(violation.getMessage()).thenReturn("must be a well-formed email address");

@@ -1,6 +1,9 @@
 package com.dezxxx.person.entity;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -13,6 +16,8 @@ import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.envers.Audited;
 
 @Getter
@@ -26,9 +31,15 @@ public class IndividualEntity {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @OneToOne(fetch = FetchType.LAZY)
+    @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "user_id")
     private UserEntity user;
+
+    @CreationTimestamp
+    private Instant created;
+
+    @UpdateTimestamp
+    private Instant updated;
 
     @Version
     private Long version;
@@ -41,5 +52,6 @@ public class IndividualEntity {
 
     private Instant archivedAt;
 
-    private String status;
+    @Enumerated(EnumType.STRING)
+    private IndividualStatus status;
 }

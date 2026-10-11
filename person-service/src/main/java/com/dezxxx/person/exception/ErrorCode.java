@@ -14,11 +14,11 @@ public enum ErrorCode {
 
     COUNTRY_NOT_FOUND(HttpStatus.BAD_REQUEST, "Unknown country code"),
 
-    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found"),
+    INDIVIDUAL_NOT_FOUND(HttpStatus.NOT_FOUND, "Individual not found"),
 
-    EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "A user with this email already exists"),
+    EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "An individual with this email already exists"),
 
-    CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "The user was changed by another request, reload it and try again"),
+    CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "The individual was changed by another request, reload it and try again"),
 
     NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found"),
 

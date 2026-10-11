@@ -17,7 +17,6 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.envers.Audited;
-import org.hibernate.envers.NotAudited;
 
 @Getter
 @Setter
@@ -29,9 +28,6 @@ public class UserEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
-
-    @NotAudited
-    private String secretKey;
 
     private String email;
 
@@ -53,15 +49,4 @@ public class UserEntity {
     @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "address_id")
     private AddressEntity address;
-
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
-    private IndividualEntity individual;
-
-    // individuals.user_id is written from IndividualEntity.user, so both sides are set together
-    public void setIndividual(IndividualEntity individual) {
-        this.individual = individual;
-        if (individual != null) {
-            individual.setUser(this);
-        }
-    }
 }
