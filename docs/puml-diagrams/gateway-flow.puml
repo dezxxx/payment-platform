@@ -57,7 +57,7 @@ Ctl -> Usr : register(request)
 activate Usr
 
 Usr -> PC : createPerson(request)
-PC -> PS : POST /api/v1/users
+PC -> PS : POST /api/v1/individuals
 PS --> PC : 201 { "id": "6f1d2a4e-...", ... }
 PC --> Usr : UUID
 note right of PC
@@ -97,10 +97,10 @@ Usr -> Tok : issueTokens(email, password)
 Tok -> KC : login(email, password)
 KC -> K : POST /token  grant_type=password
 K --> KC : 200 { access_token, refresh_token,\n       expires_in, token_type }
-KC --> Tok : TokenResponse
+KC --> Tok : TokenResponseDto
 Tok -> Tok : user_uid read from the access token
-Tok --> Usr : TokenResponse + userUid
-Usr --> Ctl : TokenResponse
+Tok --> Usr : TokenResponseDto + userUid
+Usr --> Ctl : TokenResponseDto
 deactivate Usr
 
 Ctl --> U : 201 Created\n{ accessToken, refreshToken,\n  expiresIn, tokenType, userUid }
@@ -121,7 +121,7 @@ Usr -> KC : findRegisteredAt(sub)
 KC -> K : GET /admin/realms/{realm}/users/{sub}
 K --> KC : 200 { ..., "createdTimestamp": 1755600000000 }
 KC --> Usr : OffsetDateTime (UTC)
-Usr --> Ctl : CurrentUserResponse
+Usr --> Ctl : CurrentUserResponseDto
 Ctl --> U : 200 { userUid, keycloakUserId, email,\n     firstName, lastName, emailVerified,\n     roles, registeredAt }
 
 @enduml
@@ -261,7 +261,7 @@ if (@Valid passed?) then (no)
 else (yes)
 endif
 
-:person-service\nPOST /api/v1/users;
+:person-service\nPOST /api/v1/individuals;
 
 if (created?) then (no)
   #FFE0E0:409 -> **409** USER_ALREADY_EXISTS
@@ -279,14 +279,14 @@ endif
 :user_uid issued;
 note right #FFFFCC
   From here on, a Keycloak failure is
-  compensated: the domain user is deleted
-  again (DELETE /api/v1/users/{id}).
+  compensated: the individual is deleted
+  again (DELETE /api/v1/individuals/compensate-registration/{id}).
 end note
 
 :Keycloak\nPOST /admin/.../users;
 
 if (created?) then (no)
-  #FFCCCC:DELETE person-service /api/v1/users/{id};
+  #FFCCCC:DELETE person-service /api/v1/individuals/compensate-registration/{id};
   #FFCCCC:the original failure, e.g. **503** DEPENDENCY_UNAVAILABLE;
   note right
     Compensation: nothing is left anywhere,
@@ -310,7 +310,7 @@ if (password set?) then (no)
     while its address stays taken, so
     registering again answers 409 forever.
   end note
-  #FFCCCC:DELETE person-service /api/v1/users/{id};
+  #FFCCCC:DELETE person-service /api/v1/individuals/compensate-registration/{id};
   #FFCCCC:the original failure;
   stop
 else (yes)
@@ -325,7 +325,7 @@ if (role granted?) then (no)
     the role is useless and its address is
     already taken.
   end note
-  #FFCCCC:DELETE person-service /api/v1/users/{id};
+  #FFCCCC:DELETE person-service /api/v1/individuals/compensate-registration/{id};
   #FFCCCC:the original failure;
   stop
 else (yes)

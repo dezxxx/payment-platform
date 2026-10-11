@@ -21,12 +21,12 @@ activate Svc
 
 Svc -> PCl : createPerson
 activate PCl
-PCl -> Per : POST /api/v1/users\nemail, имя, адрес, individual
-Per --> PCl : 201, id = user_uid
+PCl -> Per : POST /api/v1/individuals\nфизлицо: паспорт, телефон,\nuser: email, имя, адрес
+Per --> PCl : 201, id физлица = user_uid
 PCl --> Svc : user_uid
 deactivate PCl
 
-group За этой чертой доменный пользователь уже существует
+group За этой чертой физлицо уже существует
   Svc -> KCl : createAccount
   activate KCl
   KCl -> Kc : POST /admin/realms/REALM/users\nбез пароля, плюс атрибут user_uid
@@ -46,16 +46,16 @@ group За этой чертой доменный пользователь уж�
 end
 
 alt часть в Keycloak упала (аккаунт, пароль или роль)
-  Svc -> PCl : deletePerson(user_uid)
+  Svc -> PCl : compensateRegistration(user_uid)
   activate PCl
-  PCl -> Per : DELETE /api/v1/users/{user_uid}
+  PCl -> Per : DELETE /api/v1/individuals/compensate-registration/{user_uid}
   Per --> PCl : 204
   deactivate PCl
   Svc --> Ctl : исходная ошибка (например, 503 DEPENDENCY_UNAVAILABLE)
   note right of Svc : удаление тоже упало →\n503 REGISTRATION_INCONSISTENT,\nuser_uid в лог для ручной уборки
 end
 
-Svc --> Ctl : TokenResponse
+Svc --> Ctl : TokenResponseDto
 deactivate Svc
 Ctl --> Client : 201 с токенами и user_uid
 deactivate Ctl
@@ -63,7 +63,7 @@ deactivate Ctl
 note over Svc, Kc
   Порядок намеренный: аккаунт Keycloak создаётся только
   после успешного шага в person-service, поэтому аккаунта
-  без доменного пользователя не бывает.
+  без физлица не бывает.
 
   Три admin-вызова, а не один: пароль Keycloak принимает
   отдельным эндпоинтом, роль при импорте не выдаёт. Если
@@ -71,8 +71,8 @@ note over Svc, Kc
   аккаунт — см. keycloak-client.puml.
 
   Обратная сторона — компенсация (Saga): любой сбой внутри
-  группы удаляет доменного пользователя через
-  DELETE /api/v1/users/{id}, и клиент получает исходную
+  группы удаляет физлицо через
+  DELETE /api/v1/individuals/compensate-registration/{id}, и клиент получает исходную
   ошибку. Только если и удаление не удалось, системы
   расходятся — REGISTRATION_INCONSISTENT и запись в лог.
 end note

@@ -16,7 +16,7 @@
 
 | Компонент | Источник правды для |
 |---|---|
-| `person-service` | доменного пользователя, адреса, данных физлица |
+| `person-service` | физлиц: у каждого его user (учётка) и адрес user |
 | Keycloak | учётной записи, токенов, ролей, атрибутов аутентификации |
 | `individuals-api` | ничего — только координирует двух выше |
 
@@ -988,23 +988,26 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 |---|---|
 | Веб-стек | Spring MVC поверх JPA — блокирующий, в отличие от individuals-api |
 | Маппинг DTO ↔ сущность | руками, без MapStruct |
-| Имена DTO | у сгенерированных Java-классов суффикс `Dto` (`modelNameSuffix`): `UserResponseDto` рядом с `UserEntity` — в коде сразу видно, что есть что. Схемы контракта сохраняют имена из ТЗ (`CreateUserRequest`, `UserResponse`…) |
-| API | `/api/v1/users`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204. Поля ровно как в примерах запроса и ответа из задания |
-| Создание | адрес и individual **обязательны**: строка ТЗ про создание — «транзакционное создание users, individuals, addresses», агрегат рождается целиком, а PATCH меняет только то, что уже есть. Неизвестный код страны → 400 |
-| Идентификатор | `users.id` (UUID) — доменный идентификатор; individuals-api кладёт его в Keycloak как `user_uid`. person-service о Keycloak ничего не знает |
+| Корень агрегата | **физлицо (individual)**. User — учётная запись (email, имя, адрес), которую держит физлицо, а позже и юрлицо; никогда не наоборот. `IndividualEntity` владеет `user` (`individuals.user_id`, cascade ALL), `UserEntity` о физлице не знает. `/api/v1/users` из ТЗ с user наверху переделан после ревью |
+| Имена DTO | у сгенерированных Java-классов суффикс `Dto` (`modelNameSuffix`): `IndividualResponseDto` рядом с `IndividualEntity` — в коде сразу видно, что есть что. Схемы: `CreateIndividualRequest`, `UpdateIndividualRequest`, `IndividualResponse`, `ProblemResponse`; user и address — вложенные объекты внутри них |
+| API | `/api/v1/individuals`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204 (мягкое), DELETE `/compensate-registration/{id}` → 204 (полное), обслуживает `IndividualRestControllerV1`. Тело: физлицо сверху (`passportNumber`, `phoneNumber`, `status`…), внутри его `user`, внутри user — `address` |
+| Создание | `passportNumber`, `phoneNumber`, `user`, его `address` и `countryAlpha3` **обязательны**: агрегат рождается целиком (физлицо, user, адрес в одной транзакции), а PATCH меняет только то, что уже есть. Неизвестный код страны → 400 |
+| Идентификатор | `individuals.id` (UUID) — доменный идентификатор: его возвращает API и принимает в `/{id}`; individuals-api кладёт его в Keycloak как `user_uid`. person-service о Keycloak ничего не знает |
 | Email | уникален без учёта регистра (индекс `lower(email)`); через PATCH не меняется |
 | Ошибки | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) плюс общие для курса `timestamp`, `error`, `traceId`, `details` как доп. поля — одно тело устраивает оба задания. `type` = `https://example.org/problems/<код-в-kebab-case>`, как в примере ТЗ, `title` — название HTTP-статуса, `detail` — текст из `ErrorCode`. Один `GlobalExceptionHandler` наследует `ResponseEntityExceptionHandler`, поэтому ошибки самого Spring (кривой JSON, 405, 415, `@Valid`) получают то же тело. Тексты ошибок всегда по-английски (`spring.web.locale: en`, фиксированный resolver) |
 | Миграции | по одной на шаг: схема → таблицы → индексы и ограничения → страны; аудитные таблицы Envers — V005 |
+| Удаление | две операции. `DELETE /{id}` — мягкое удаление: физлицо получает `ARCHIVED` и `archived_at`, user и адрес не меняются, а все чтения (`/{id}`, `/by-email`, PATCH, DELETE) находят только активных. `DELETE /compensate-registration/{id}` — полное удаление агрегата, его вызывает только individuals-api, когда в регистрации упала часть Keycloak: данные несостоявшейся регистрации не храним. Email архивного физлица остаётся занятым |
+| Схема | DDL из ТЗ ужесточён под агрегат: `individuals.user_id`, `passport_number`, `phone_number`, `users.address_id`, `addresses.country_id` — NOT NULL; у физлица есть `created`/`updated`, как у user и адреса; `users.secret_key` удалён (не использовался, а person-service не хранит секретов других систем). `status` — `NEW`, `VERIFIED` или `ARCHIVED` (enum `IndividualStatus`, CHECK в базе, enum в контракте); создание ставит `NEW`, мягкое удаление — `ARCHIVED`; `VERIFIED` — основа для будущей верификации |
 | Индексы | там, где они нужны запросу или внешнему ключу, и никогда дважды: UNIQUE уже сам является индексом |
-| Аудит | Hibernate Envers пишет историю в свою схему `person_history` (`users_history`, `addresses_history`, `individuals_history`, `revinfo`), Spring Data Envers её читает (`RevisionRepository` у User и Individual). Флаги изменённых полей у всех трёх аудируемых сущностей — ТЗ требует минимум User и Individual, а PATCH чаще всего меняет адрес. Страны не аудируются: их заполняет миграция, через API они не меняются. `secret_key` в историю не попадает. Удалённый пользователь сохраняет данные в последней ревизии (`store_data_at_delete`) |
-| Сущности | `UserEntity` — корень агрегата: адрес (`@OneToOne`, владелец) и individual (`@OneToOne`, `mappedBy`) сохраняются и удаляются через него каскадом; все связи LAZY |
+| Аудит | Hibernate Envers пишет историю в свою схему `person_history` (`users_history`, `addresses_history`, `individuals_history`, `revinfo`), Spring Data Envers её читает (`RevisionRepository` у User и Individual). Флаги изменённых полей у всех трёх аудируемых сущностей — ТЗ требует минимум User и Individual, а PATCH чаще всего меняет адрес. Страны не аудируются: их заполняет миграция, через API они не меняются. Удалённый пользователь сохраняет данные в последней ревизии (`store_data_at_delete`) |
+| Сущности | `IndividualEntity` — корень агрегата: владеет user, user владеет адресом (`@OneToOne`, cascade ALL), поэтому весь агрегат сохраняется и удаляется через физлицо; все связи LAZY |
 | Время | в сущностях `Instant` — точка во времени, одинаковая, где бы ни работал сервер; ложится в обычные колонки `TIMESTAMP` из DDL (`preferred_instant_jdbc_type`) и хранится в UTC (`hibernate.jdbc.time_zone`); в JSON — с `Z`. От `LocalDateTime` отказались: `@CreationTimestamp` заполнял его местным временем сервера |
 | Локальный порт | 8082 в compose; 8092 при запуске из IDE (`SERVER_PORT=8092 ./gradlew bootRun`), потому что 8082 занят compose |
 | История Flyway | `person.flyway_schema_history`, рядом с таблицами (`spring.flyway.default-schema: person`). Если оставить её на `search_path`, она «переезжает»: пользователь БД тоже зовётся `person`, поэтому `"$user"` до V001 указывал на `public`, а после — на `person`, и второй старт падал |
 | Репозитории | четыре, по одному на сущность, как у преподавателя. Email ищется через `lower(email) = lower(:email)`, а не встроенным `…IgnoreCase` (тот делает `upper()` и не может использовать `uk_users_email_lower`) |
 | Исключения | одно `PersonException` с `ErrorCode` (статус + текст), тот же образец, что `ApiException` в модуле 1. `VALIDATION_ERROR` / `MALFORMED_REQUEST` / `COUNTRY_NOT_FOUND` 400, `USER_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` / `CONCURRENT_MODIFICATION` 409, от фреймворка `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR` 500. Второе создание, проскочившее проверку email, останавливает `uk_users_email_lower`, и ответ всё равно 409 |
-| Транзакции | `UserService` — `@Transactional(readOnly = true)`; создание, изменение и удаление открывают пишущую транзакцию. Ответ собирается внутри транзакции: ленивые связи грузятся там, и ничего ленивого из сервиса не выходит |
-| Клиент | `person-service-client` заменяет `person-client`; individuals-api переходит на него и получает компенсацию регистрации — DELETE персоны, если шаг в Keycloak упал |
+| Транзакции | `IndividualService` — `@Transactional(readOnly = true)`; создание, изменение и удаление открывают пишущую транзакцию. Ответ собирается внутри транзакции: ленивые связи грузятся там, и ничего ленивого из сервиса не выходит |
+| Клиент | `person-service-client` заменяет `person-client`; individuals-api переходит на него и получает компенсацию регистрации — `DELETE /compensate-registration/{id}`, если упала часть Keycloak |
 
 ### Сделано
 
@@ -1037,7 +1040,7 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
       ни запросов в базу, ни бизнес-решений. Страну ищет сервис и передаёт
       готовой; в PATCH `null` значит «не трогать». Перевод времени в UTC, нужный
       обоим мапперам, лежит в `util/DateTimeUtil`
-- [x] `UserService` с пятью операциями, четыре репозитория, `PersonException`
+- [x] `IndividualService` с шестью операциями, четыре репозитория, `PersonException`
       + `ErrorCode`. Создание проверяет email, ищет страну (сначала alpha3, потом
       alpha2), ставит статус `NEW` и `filled`; изменение делает `flush`, чтобы в
       ответе уже были новая версия и время. Стартует на compose-базе: Spring Data
@@ -1047,7 +1050,7 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
       User, Address, Individual; флаги `*_mod` названы по колонкам. Проверка схемы
       при старте проходит на compose-базе; через API создание, PATCH и удаление
       оставляют ревизии 0, 1 и 2
-- [x] `UserController` реализует сгенерированный `UsersApi`: пять методов в одну
+- [x] `IndividualRestControllerV1` реализует сгенерированный `IndividualsApi`: пять методов в одну
       строку, 201 / 200 / 204, без логики. Swagger UI на `/swagger-ui.html` показывает
       сам файл контракта (springdoc, так же, как в individuals-api)
 - [x] Слой ошибок (шаг 7): `ProblemResponse` в контракте несёт поля курса,
@@ -1060,10 +1063,10 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
       на той же базе
 - [x] Наблюдаемость, сторона сервиса: открыты `health`, `info`, `prometheus`,
       `metrics`; JSON-логи ECS с `traceId`, `spanId`, `service.name` и `user_uid`;
-      трейсы по OTLP в Tempo, каждый метод `UserService` — спан (`userService.create`…)
-      под HTTP-спаном и таймер `user_operations_seconds{operation}`. Проверено с
-      локальным Tempo: `spanId` строки лога — это спан `userService.create` того же трейса.
-      `user_uid` — ещё и атрибут спана `userService.*`, Tempo находит запросы пользователя
+      трейсы по OTLP в Tempo, каждый метод `IndividualService` — спан (`individualService.create`…)
+      под HTTP-спаном и таймер `individual_operations_seconds{operation}`. Проверено с
+      локальным Tempo: `spanId` строки лога — это спан `individualService.create` того же трейса.
+      `user_uid` — ещё и атрибут спана `individualService.*`, Tempo находит запросы физлица
       (`{span.user_uid="..."}`); метрикой-меткой — никогда: ряд на каждого пользователя
       утопит Prometheus. Имя `user_uid`, а не `user.id` из OpenTelemetry, чтобы одно имя
       находило пользователя в individuals-api, токене Keycloak и person-service
@@ -1076,10 +1079,10 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
       Alloy хранит `user_uid` как structured metadata, в Grafana дашборд
       `person-service`. Проверено на чистом стенде: обе Postman-коллекции зелёные,
       строка из Loki открывает свой трейс в Tempo
-- [x] Тесты person-service, given / when / then: 38 unit (UserService, мапперы,
+- [x] Тесты person-service, given / when / then: 39 unit (IndividualService, мапперы,
       GlobalExceptionHandler, DateTimeUtil, UserUidLogFilter) и 19 интеграционных на
       настоящем PostgreSQL (Testcontainers): все сценарии из ТЗ — создание, повтор
-      email -> 409, чтение по id и по email, один PATCH пользователя и адреса, откат
+      email -> 409, чтение по id и по email, один PATCH физлица, user и адреса, откат
       частичного изменения, удаление без единой оставшейся строки, ревизии Envers и
       флаги изменений, health и метрики. Покрытие 97% строк, сборка падает ниже 80%
       (`./gradlew check`)
@@ -1087,10 +1090,10 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
       jar клиента и pom со списком его зависимостей
 - [x] individuals-api на новом клиенте, из Nexus по координатам:
       - регистрация принимает адрес и individual и передаёт их в
-        `POST /api/v1/users`; неизвестный код страны — 400 `VALIDATION_ERROR` с
+        `POST /api/v1/individuals`; неизвестный код страны — 400 `VALIDATION_ERROR` с
         указанием адреса
-      - компенсация: если часть в Keycloak упала, доменный пользователь удаляется
-        (`DELETE /api/v1/users/{id}`), а вызывающий получает исходную ошибку;
+      - компенсация: если часть в Keycloak упала, физлицо удаляется
+        (`DELETE /api/v1/individuals/compensate-registration/{id}`), а вызывающий получает исходную ошибку;
         `REGISTRATION_INCONSISTENT` — только если и удаление упало. Проверено вживую:
         Keycloak остановлен -> 503, строки не осталось, в истории Envers создание и
         удаление
@@ -1103,7 +1106,7 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 - [x] Трейсы идут через Alloy, агента: оба сервиса отправляют OTLP на
       `alloy:4318`, Alloy собирает их в пачки и передаёт в Tempo — как ТЗ и
       предпочитает вместо прямого экспорта. Одна регистрация — один трейс через оба
-      сервиса (`registration` -> `http post /api/v1/users` -> `userService.create`)
+      сервиса (`registration` -> `http post /api/v1/individuals` -> `individualService.create`)
 - [x] Проверено на чистом стенде: обе Postman-коллекции зелёные (individuals-api
       20 запросов / 52 проверки, person-service 22 / 106), обе сборки со всеми
       тестами зелёные

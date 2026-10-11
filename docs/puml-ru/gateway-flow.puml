@@ -57,7 +57,7 @@ Ctl -> Usr : register(request)
 activate Usr
 
 Usr -> PC : createPerson(request)
-PC -> PS : POST /api/v1/users
+PC -> PS : POST /api/v1/individuals
 PS --> PC : 201 { "id": "6f1d2a4e-...", ... }
 PC --> Usr : UUID
 note right of PC
@@ -96,10 +96,10 @@ Usr -> Tok : issueTokens(email, password)
 Tok -> KC : login(email, password)
 KC -> K : POST /token  grant_type=password
 K --> KC : 200 { access_token, refresh_token,\n       expires_in, token_type }
-KC --> Tok : TokenResponse
+KC --> Tok : TokenResponseDto
 Tok -> Tok : user_uid из access-токена
-Tok --> Usr : TokenResponse + userUid
-Usr --> Ctl : TokenResponse
+Tok --> Usr : TokenResponseDto + userUid
+Usr --> Ctl : TokenResponseDto
 deactivate Usr
 
 Ctl --> U : 201 Created\n{ accessToken, refreshToken,\n  expiresIn, tokenType, userUid }
@@ -120,7 +120,7 @@ Usr -> KC : findRegisteredAt(sub)
 KC -> K : GET /admin/realms/{realm}/users/{sub}
 K --> KC : 200 { ..., "createdTimestamp": 1755600000000 }
 KC --> Usr : OffsetDateTime (UTC)
-Usr --> Ctl : CurrentUserResponse
+Usr --> Ctl : CurrentUserResponseDto
 Ctl --> U : 200 { userUid, keycloakUserId, email,\n     firstName, lastName, emailVerified,\n     roles, registeredAt }
 
 @enduml
@@ -261,7 +261,7 @@ if (@Valid прошёл?) then (нет)
 else (да)
 endif
 
-:person-service\nPOST /api/v1/users;
+:person-service\nPOST /api/v1/individuals;
 
 if (создан?) then (нет)
   #FFE0E0:409 -> **409** USER_ALREADY_EXISTS
@@ -279,14 +279,14 @@ endif
 :user_uid выдан;
 note right #FFFFCC
   С этого места сбой в Keycloak
-  компенсируется: доменный пользователь
-  удаляется (DELETE /api/v1/users/{id}).
+  компенсируется: физлицо
+  удаляется (DELETE /api/v1/individuals/compensate-registration/{id}).
 end note
 
 :Keycloak\nPOST /admin/.../users;
 
 if (создан?) then (нет)
-  #FFCCCC:DELETE person-service /api/v1/users/{id};
+  #FFCCCC:DELETE person-service /api/v1/individuals/compensate-registration/{id};
   #FFCCCC:исходная ошибка, например **503** DEPENDENCY_UNAVAILABLE;
   note right
     Компенсация: нигде ничего не остаётся,
@@ -310,7 +310,7 @@ if (пароль установлен?) then (нет)
     а адрес остаётся занятым, поэтому повторная
     регистрация будет отвечать 409 вечно.
   end note
-  #FFCCCC:DELETE person-service /api/v1/users/{id};
+  #FFCCCC:DELETE person-service /api/v1/individuals/compensate-registration/{id};
   #FFCCCC:исходная ошибка;
   stop
 else (да)
@@ -324,7 +324,7 @@ if (роль выдана?) then (нет)
     Та же компенсация: учётка без роли
     бесполезна, а адрес занят.
   end note
-  #FFCCCC:DELETE person-service /api/v1/users/{id};
+  #FFCCCC:DELETE person-service /api/v1/individuals/compensate-registration/{id};
   #FFCCCC:исходная ошибка;
   stop
 else (да)

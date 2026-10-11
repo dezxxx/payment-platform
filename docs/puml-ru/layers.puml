@@ -97,7 +97,7 @@ end note
 note bottom of error
   Контроллеры объявляют throws Exception,
   поэтому ошибки попадают сюда и становятся
-  одним ErrorResponse с traceId.
+  одним ErrorResponseDto с traceId.
   SecurityErrorWriter - вторая дорога: то, что
   отбила охрана, до advice не доходит.
 end note

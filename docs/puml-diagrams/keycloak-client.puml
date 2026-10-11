@@ -6,19 +6,20 @@ skinparam shadowing false
 
 participant "AuthController" as Ctl
 participant "UserService" as Svc
-participant "PersonClient\n(over generated UsersApi)" as Person
+participant "PersonClient\n(over generated IndividualsApi)" as Person
 participant "KeycloakClient" as Kcl
 participant "person-service" as Ps
 participant "Keycloak" as Kc
 
-Ctl -> Svc : register(RegistrationRequest)
+Ctl -> Svc : register(RegistrationRequestDto)
 activate Svc
 
-== 1. the domain user is created first ==
+== 1. the individual is created first ==
 
 Svc -> Person : createPerson(request)
 activate Person
-Person -> Ps : POST /api/v1/users\n{ "email", "firstName", "lastName", "address", "individual" }
+Person -> Ps : POST /api/v1/individuals\n{ "passportNumber", "phoneNumber",
+  "user": { "email", "firstName", "lastName", "address" } }
 Ps --> Person : 201 { "id": "6f1d2a4e-...", ... }
 Person --> Svc : userUid
 deactivate Person
@@ -122,7 +123,7 @@ Svc -> Kcl : TokenService.issueTokens -> login(email, password)
 activate Kcl
 Kcl -> Kc : POST /realms/{realm}/protocol/openid-connect/token\nform: grant_type=password
 Kc --> Kcl : 200 { access_token, refresh_token, expires_in, token_type }
-Kcl --> Svc : TokenResponse (TokenService adds user_uid from the token)
+Kcl --> Svc : TokenResponseDto (TokenService adds user_uid from the token)
 deactivate Kcl
 
 == 7. the answer ==
@@ -140,7 +141,7 @@ skinparam shadowing false
 
 start
 
-:person-service created the domain user;
+:person-service created the individual;
 :Keycloak created the account
 (no password yet);
 
@@ -162,8 +163,8 @@ else (no)
     free again, the caller can simply
     try once more.
 
-    UserService then deletes the domain
-    user too: DELETE /api/v1/users/{id}
+    UserService then deletes the
+    individual too: DELETE /api/v1/individuals/compensate-registration/{id}
     on person-service.
   end note
   :answer the client with the original failure
@@ -194,7 +195,7 @@ rectangle "Admin API\nGET /admin/realms/{realm}/users/{sub}" as Adm {
   card "createdTimestamp -> registeredAt" as c8
 }
 
-rectangle "CurrentUserResponse\n8 required fields" as Out
+rectangle "CurrentUserResponseDto\n8 required fields" as Out
 
 Tok --> Out : seven fields, no network call
 Adm --> Out : the eighth one\n(KeycloakClient.findRegisteredAt)
@@ -230,7 +231,7 @@ package service {
 package "gateway.person" {
   class PersonClient <<@Component>> {
     + Mono<UUID> createPerson(request)
-    + Mono<Void> deletePerson(userUid)
+    + Mono<Void> compensateRegistration(userUid)
     - translate(error)
   }
 }
@@ -238,8 +239,8 @@ package "gateway.person" {
 package "gateway.keycloak.client" {
   class KeycloakClient <<@Component>> {
     .. token endpoint ..
-    + Mono<TokenResponse> login(email, password)
-    + Mono<TokenResponse> refresh(refreshToken)
+    + Mono<TokenResponseDto> login(email, password)
+    + Mono<TokenResponseDto> refresh(refreshToken)
     + Mono<String> adminLogin()
     .. Admin API ..
     + Mono<String> createAccount(email, firstName,\n                         lastName, userUid)

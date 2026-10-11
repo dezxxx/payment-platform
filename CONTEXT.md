@@ -13,7 +13,7 @@ orchestrates user registration and authentication. It stores nothing itself.
 
 | Component | Is the source of truth for |
 |---|---|
-| `person-service` | the domain user, address, individual data |
+| `person-service` | individuals: each holds its user (account) and the user's address |
 | Keycloak | the account, tokens, roles, auth attributes |
 | `individuals-api` | nothing — it only coordinates the two above |
 
@@ -622,7 +622,7 @@ payment-platform/              a Git root, NOT a Gradle project
 │                              sequence, layers, gateways, errors, observability
 ├── docs/puml-ru/              the same diagrams in Russian
 ├── individuals-api/           the orchestrator
-└── person-service/            the user aggregate; also publishes person-service-client -> Nexus
+└── person-service/            the individual aggregate; also publishes person-service-client -> Nexus
 ```
 
 Each module is an independent Gradle build: its own `settings.gradle.kts`,
@@ -1037,23 +1037,26 @@ of its "implementation steps".
 |---|---|
 | Web stack | Spring MVC over JPA - blocking, unlike individuals-api |
 | DTO ↔ entity mapping | written by hand, no MapStruct |
-| DTO names | the generated Java classes carry a `Dto` suffix (`modelNameSuffix`): `UserResponseDto` next to `UserEntity`, so the code tells the two apart at a glance. The contract schemas keep the handout names (`CreateUserRequest`, `UserResponse`…) |
-| API | `/api/v1/users`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204. Fields exactly as the handout's request and response examples |
-| Create | address and individual are **required**: the handout's create row says "transactional creation of users, individuals, addresses", so the aggregate is born whole and PATCH only ever changes what exists. Unknown country code → 400 |
-| Identifier | `users.id` (UUID) is the domain identifier; individuals-api stores it in Keycloak as `user_uid`. person-service knows nothing about Keycloak |
+| Aggregate root | **the individual**. A user is the account (email, name, address) that an individual - and later a legal entity - holds; never the other way round. `IndividualEntity` owns `user` (`individuals.user_id`, cascade ALL), `UserEntity` knows nothing of the individual. The handout's `/api/v1/users` with the user on top was reworked after the review |
+| DTO names | the generated Java classes carry a `Dto` suffix (`modelNameSuffix`): `IndividualResponseDto` next to `IndividualEntity`, so the code tells the two apart at a glance. Schemas: `CreateIndividualRequest`, `UpdateIndividualRequest`, `IndividualResponse`, `ProblemResponse`; user and address go inline inside them |
+| API | `/api/v1/individuals`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204 (soft), DELETE `/compensate-registration/{id}` → 204 (hard), served by `IndividualRestControllerV1`. Body: the individual on top (`passportNumber`, `phoneNumber`, `status`…), its `user` inside, the `address` inside the user |
+| Create | `passportNumber`, `phoneNumber`, `user`, its `address` and `countryAlpha3` are **required**: the aggregate is born whole (individual, user, address in one transaction) and PATCH only ever changes what exists. Unknown country code → 400 |
+| Identifier | `individuals.id` (UUID) is the domain identifier: the API returns it and takes it in `/{id}`; individuals-api stores it in Keycloak as `user_uid`. person-service knows nothing about Keycloak |
 | Email | unique regardless of case (`lower(email)` index); not changed by PATCH |
 | Errors | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) plus the course-wide `timestamp`, `error`, `traceId`, `details` as extension members - one body satisfies both handouts. `type` = `https://example.org/problems/<code-in-kebab-case>` as in the handout's example, `title` = the HTTP reason phrase, `detail` = the `ErrorCode` text. One `GlobalExceptionHandler` extends `ResponseEntityExceptionHandler`, so Spring's own failures (bad JSON, 405, 415, `@Valid`) get the same body. Error texts are always English (`spring.web.locale: en`, fixed resolver) |
 | Migrations | one per step: schema → tables → indexes and constraints → countries; Envers audit tables as V005 |
+| Delete | two operations. `DELETE /{id}` is a soft delete: the individual becomes `ARCHIVED` with `archived_at`, user and address stay as they are, and every read (`/{id}`, `/by-email`, PATCH, DELETE) finds active individuals only. `DELETE /compensate-registration/{id}` is a hard delete of the whole aggregate, called only by individuals-api when the Keycloak part of a registration fails: data that never became a registration is not kept. An archived individual keeps its email taken |
+| Schema | the handout's DDL tightened to the aggregate: `individuals.user_id`, `passport_number`, `phone_number`, `users.address_id`, `addresses.country_id` are NOT NULL; individuals carry `created`/`updated` like the user and the address; `users.secret_key` is dropped (never used, and person-service holds no secrets of other systems). `status` is `NEW`, `VERIFIED` or `ARCHIVED` (enum `IndividualStatus`, a CHECK constraint, an enum in the contract); create sets `NEW`, the soft delete sets `ARCHIVED`; `VERIFIED` is the base for verification later |
 | Indexes | where a query or a foreign key needs one, and never twice: a UNIQUE constraint already is an index |
-| Audit | Hibernate Envers writes the history into its own schema `person_history` (`users_history`, `addresses_history`, `individuals_history`, `revinfo`), Spring Data Envers reads it (`RevisionRepository` on User and Individual). Modified flags on all three audited entities - the handout asks for User and Individual at least, and PATCH changes the address most. Countries are not audited: a migration fills them and the API never changes them. `secret_key` stays out of the history. A deleted user keeps its data in the last revision (`store_data_at_delete`) |
-| Entities | `UserEntity` is the aggregate root: address (`@OneToOne`, owner) and individual (`@OneToOne`, `mappedBy`) are saved and deleted through it by cascade; all associations LAZY |
+| Audit | Hibernate Envers writes the history into its own schema `person_history` (`users_history`, `addresses_history`, `individuals_history`, `revinfo`), Spring Data Envers reads it (`RevisionRepository` on User and Individual). Modified flags on all three audited entities - the handout asks for User and Individual at least, and PATCH changes the address most. Countries are not audited: a migration fills them and the API never changes them. A deleted user keeps its data in the last revision (`store_data_at_delete`) |
+| Entities | `IndividualEntity` is the aggregate root: it owns the user, the user owns the address (`@OneToOne`, cascade ALL), so the whole aggregate is saved and deleted through the individual; all associations LAZY |
 | Time | entities hold `Instant` - a point in time, the same wherever the server runs; mapped to the DDL's plain `TIMESTAMP` columns (`preferred_instant_jdbc_type`) and stored as UTC (`hibernate.jdbc.time_zone`); the JSON carries a `Z`. `LocalDateTime` was dropped: `@CreationTimestamp` filled it with the server's local clock |
 | Local port | 8082 in compose; 8092 when started from the IDE (`SERVER_PORT=8092 ./gradlew bootRun`), since compose holds 8082 |
 | Flyway history | `person.flyway_schema_history`, next to the tables (`spring.flyway.default-schema: person`). Left to `search_path`, it moved: the database user is also called `person`, so `"$user"` pointed to `public` before V001 and to `person` after it, and the second start failed |
 | Repositories | four, one per entity, as in the teacher's project. Email is looked up with `lower(email) = lower(:email)`, not the derived `…IgnoreCase` (that one is `upper()` and cannot use `uk_users_email_lower`) |
 | Exceptions | one `PersonException` carrying an `ErrorCode` (status + message), the same pattern as module 1's `ApiException`. `VALIDATION_ERROR` / `MALFORMED_REQUEST` / `COUNTRY_NOT_FOUND` 400, `USER_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` / `CONCURRENT_MODIFICATION` 409, framework `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR` 500. A second create racing past the email check is stopped by `uk_users_email_lower` and still answers 409 |
-| Transactions | `UserService` is `@Transactional(readOnly = true)`; create, update and delete open a writing transaction. The response is built inside the transaction, so LAZY associations load there and nothing lazy leaves the service |
-| Client | `person-service-client` replaces `person-client`; individuals-api moves to it and gains the registration compensation - DELETE the person when the Keycloak part fails |
+| Transactions | `IndividualService` is `@Transactional(readOnly = true)`; create, update and delete open a writing transaction. The response is built inside the transaction, so LAZY associations load there and nothing lazy leaves the service |
+| Client | `person-service-client` replaces `person-client`; individuals-api moves to it and gains the registration compensation - `DELETE /compensate-registration/{id}` when the Keycloak part fails |
 
 ### Done
 
@@ -1086,7 +1089,7 @@ of its "implementation steps".
       no database calls, no business decisions. The country is looked up by the
       service and handed in; on PATCH a null field means "leave as is". The UTC
       conversion both mappers need lives in `util/DateTimeUtil`
-- [x] `UserService` with the five operations, four repositories, `PersonException`
+- [x] `IndividualService` with the six operations, four repositories, `PersonException`
       + `ErrorCode`. Create checks the email, finds the country (alpha3 first,
       then alpha2), sets status `NEW` and `filled`; update flushes so the response
       carries the new version and time. Starts against the compose database:
@@ -1096,7 +1099,7 @@ of its "implementation steps".
       User, Address, Individual; `*_mod` flags named after the columns. The schema
       check at start-up passes against the compose database; through the API a
       create, a PATCH and a delete leave revisions 0, 1 and 2
-- [x] `UserController` implements the generated `UsersApi`: five one-line methods,
+- [x] `IndividualRestControllerV1` implements the generated `IndividualsApi`: five one-line methods,
       201 / 200 / 204, no logic. Swagger UI at `/swagger-ui.html` shows the contract
       file itself (springdoc, the same way as individuals-api)
 - [x] Error layer (step 7): `ProblemResponse` in the contract carries the course
@@ -1109,11 +1112,11 @@ of its "implementation steps".
       the same database
 - [x] Observability, the service side: `health`, `info`, `prometheus`, `metrics`
       exposed; ECS JSON logs carrying `traceId`, `spanId`, `service.name` and
-      `user_uid`; traces over OTLP to Tempo, every `UserService` method a span
-      (`userService.create`...) under the HTTP span and a timer
-      `user_operations_seconds{operation}`. Checked with a local Tempo: a log line's
-      `spanId` is the `userService.create` span of the same trace. `user_uid` is also an
-      attribute of the `userService.*` span, so Tempo finds a user's requests
+      `user_uid`; traces over OTLP to Tempo, every `IndividualService` method a span
+      (`individualService.create`...) under the HTTP span and a timer
+      `individual_operations_seconds{operation}`. Checked with a local Tempo: a log line's
+      `spanId` is the `individualService.create` span of the same trace. `user_uid` is also an
+      attribute of the `individualService.*` span, so Tempo finds an individual's requests
       (`{span.user_uid="..."}`); never a metric label - one series per user would
       sink Prometheus. Named `user_uid`, not OpenTelemetry's `user.id`, so the same
       name finds the user in individuals-api, the Keycloak token and person-service
@@ -1126,21 +1129,21 @@ of its "implementation steps".
       `person-service:8082`, Alloy keeps `user_uid` as structured metadata, Grafana
       has a `person-service` dashboard. Checked on a clean stack: both Postman
       collections green, a Loki line opens its Tempo trace
-- [x] Tests of person-service, given / when / then: 38 unit (UserService, the
+- [x] Tests of person-service, given / when / then: 39 unit (IndividualService, the
       mappers, GlobalExceptionHandler, DateTimeUtil, UserUidLogFilter) and 19
       integration on a real PostgreSQL (Testcontainers): every scenario the handout
       lists - create, a repeated email -> 409, read by id and by email, one PATCH of
-      user and address, rollback of a partial change, delete leaving no row, Envers
+      individual, user and address, rollback of a partial change, delete leaving no row, Envers
       revisions and modified flags, health and metrics. Coverage 97% of lines, the
       build fails below 80% (`./gradlew check`)
 - [x] `person-service-client` published to Nexus by person-service itself
       (`make publish`): the client jar and a pom listing its dependencies
 - [x] individuals-api on the new client, from Nexus by coordinates:
       - registration takes address and individual and passes them to
-        `POST /api/v1/users`; an unknown country code answers 400
+        `POST /api/v1/individuals`; an unknown country code answers 400
         `VALIDATION_ERROR` naming the address
-      - compensation: when the Keycloak part fails, the domain user is deleted
-        (`DELETE /api/v1/users/{id}`) and the caller gets the original error;
+      - compensation: when the Keycloak part fails, the individual is deleted
+        (`DELETE /api/v1/individuals/compensate-registration/{id}`) and the caller gets the original error;
         `REGISTRATION_INCONSISTENT` only when that delete fails too. Checked live:
         Keycloak stopped -> 503, no row left, Envers history shows the create and
         the delete
@@ -1154,7 +1157,7 @@ of its "implementation steps".
 - [x] Traces go through Alloy, the agent: both services push OTLP to
       `alloy:4318`, Alloy batches them and passes them on to Tempo - as the handout
       prefers over a direct export. One registration is one trace across both
-      services (`registration` -> `http post /api/v1/users` -> `userService.create`)
+      services (`registration` -> `http post /api/v1/individuals` -> `individualService.create`)
 - [x] Checked on a clean stack: both Postman collections green (individuals-api
       20 requests / 52 assertions, person-service 22 / 106), both builds green with
       every test suite

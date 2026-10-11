@@ -22,7 +22,7 @@ node "docker compose network" {
 
 Client --> API : POST /api/v1/auth/...
 API --> KC : Admin REST API\nand OIDC token endpoint
-API --> PS : POST /api/v1/users\nDELETE /api/v1/users/{id} (compensation)
+API --> PS : POST /api/v1/individuals\nDELETE /api/v1/individuals/compensate-registration/{id} (compensation)
 PS --> PSDB : JDBC
 KC --> KCDB : JDBC
 
@@ -63,7 +63,7 @@ note bottom of NEXUS
 end note
 
 note right of PS
-  The user aggregate (module 2). Starts only once
+  The individual aggregate (module 2). Starts only once
   person-postgres is healthy - Flyway migrates at
   start-up - and individuals-api waits for it to be
   healthy in turn.

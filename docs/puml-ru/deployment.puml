@@ -22,7 +22,7 @@ node "сеть docker compose" {
 
 Client --> API : POST /api/v1/auth/...
 API --> KC : Admin REST API\nи точка выдачи токенов OIDC
-API --> PS : POST /api/v1/users\nDELETE /api/v1/users/{id} (компенсация)
+API --> PS : POST /api/v1/individuals\nDELETE /api/v1/individuals/compensate-registration/{id} (компенсация)
 PS --> PSDB : JDBC
 KC --> KCDB : JDBC
 

@@ -59,7 +59,7 @@ end note
 note bottom of Factory
   Two roads, four callers, one builder.
   Nothing else is allowed to assemble
-  an ErrorResponse.
+  an ErrorResponseDto.
 end note
 
 @enduml

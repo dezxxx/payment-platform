@@ -94,7 +94,7 @@ end note
 
 note bottom of error
   Controllers declare throws Exception, so
-  errors land here and become one ErrorResponse
+  errors land here and become one ErrorResponseDto
   carrying the traceId. SecurityErrorWriter is
   the second road: what the filter chain rejects
   never reaches an advice.

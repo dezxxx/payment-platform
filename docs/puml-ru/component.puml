@@ -20,7 +20,7 @@ PS *-- PSY
 PS *-- MIG
 API *-- IAY
 
-PSY --> PS : openApiGenerate\nсерверный интерфейс UsersApi\nopenApiGenerateClient\nDTO + @HttpExchange UsersApi
+PSY --> PS : openApiGenerate\nсерверный интерфейс IndividualsApi\nopenApiGenerateClient\nDTO + @HttpExchange IndividualsApi
 IAY --> API : openApiGenerate\nтолько интерфейс AuthApi
 PS --> PCJ : make publish\n(только jar клиента)
 PCJ --> NEXUS

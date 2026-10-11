@@ -59,7 +59,7 @@ end note
 note bottom of Factory
   Две дороги, четыре вызывающих, один сборщик.
   Больше никому не разрешено собирать
-  ErrorResponse.
+  ErrorResponseDto.
 end note
 
 @enduml
