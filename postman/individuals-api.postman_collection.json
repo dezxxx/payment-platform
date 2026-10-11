@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "individuals-api",
-    "description": "Every endpoint of individuals-api for two users, Ivan and Anna, so each one can be checked on its own afterwards: in Keycloak (admin console, realm payment-platform, Users) and through /me with that user's token.\n\nNothing is copied by hand: every request stores what the next one needs in collection variables. Run the whole collection with Postman's Runner, top to bottom.\n\nRun it on a fresh stack (make up after the volumes were removed). The emails are fixed so the users are easy to find; a second run on the same stack answers 409 on registration, which is correct.\n\nperson-service is a WireMock stub in module 1 (infra/person-service-stub): it gives every registration a new userUid and answers 409 to a second registration of Ivan or Anna.",
+    "description": "Every endpoint of individuals-api for two users, Ivan and Anna, so each one can be checked on its own afterwards: in Keycloak (admin console, realm payment-platform, Users) and through /me with that user's token.\n\nNothing is copied by hand: every request stores what the next one needs in collection variables. Run the whole collection with Postman's Runner, top to bottom.\n\nRun it on a fresh stack (make up after the volumes were removed). The emails are fixed so the users are easy to find; a second run on the same stack answers 409 on registration, which is correct.\n\nRegistration goes through the real person-service: it stores Ivan and Anna with their address and personal data, gives each a userUid, and answers 409 to a second registration of the same email.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -146,7 +146,7 @@
             "url": { "raw": "{{baseUrl}}/api/v1/auth/registration", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "registration"] },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{ivanEmail}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\"\n}"
+              "raw": "{\n  \"email\": \"{{ivanEmail}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\",\n  \"address\": {\n    \"countryAlpha3\": \"UKR\",\n    \"city\": \"Kyiv\",\n    \"zipCode\": \"01001\",\n    \"addressLine\": \"1 Example St.\"\n  },\n  \"individual\": {\n    \"passportNumber\": \"123456789\",\n    \"phoneNumber\": \"+380441234567\"\n  }\n}"
             },
             "description": "person-service gives the userUid, Keycloak creates the account, then the user is logged in - tokens come back at once. 201 (Created)."
           }
@@ -272,7 +272,7 @@
             "url": { "raw": "{{baseUrl}}/api/v1/auth/registration", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "registration"] },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{annaEmail}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\",\n  \"firstName\": \"Anna\",\n  \"lastName\": \"Smirnova\"\n}"
+              "raw": "{\n  \"email\": \"{{annaEmail}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\",\n  \"firstName\": \"Anna\",\n  \"lastName\": \"Smirnova\",\n  \"address\": {\n    \"countryAlpha3\": \"UKR\",\n    \"city\": \"Kyiv\",\n    \"zipCode\": \"01001\",\n    \"addressLine\": \"1 Example St.\"\n  },\n  \"individual\": {\n    \"passportNumber\": \"123456789\",\n    \"phoneNumber\": \"+380441234567\"\n  }\n}"
             }
           }
         },
@@ -412,7 +412,7 @@
             "url": { "raw": "{{baseUrl}}/api/v1/auth/registration", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "registration"] },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"mismatch@example.com\",\n  \"password\": \"Str0ngPass!\",\n  \"confirmPassword\": \"Different1!\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\"\n}"
+              "raw": "{\n  \"email\": \"mismatch@example.com\",\n  \"password\": \"Str0ngPass!\",\n  \"confirmPassword\": \"Different1!\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\",\n  \"address\": {\n    \"countryAlpha3\": \"UKR\",\n    \"city\": \"Kyiv\",\n    \"zipCode\": \"01001\",\n    \"addressLine\": \"1 Example St.\"\n  },\n  \"individual\": {\n    \"passportNumber\": \"123456789\",\n    \"phoneNumber\": \"+380441234567\"\n  }\n}"
             }
           }
         },
@@ -436,7 +436,7 @@
             "url": { "raw": "{{baseUrl}}/api/v1/auth/registration", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "registration"] },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{ivanEmail}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\"\n}"
+              "raw": "{\n  \"email\": \"{{ivanEmail}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\",\n  \"firstName\": \"Ivan\",\n  \"lastName\": \"Petrov\",\n  \"address\": {\n    \"countryAlpha3\": \"UKR\",\n    \"city\": \"Kyiv\",\n    \"zipCode\": \"01001\",\n    \"addressLine\": \"1 Example St.\"\n  },\n  \"individual\": {\n    \"passportNumber\": \"123456789\",\n    \"phoneNumber\": \"+380441234567\"\n  }\n}"
             },
             "description": "person-service refuses first, so nothing is created in Keycloak."
           }

@@ -252,7 +252,7 @@
                   "pm.test('error = VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
                   "pm.test('status in body = 400', () => pm.expect(p.status).to.eql(400));",
                   "pm.test('details name the fields', () => { const d = p.details.join(' '); ['email', 'firstName', 'lastName'].forEach(f => pm.expect(d).to.include(f)); });",
-                  "pm.test('details in English', () => pm.expect(p.details.join(' ')).to.include('must'));"
+                  "pm.test('details in English even when the client asks for Russian', () => pm.expect(p.details.join(' ')).to.include('must'));"
                 ]
               }
             }
@@ -263,6 +263,10 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "ru"
               }
             ],
             "url": "{{baseUrl}}/api/v1/users",
