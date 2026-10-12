@@ -78,7 +78,7 @@ One service account, with the four Admin API roles the gateway needs:
 
 | Role | Used by |
 |---|---|
-| `manage-users` | `createUser`, `setPassword`, `assignPlatformRole`, `deleteUser` |
+| `manage-users` | `createAccount`, `resetUserPassword`, `assignPlatformRole`, `rollbackAccountWithError` |
 | `view-users`, `query-users` | `findRegisteredAt`, behind `/me` |
 | `view-realm` | reading the `USER` role by name before granting it |
 

@@ -240,20 +240,22 @@ two APIs.
 
 ### Compensation policy
 
-The order - domain user first, Keycloak account second - guarantees no Keycloak
-account is ever left without a domain user. The inverse case is real: if the
-Keycloak steps fail, the domain user already exists in person-service.
+The order - the individual first, the Keycloak account second - guarantees no
+Keycloak account is ever left without an individual. The inverse case is real:
+if the Keycloak steps fail, the individual already exists in person-service.
 
-When that happens the service must:
+When that happens the service:
 
-- write a structured error,
-- mark the incident as an inconsistent registration,
-- return an error to the client,
-- never hide the partial failure.
+- deletes the half-made Keycloak account if the password or the role failed
+  (`KeycloakClient.rollbackAccountWithError`);
+- removes the whole individual through
+  `DELETE /api/v1/individuals/compensate-registration/{id}` (`UserService.compensate`),
+  so the same email can register again;
+- returns the original error to the client;
+- if that delete fails too, answers `503 REGISTRATION_INCONSISTENT` and logs the
+  `user_uid` for a manual clean-up - the partial failure is never hidden.
 
-Module 1 uses the simplified form: logging plus an explicit error code. Real
-compensating transactions come later in the course. Nothing here silently
-retries or pretends the registration succeeded.
+Nothing here silently retries or pretends the registration succeeded.
 
 ### Observability
 
@@ -405,19 +407,21 @@ Two consequences for the gateway code:
 
 ## 4. Registration flow (the core scenario)
 
-Eight steps, in this order. The order **is** the design, not an implementation
+Nine steps, in this order. The order **is** the design, not an implementation
 detail: person-service goes first because it issues the identity, and a refusal
 from it leaves nothing to undo anywhere.
 
 1. `individuals-api` accepts the registration request
-2. validates format and password confirmation
-3. `POST /api/v1/persons/registration` — person-service creates the domain user
-4. it answers with `user_uid`, the identifier the whole platform will use
+2. validates format, required fields and password confirmation
+3. `POST /api/v1/individuals` — person-service creates the individual with its
+   user and address
+4. it answers with the individual's id - the `user_uid` the whole platform will use
 5. obtains a service-account token (`client_credentials`)
 6. `POST /admin/realms/{realm}/users` — creates the account, **without a
    password**, carrying `user_uid` as a user attribute
 7. `PUT /admin/realms/{realm}/users/{id}/reset-password` — sets the password
-8. logs in via `/realms/{realm}/protocol/openid-connect/token` (`password`) and
+8. assigns the realm role `USER` (Keycloak gives no role on its own)
+9. logs in via `/realms/{realm}/protocol/openid-connect/token` (`password`) and
    returns access token, refresh token, lifetime and `user_uid`
 
 Step 6 body — note what is *not* in it:
@@ -444,7 +448,7 @@ Step 7 body:
 ```
 
 `temporary: false` is mandatory. A temporary password makes Keycloak attach the
-`UPDATE_PASSWORD` required action, and step 8 then fails with
+`UPDATE_PASSWORD` required action, and step 9 then fails with
 `400 invalid_grant: Account is not fully set up` — after everything else looked
 successful.
 
@@ -461,22 +465,24 @@ implemented; the cost is the gap described below.
 | person-service `409` | **409** `USER_ALREADY_EXISTS` | nothing |
 | person-service `5xx` | **503** `DEPENDENCY_UNAVAILABLE` | nothing |
 | person-service `400` | **500** `INTERNAL_ERROR` — their validation and ours disagree, which is our bug | nothing |
-| *— `user_uid` issued; from here every failure splits the two systems —* | | |
-| Keycloak create | **503** `REGISTRATION_INCONSISTENT` | domain user |
-| Keycloak reset-password | **503** `REGISTRATION_INCONSISTENT` | domain user; the incomplete account is deleted |
+| *— `user_uid` issued; from here a failure is compensated —* | | |
+| Keycloak create | the Keycloak error as is (**503** `DEPENDENCY_UNAVAILABLE`, **409** `USER_ALREADY_EXISTS`) | nothing — the individual is removed |
+| Keycloak reset-password or role | the same | nothing — the account and the individual are removed |
+| the compensation itself | **503** `REGISTRATION_INCONSISTENT` | the individual; `user_uid` in the log for a manual clean-up |
 | login | **503** `DEPENDENCY_UNAVAILABLE` | everything — **not** an inconsistency |
 
-The last row is the subtle one. If only the login failed, both systems hold the
-same user and the account works; we merely failed to hand tokens over, and the
-caller can log in normally.
+The last row is the subtle one. If only the login failed, the individual and the
+account both exist and work; we merely failed to hand tokens over, and the caller
+can log in normally. So the login is outside the compensation.
 
-**Compensation.** A failure at step 7 leaves an account that can never be logged
-into while its address stays taken, so registering it again would answer **409**
-for good. `UserService` has `KeycloakClient.rollbackAccountWithError` delete that account, which frees the address.
-The domain user is **not** rolled back — person-service exposes no delete — so
-the split is logged with the `user_uid` and reported as
-`REGISTRATION_INCONSISTENT`. That is module 1's accepted limit, and the handout
-allows it: logging plus an explicit error code.
+**Compensation.** A failure at step 7 or 8 leaves an account that can never be
+logged into while its email stays taken, so `KeycloakClient.rollbackAccountWithError`
+deletes it first. Then, for any Keycloak failure, `UserService.compensate` calls
+`DELETE /api/v1/individuals/compensate-registration/{id}`: person-service removes
+the whole aggregate (a hard delete, unlike the soft `DELETE /api/v1/individuals/{id}`),
+so a registration that never completed leaves no data and the email is free again.
+The client gets the original error. Only if that delete fails too do the systems
+disagree, and that is `REGISTRATION_INCONSISTENT` with the `user_uid` in the log.
 
 ```mermaid
 sequenceDiagram
@@ -492,10 +498,10 @@ sequenceDiagram
     Client->>Ctl: POST /api/v1/auth/registration
     Ctl->>Svc: register
     Note over Svc: format and password confirmation
-    Svc->>PGw: create domain user
-    PGw->>Ps: POST /api/v1/persons/registration
-    Ps-->>PGw: 201 user_uid
-    PGw-->>Svc: user_uid
+    Svc->>PGw: create the individual
+    PGw->>Ps: POST /api/v1/individuals
+    Ps-->>PGw: 201, individual id
+    PGw-->>Svc: user_uid = individual id
     Svc->>AGw: create account
     AGw->>Kc: POST token client_credentials<br/>(cached until 10 s before expiry)
     Kc-->>AGw: access token
@@ -529,7 +535,7 @@ sequenceDiagram
 
 ### What each endpoint does
 
-**`POST /registration`** — creates the domain user, then the Keycloak account,
+**`POST /registration`** — creates the individual, then the Keycloak account,
 then logs in on the caller's behalf so the client never has to send a second
 request. Answers `201` with `TokenResponse`. A duplicate email is a `409`, and
 it can be raised by either side: `person-service` may already hold that email,
@@ -735,7 +741,7 @@ answers of external systems.
 | UT-REG-001 | valid registration request | person-service is called first, then Keycloak, then tokens are returned |
 | UT-REG-002 | password and confirmation differ | 400, Keycloak is never called |
 | UT-REG-003 | person-service reports an email conflict | 409, Keycloak is never called |
-| UT-REG-004 | domain user created, Keycloak unreachable | 502/503, the partial failure is recorded |
+| UT-REG-004 | individual created, Keycloak unreachable | 502/503, the partial failure is recorded |
 | UT-LOG-001 | successful login | access and refresh tokens returned |
 | UT-LOG-002 | wrong password | 401 |
 | UT-REF-001 | successful token refresh | a new access token is returned |
@@ -855,7 +861,7 @@ neither task and fails silently by never running at all.
       given is Tempo's promise, ours ends at the socket. Each code opens the
       `@DisplayName`, so a Gradle report matches the handout without guessing
 - [x] **`REGISTRATION_INCONSISTENT` answers 503, not 500.** UT-REG-004 fixes
-      502 or 503 for "domain user created, Keycloak unreachable". The case for
+      502 or 503 for "individual created, Keycloak unreachable". The case for
       500 was that the split is ours rather than the dependency's, and that 503
       invites a retry now guaranteed to answer **409 (Conflict)**; the
       acceptance criteria win, and both sides are recorded on the constant. The
@@ -1052,9 +1058,10 @@ of its "implementation steps".
 | Local port | 8082 in compose; 8092 when started from the IDE (`SERVER_PORT=8092 ./gradlew bootRun`), since compose holds 8082 |
 | Flyway history | `person.flyway_schema_history`, next to the tables (`spring.flyway.default-schema: person`). Left to `search_path`, it moved: the database user is also called `person`, so `"$user"` pointed to `public` before V001 and to `person` after it, and the second start failed |
 | Repositories | four, one per entity, as in the teacher's project. Email is looked up with `lower(email) = lower(:email)`, not the derived `…IgnoreCase` (that one is `upper()` and cannot use `uk_users_email_lower`) |
-| Exceptions | one `PersonException` carrying an `ErrorCode` (status + message), the same pattern as module 1's `ApiException`. `VALIDATION_ERROR` / `MALFORMED_REQUEST` / `COUNTRY_NOT_FOUND` 400, `USER_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` / `CONCURRENT_MODIFICATION` 409, framework `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR` 500. A second create racing past the email check is stopped by `uk_users_email_lower` and still answers 409 |
+| Exceptions | one `PersonException` carrying an `ErrorCode` (status + message), the same pattern as module 1's `ApiException`. `VALIDATION_ERROR` / `MALFORMED_REQUEST` / `COUNTRY_NOT_FOUND` 400, `INDIVIDUAL_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` / `CONCURRENT_MODIFICATION` 409, framework `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR` 500. A second create racing past the email check is stopped by `uk_users_email_lower` and still answers 409 |
 | Transactions | `IndividualService` is `@Transactional(readOnly = true)`; create, update and delete open a writing transaction. The response is built inside the transaction, so LAZY associations load there and nothing lazy leaves the service |
 | Client | `person-service-client` replaces `person-client`; individuals-api moves to it and gains the registration compensation - `DELETE /compensate-registration/{id}` when the Keycloak part fails |
+| Contract evolution | module 2 publishes no Kafka events yet, but later modules will carry the same data as Avro events with schemas in Confluent Schema Registry, which refuses an incompatible schema. The OpenAPI contract follows the same rules now: fields are only added, and only as optional ones with a default; a published field is never renamed, removed or retyped; a breaking change is a new version (`/api/v2/...`), not an edit of v1. Events will reuse the REST names and formats: the individual's id as `user_uid`, times in UTC ISO-8601, `status` as a string (`NEW`, `VERIFIED`, `ARCHIVED`) |
 
 ### Done
 

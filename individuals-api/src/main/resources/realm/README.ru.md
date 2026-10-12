@@ -78,7 +78,7 @@ individuals-api-dedicated**.
 
 | Право | Кем используется |
 |---|---|
-| `manage-users` | `createUser`, `setPassword`, `assignPlatformRole`, `deleteUser` |
+| `manage-users` | `createAccount`, `resetUserPassword`, `assignPlatformRole`, `rollbackAccountWithError` |
 | `view-users`, `query-users` | `findRegisteredAt`, за которым стоит `/me` |
 | `view-realm` | прочитать роль `USER` по имени перед выдачей |
 
