@@ -1002,10 +1002,8 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 | `PATCH /api/v1/users/{id}` `{firstName, lastName, address: {city}}` | `PATCH /api/v1/individuals/{id}` `{user: {firstName, lastName, address: {city}}}` |
 | `DELETE /api/v1/users/{id}` | `DELETE /api/v1/individuals/{id}` (архивировать) или `DELETE /api/v1/individuals/compensate-registration/{id}` (удалить) |
 
-Открыто с преподавателем: должна ли работать повторная регистрация на тот же
-email после мягкого удаления. Сейчас ответ `409`, и освободить email только в
-person-service не поможет — аккаунт в Keycloak остаётся, и регистрация упадёт
-уже там. Понадобилось бы удаление учётки через individuals-api.
+После мягкого удаления email остаётся занятым: повторная регистрация отвечает
+`409`. API его никогда не освобождает — это осознанное действие саппорта.
 
 ### Критерии приёмки — модуль 2, как согласовано
 

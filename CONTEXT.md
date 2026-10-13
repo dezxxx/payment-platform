@@ -1052,10 +1052,8 @@ The handout's example requests, as this API takes them:
 | `PATCH /api/v1/users/{id}` `{firstName, lastName, address: {city}}` | `PATCH /api/v1/individuals/{id}` `{user: {firstName, lastName, address: {city}}}` |
 | `DELETE /api/v1/users/{id}` | `DELETE /api/v1/individuals/{id}` (archive) or `DELETE /api/v1/individuals/compensate-registration/{id}` (remove) |
 
-Open with the teacher: whether registering the same email again after a soft
-delete must work. Today it answers `409`, and freeing the email in person-service
-alone would not help - the Keycloak account stays, so the registration would
-fail there instead. It would take deleting the account through individuals-api.
+After a soft delete the email stays taken: registering it again answers `409`.
+The API never frees it - that is a deliberate support action.
 
 ### Acceptance criteria - module 2, as agreed
 
