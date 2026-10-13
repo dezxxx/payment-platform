@@ -72,4 +72,9 @@ public abstract class IntegrationTest {
                 "select count(*) from " + table + " where " + column + " = ?", Integer.class, value);
         return count == null ? 0 : count;
     }
+
+    protected long countOf(String table) {
+        Long count = jdbc.queryForObject("select count(*) from " + table, Long.class);
+        return count == null ? 0 : count;
+    }
 }

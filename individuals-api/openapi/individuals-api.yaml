@@ -246,6 +246,7 @@ components:
         email:
           type: string
           format: email
+          minLength: 1
           maxLength: 1024
           example: user@dezxxx.com
         password:

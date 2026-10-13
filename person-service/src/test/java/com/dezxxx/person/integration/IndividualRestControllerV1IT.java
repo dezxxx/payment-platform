@@ -211,6 +211,32 @@ class IndividualRestControllerV1IT extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("given an empty email, when creating, then 400 VALIDATION_ERROR and no individual, user or address is stored")
+    void refusesEmptyEmail() {
+        // given
+        CreateIndividualRequestDto request = createRequest(freshEmail("empty"));
+        request.getUser().email("");
+        long individuals = countOf("person.individuals");
+        long users = countOf("person.users");
+        long addresses = countOf("person.addresses");
+
+        // when / then
+        client.post().uri("/api/v1/individuals")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(request)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("VALIDATION_ERROR")
+                .jsonPath("$.details[?(@ =~ /user.email: .*/)]").exists();
+
+        // then
+        assertThat(countOf("person.individuals")).isEqualTo(individuals);
+        assertThat(countOf("person.users")).isEqualTo(users);
+        assertThat(countOf("person.addresses")).isEqualTo(addresses);
+    }
+
+    @Test
     @DisplayName("given an id that is not a UUID, when reading, then 400 VALIDATION_ERROR")
     void idNotUuid() {
         // when / then
