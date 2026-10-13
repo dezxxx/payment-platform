@@ -1034,6 +1034,48 @@ required by it:
 The module 2 practice handout is the script, followed step by step in the order
 of its "implementation steps".
 
+### Agreed deviations from the module 2 handout
+
+| Handout | Here | Agreed |
+|---|---|---|
+| `/api/v1/users`, the user is the root and holds the individual | `/api/v1/individuals`, the **individual** is the root and holds its user, the user holds the address; DTOs `CreateIndividualRequest`, `UpdateIndividualRequest`, `IndividualResponse` | with the teacher at the review, 2026-10-11: the individual is the root (a user is the account an individual - and later a legal entity - holds), the API and DTOs are built around it |
+| `DELETE /api/v1/users/{id}` deletes the whole aggregate | `DELETE /api/v1/individuals/{id}` is a soft delete: the individual becomes `ARCHIVED` with `archived_at`, its rows stay, reads no longer find it, the email stays taken | with the teacher, 2026-10-11 |
+| the registration is compensated through that `DELETE` | a separate `DELETE /api/v1/individuals/compensate-registration/{id}`: a hard delete of individual, user and address, called only by individuals-api | the teacher, 2026-10-11: "Нужен и ты должен его добавить", "Через DELETE не стоит - нужна логика именно компенсации" |
+| DDL: `passport_number`, `phone_number`, the links nullable; `users.secret_key` | NOT NULL on every part of the aggregate, `secret_key` dropped, `status` limited to `NEW`, `VERIFIED`, `ARCHIVED` | ours, under the handout's own "fix the gaps you find": an aggregate is born whole |
+
+The handout's example requests, as this API takes them:
+
+| Handout | Here |
+|---|---|
+| `POST /api/v1/users` `{email, firstName, lastName, address, individual: {passportNumber, phoneNumber}}` | `POST /api/v1/individuals` `{passportNumber, phoneNumber, user: {email, firstName, lastName, address}}` |
+| `GET /api/v1/users/by-email?email=…` | `GET /api/v1/individuals/by-email?email=…` |
+| `PATCH /api/v1/users/{id}` `{firstName, lastName, address: {city}}` | `PATCH /api/v1/individuals/{id}` `{user: {firstName, lastName, address: {city}}}` |
+| `DELETE /api/v1/users/{id}` | `DELETE /api/v1/individuals/{id}` (archive) or `DELETE /api/v1/individuals/compensate-registration/{id}` (remove) |
+
+Open with the teacher: whether registering the same email again after a soft
+delete must work. Today it answers `409`, and freeing the email in person-service
+alone would not help - the Keycloak account stays, so the registration would
+fail there instead. It would take deleting the account through individuals-api.
+
+### Acceptance criteria - module 2, as agreed
+
+| # | Scenario | Expected |
+|---|---|---|
+| 1 | create with every required field | `201`; individual, user and address in one transaction; status `NEW` |
+| 2 | create with an email already taken, in any letter case | `409 EMAIL_ALREADY_EXISTS`, nothing stored |
+| 3 | create with a missing or empty field (`email: ""` included) or an unknown country | `400`, each field named in `details`, nothing stored |
+| 4 | read by id, by email in another letter case | `200`, the whole aggregate |
+| 5 | read an unknown id or an archived individual | `404 INDIVIDUAL_NOT_FOUND` |
+| 6 | PATCH with some fields of the individual, its user and address | `200`; only the fields sent change, in one transaction and one audit revision |
+| 7 | two PATCHes of one individual at the same time | one `200`, the other `409 CONCURRENT_MODIFICATION` |
+| 8 | `DELETE /{id}` | `204`; rows stay with `ARCHIVED` and `archived_at`; then GET, by-email, PATCH and DELETE answer `404` |
+| 9 | register the same email again after `DELETE /{id}` | `409` - the email stays taken |
+| 10 | `DELETE /compensate-registration/{id}` | `204`; no row of individual, user or address is left; the same email registers again with `201` |
+| 11 | registration through individuals-api when a Keycloak step fails | the individual is removed by compensation, the client gets the original error, the email is free |
+| 12 | `/me` after the last name changed in person-service | the new last name - the profile is read from person-service |
+| 13 | create, change, archive, compensate | each leaves an Envers revision, with `*_mod` flags on the changed fields |
+| 14 | any error | RFC 9457 body (`application/problem+json`) with `timestamp`, `error`, `traceId`, `details`; the headers Spring requires are kept (`Allow` on `405`) |
+
 ### Decisions
 
 | Decision | Value |

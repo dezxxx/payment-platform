@@ -984,6 +984,48 @@ Dockerfile, `infra/tempo/tempo.yml` и OTLP-реестр метрик не за�
 
 Сценарий — практика модуля 2, шаг за шагом, в порядке её «шагов реализации».
 
+### Согласованные отклонения от ТЗ модуля 2
+
+| ТЗ | У нас | Согласовано |
+|---|---|---|
+| `/api/v1/users`, корень — user, он содержит individual | `/api/v1/individuals`, корень — **физлицо**, оно содержит своего user, user — адрес; DTO `CreateIndividualRequest`, `UpdateIndividualRequest`, `IndividualResponse` | с преподавателем на ревью, 2026-10-11: корень — физлицо (user — учётная запись, которую держит физлицо, а позже и юрлицо), API и DTO строятся вокруг него |
+| `DELETE /api/v1/users/{id}` удаляет весь агрегат | `DELETE /api/v1/individuals/{id}` — мягкое удаление: физлицо получает `ARCHIVED` и `archived_at`, строки остаются, чтение его больше не находит, email остаётся занятым | с преподавателем, 2026-10-11 |
+| компенсация регистрации через этот `DELETE` | отдельный `DELETE /api/v1/individuals/compensate-registration/{id}`: полное удаление физлица, user и адреса, вызывает только individuals-api | преподаватель, 2026-10-11: «Нужен и ты должен его добавить», «Через DELETE не стоит — нужна логика именно компенсации» |
+| DDL: `passport_number`, `phone_number`, связи допускают NULL; `users.secret_key` | NOT NULL на всех частях агрегата, `secret_key` убран, `status` ограничен `NEW`, `VERIFIED`, `ARCHIVED` | наше решение по требованию самого ТЗ «исправьте обнаруженные разрывы»: агрегат рождается целиком |
+
+Примеры запросов из ТЗ — как их принимает наш API:
+
+| ТЗ | У нас |
+|---|---|
+| `POST /api/v1/users` `{email, firstName, lastName, address, individual: {passportNumber, phoneNumber}}` | `POST /api/v1/individuals` `{passportNumber, phoneNumber, user: {email, firstName, lastName, address}}` |
+| `GET /api/v1/users/by-email?email=…` | `GET /api/v1/individuals/by-email?email=…` |
+| `PATCH /api/v1/users/{id}` `{firstName, lastName, address: {city}}` | `PATCH /api/v1/individuals/{id}` `{user: {firstName, lastName, address: {city}}}` |
+| `DELETE /api/v1/users/{id}` | `DELETE /api/v1/individuals/{id}` (архивировать) или `DELETE /api/v1/individuals/compensate-registration/{id}` (удалить) |
+
+Открыто с преподавателем: должна ли работать повторная регистрация на тот же
+email после мягкого удаления. Сейчас ответ `409`, и освободить email только в
+person-service не поможет — аккаунт в Keycloak остаётся, и регистрация упадёт
+уже там. Понадобилось бы удаление учётки через individuals-api.
+
+### Критерии приёмки — модуль 2, как согласовано
+
+| # | Сценарий | Ожидание |
+|---|---|---|
+| 1 | создание со всеми обязательными полями | `201`; физлицо, user и адрес в одной транзакции; статус `NEW` |
+| 2 | создание с уже занятым email, в любом регистре | `409 EMAIL_ALREADY_EXISTS`, ничего не сохранено |
+| 3 | создание с отсутствующим или пустым полем (включая `email: ""`) или неизвестной страной | `400`, каждое поле названо в `details`, ничего не сохранено |
+| 4 | чтение по id, по email в другом регистре | `200`, агрегат целиком |
+| 5 | чтение неизвестного id или архивного физлица | `404 INDIVIDUAL_NOT_FOUND` |
+| 6 | PATCH части полей физлица, его user и адреса | `200`; меняется только присланное, в одной транзакции и одной ревизии аудита |
+| 7 | два одновременных PATCH одного физлица | один `200`, второй `409 CONCURRENT_MODIFICATION` |
+| 8 | `DELETE /{id}` | `204`; строки остаются с `ARCHIVED` и `archived_at`; дальше GET, by-email, PATCH и DELETE отвечают `404` |
+| 9 | повторная регистрация того же email после `DELETE /{id}` | `409` — email остаётся занятым |
+| 10 | `DELETE /compensate-registration/{id}` | `204`; ни одной строки физлица, user и адреса не осталось; тот же email снова регистрируется с `201` |
+| 11 | регистрация через individuals-api, когда упал шаг Keycloak | физлицо удалено компенсацией, клиент получает исходную ошибку, email свободен |
+| 12 | `/me` после смены фамилии в person-service | новая фамилия — профиль читается из person-service |
+| 13 | создание, изменение, архивация, компенсация | каждое оставляет ревизию Envers с флагами `*_mod` на изменённых полях |
+| 14 | любая ошибка | тело RFC 9457 (`application/problem+json`) с `timestamp`, `error`, `traceId`, `details`; заголовки, которых требует Spring, сохраняются (`Allow` у `405`) |
+
 ### Решения
 
 | Решение | Значение |
