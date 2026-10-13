@@ -5,6 +5,7 @@ import com.dezxxx.individuals.logging.RequestLog;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -51,7 +52,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponseDto> handleResponseStatus(ResponseStatusException ex,
                                                               ServerWebExchange exchange) {
         ErrorCode code = fromStatus(ex.getStatusCode());
-        return respond(code, code.getDefaultMessage(), List.of(), exchange, ex);
+        // ex.getHeaders() carries what HTTP requires with the status, e.g. Allow on a 405
+        return respond(code, code.getDefaultMessage(), List.of(), exchange, ex, ex.getHeaders());
     }
 
     @ExceptionHandler(AuthenticationException.class)
@@ -79,6 +81,15 @@ public class GlobalExceptionHandler {
                                                   List<String> details,
                                                   ServerWebExchange exchange,
                                                   Exception ex) {
+        return respond(code, message, details, exchange, ex, HttpHeaders.EMPTY);
+    }
+
+    private ResponseEntity<ErrorResponseDto> respond(ErrorCode code,
+                                                  String message,
+                                                  List<String> details,
+                                                  ServerWebExchange exchange,
+                                                  Exception ex,
+                                                  HttpHeaders headers) {
         HttpStatus status = code.getStatus();
         String path = exchange.getRequest().getPath().value();
         ErrorResponseDto body = errorResponseFactory.create(code, message, details, path);
@@ -91,7 +102,7 @@ public class GlobalExceptionHandler {
         } else {
             log.warn("{} {} -> {} {}: {}", exchange.getRequest().getMethod(), path, status.value(), code, message);
         }
-        return ResponseEntity.status(status).body(body);
+        return ResponseEntity.status(status).headers(headers).body(body);
     }
 
     private static ErrorCode fromStatus(HttpStatusCode status) {

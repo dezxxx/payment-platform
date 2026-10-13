@@ -95,6 +95,21 @@ class ErrorContractIT extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("given a method the path does not support, when calling, then 405 in our form with the Allow header")
+    void methodNotAllowedNamesTheAllowedMethods() {
+        // given / when
+        client.delete()
+                .uri(LOGIN)
+                .exchange()
+                // then
+                .expectStatus().isEqualTo(405)
+                .expectHeader().value("Allow", allow -> assertThat(allow).contains("POST"))
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("METHOD_NOT_ALLOWED")
+                .jsonPath("$.path").isEqualTo(LOGIN);
+    }
+
+    @Test
     @DisplayName("given an empty email, when registering, then 400 names the field and person-service is never called")
     void refusesEmptyEmail() {
         // given

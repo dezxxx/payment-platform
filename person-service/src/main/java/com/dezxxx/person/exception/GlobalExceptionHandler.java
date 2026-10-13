@@ -91,7 +91,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             log.warn("{} -> {}: {}", path(request), statusCode.value(), ex.getMessage());
             return ResponseEntity.status(statusCode).headers(headers).body(problem);
         }
+        // headers carry what HTTP requires with the status, e.g. Allow on a 405
         return ResponseEntity.status(code.getStatus())
+                .headers(headers)
                 .body(problem(ex, code, code.getDefaultMessage(), detailsOf(ex), request));
     }
 

@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -205,14 +206,16 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    @DisplayName("given an unsupported method, when Spring reports it, then 405 METHOD_NOT_ALLOWED")
+    @DisplayName("given an unsupported method, when Spring reports it, then 405 METHOD_NOT_ALLOWED with the Allow header kept")
     void handlesMethodNotAllowed() throws Exception {
         // when
-        ResponseEntity<Object> response = handler.handleException(new HttpRequestMethodNotSupportedException("PUT"), request);
+        ResponseEntity<Object> response = handler.handleException(
+                new HttpRequestMethodNotSupportedException("PUT", List.of("GET", "PATCH")), request);
 
         // then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
         assertThat(errorOf(response)).isEqualTo("METHOD_NOT_ALLOWED");
+        assertThat(response.getHeaders().getAllow()).containsExactlyInAnyOrder(HttpMethod.GET, HttpMethod.PATCH);
     }
 
     @Test
