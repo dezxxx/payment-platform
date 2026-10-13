@@ -9,6 +9,7 @@ import com.dezxxx.individuals.config.PersonServiceProperties;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.person.PersonClient;
+import com.dezxxx.individuals.gateway.person.PersonProfile;
 import com.dezxxx.individuals.metrics.AuthMetrics;
 import com.dezxxx.person.client.api.IndividualsApi;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -53,6 +54,36 @@ class PersonClientTest {
         // then
         assertThat(sent.get().method()).isEqualTo(HttpMethod.POST);
         assertThat(sent.get().url().getPath()).isEqualTo("/api/v1/individuals");
+    }
+
+    @Test
+    @DisplayName("given person-service holds the individual, when reading the profile, then email and names come from its user")
+    void findsProfile() {
+        // given
+        AtomicReference<ClientRequest> sent = new AtomicReference<>();
+        PersonClient client = clientAnswering(sent, json(HttpStatus.OK, """
+                {"id":"%s","user":{"email":"ivan.petrov@example.org","firstName":"Ivan","lastName":"Petrov-Senior"}}
+                """.formatted(USER_UID)));
+
+        // when / then
+        StepVerifier.create(client.findProfile(USER_UID))
+                .expectNext(new PersonProfile("ivan.petrov@example.org", "Ivan", "Petrov-Senior"))
+                .verifyComplete();
+
+        // then
+        assertThat(sent.get().method()).isEqualTo(HttpMethod.GET);
+        assertThat(sent.get().url().getPath()).isEqualTo("/api/v1/individuals/" + USER_UID);
+    }
+
+    @Test
+    @DisplayName("given person-service does not find the individual, when reading the profile, then NOT_FOUND")
+    void profileNotFound() {
+        // given
+        PersonClient client = clientAnswering(new AtomicReference<>(),
+                problem(HttpStatus.NOT_FOUND, "INDIVIDUAL_NOT_FOUND", "Individual not found"));
+
+        // when / then
+        expectError(client.findProfile(USER_UID), ErrorCode.NOT_FOUND);
     }
 
     @Test

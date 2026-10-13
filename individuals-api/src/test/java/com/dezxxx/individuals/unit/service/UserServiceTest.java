@@ -19,6 +19,7 @@ import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
 import com.dezxxx.individuals.gateway.person.PersonClient;
+import com.dezxxx.individuals.gateway.person.PersonProfile;
 import com.dezxxx.individuals.metrics.AuthMetrics;
 import com.dezxxx.individuals.service.TokenService;
 import com.dezxxx.individuals.service.UserService;
@@ -243,6 +244,7 @@ class UserServiceTest {
     @DisplayName("UT-ME-001: given a valid bearer token, when asking who am I, then every field of the answer is filled")
     void answersWhoTheCallerIs() {
         // given
+        when(personClient.findProfile(USER_UID)).thenReturn(Mono.just(new PersonProfile(EMAIL, "Ivan", "Ivanov")));
         when(keycloakClient.findRegisteredAt(KEYCLOAK_USER_ID)).thenReturn(Mono.just(REGISTERED_AT));
 
         // when / then
@@ -264,11 +266,37 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("given a token without user_uid, when asking who am I, then it answers 500 rather than a half-filled user")
-    void refusesATokenWithoutTheDomainIdentifier() {
+    @DisplayName("given the last name changed in person-service and the token still holds the old one, "
+            + "when asking who am I, then the answer carries person-service's name")
+    void readsTheProfileFromPersonServiceNotFromTheToken() {
         // given
+        when(personClient.findProfile(USER_UID))
+                .thenReturn(Mono.just(new PersonProfile(EMAIL, "Ivan", "Ivanov-Senior")));
         when(keycloakClient.findRegisteredAt(KEYCLOAK_USER_ID)).thenReturn(Mono.just(REGISTERED_AT));
 
+        // when / then
+        StepVerifier.create(userService.currentUser(accessToken()))
+                .assertNext(user -> assertThat(user.getLastName()).isEqualTo("Ivanov-Senior"))
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("given person-service no longer finds the individual, when asking who am I, then its 404 comes back")
+    void answersNotFoundForAnIndividualPersonServiceNoLongerHas() {
+        // given
+        when(personClient.findProfile(USER_UID)).thenReturn(Mono.error(new ApiException(ErrorCode.NOT_FOUND)));
+        when(keycloakClient.findRegisteredAt(KEYCLOAK_USER_ID)).thenReturn(Mono.just(REGISTERED_AT));
+
+        // when / then
+        StepVerifier.create(userService.currentUser(accessToken()))
+                .expectErrorSatisfies(error ->
+                        assertThat(((ApiException) error).getErrorCode()).isEqualTo(ErrorCode.NOT_FOUND))
+                .verify();
+    }
+
+    @Test
+    @DisplayName("given a token without user_uid, when asking who am I, then it answers 500 rather than a half-filled user")
+    void refusesATokenWithoutTheDomainIdentifier() {
         // when / then
         StepVerifier.create(userService.currentUser(tokenWithoutUserUid()))
                 .expectErrorSatisfies(error -> {
@@ -277,6 +305,9 @@ class UserServiceTest {
                     assertThat(code.getStatus()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
                 })
                 .verify();
+
+        // then
+        verifyNoInteractions(personClient, keycloakClient);
     }
 
     @Test

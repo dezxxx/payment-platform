@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
+import org.springframework.web.reactive.function.client.WebClient;
 
 @DisplayName("Registration against a real Keycloak")
 class AuthControllerIT extends IntegrationTest {
@@ -119,6 +120,35 @@ class AuthControllerIT extends IntegrationTest {
 
         // then
         assertThat(keycloak.findUserByEmail(email)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("given a registered individual whose last name then changes in person-service, "
+            + "when asking who am I, then the new last name comes back, not the copy in the token")
+    void meShowsTheProfileAsPersonServiceHoldsIt() {
+        // given
+        String email = freshEmail("me-profile");
+        TokenResponseDto tokens = register(email);
+        WebClient.create(PERSON_SERVICE.baseUrl())
+                .patch()
+                .uri("/api/v1/individuals/{id}", tokens.getUserUid())
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"user\":{\"lastName\":\"Ivanov-Senior\"}}")
+                .retrieve()
+                .toBodilessEntity()
+                .block();
+
+        // when
+        client.get()
+                .uri("/api/v1/auth/me")
+                .header("Authorization", "Bearer " + tokens.getAccessToken())
+                .exchange()
+                // then
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.email").isEqualTo(email)
+                .jsonPath("$.firstName").isEqualTo("Ivan")
+                .jsonPath("$.lastName").isEqualTo("Ivanov-Senior");
     }
 
     private TokenResponseDto register(String email) {

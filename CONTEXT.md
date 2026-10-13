@@ -552,8 +552,10 @@ Keycloak normally rotates the refresh token too, so both tokens in the response
 are fresh. `200` on success; an expired or revoked token is `401`.
 
 **`GET /auth/me`** — protected. Spring Security validates the JWT against the
-realm's JWKS, then the service reads `sub` from it and calls
-`GET /admin/realms/{realm}/users/{id}` through `KeycloakClient`.
+realm's JWKS, then the service makes two calls in parallel: the profile from
+person-service by the token's `user_uid` (`PersonClient.findProfile` →
+`GET /api/v1/individuals/{id}`), and `GET /admin/realms/{realm}/users/{id}` by
+`sub` through `KeycloakClient`.
 
 The call to Keycloak is deliberate, not laziness about parsing the token. A JWT
 is a snapshot from the moment it was issued and stays valid for its lifetime, so
@@ -565,17 +567,14 @@ token itself is bad or expired, `401`.
 The roles in `CurrentUserResponse` are read from the token's `realm_access`, not
 from a second Admin API call — they are already there and cost nothing.
 
-**`firstName` and `lastName` are answered from the account, and that is a debt
-of module 1, not the architecture.** They are domain fields; person-service
-owns the truth about them. individuals-api writes a copy into Keycloak at
-registration only so the claims exist, and after that nothing keeps the copy in
-step — a name changed in the domain profile will not show up here until the
-account is updated too. Module 1 has no read side to ask: `person-service` is
-migrations and a frozen contract, with no operation to fetch a profile. When
-module 2 opens one, `/me` should take the profile from person-service and keep
-only `sub`, `roles` and `email_verified` from the token — those are genuinely
-facts about the account. The contract says as much on both fields, so a client
-is not misled in the meantime.
+**`email`, `firstName` and `lastName` come from person-service, the owner of the
+profile.** individuals-api still writes a copy of the names into Keycloak at
+registration, and nothing keeps that copy in step: a PATCH in person-service
+changes only the original, and every new token is built from the stale copy.
+So nothing on the platform reads the names from the token. The token gives only
+what is genuinely about the account: `user_uid`, `sub`, `roles`,
+`email_verified`. An individual person-service no longer finds - archived by the
+soft delete - answers `404` on `/me`, even with a valid token.
 
 `registeredAt` is declared in `CurrentUserResponse` and comes from Keycloak's
 `createdTimestamp`, which is epoch milliseconds. `KeycloakClient` converts

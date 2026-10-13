@@ -13,6 +13,7 @@ import com.dezxxx.person.client.model.CreateIndividualRequestDto;
 import com.dezxxx.person.client.model.CreateIndividualRequestUserAddressDto;
 import com.dezxxx.person.client.model.CreateIndividualRequestUserDto;
 import com.dezxxx.person.client.model.IndividualResponseDto;
+import com.dezxxx.person.client.model.IndividualResponseUserDto;
 import com.dezxxx.person.client.model.ProblemResponseDto;
 import java.util.List;
 import java.util.UUID;
@@ -41,6 +42,13 @@ public class PersonClient {
     public Mono<UUID> createPerson(RegistrationRequestDto request) {
         return metrics.timePersonService(Mono.defer(() -> individualsApi.createIndividual(Mono.just(toCreateIndividual(request)))))
                 .map(PersonClient::userUidOf)
+                .onErrorMap(WebClientResponseException.class, PersonClient::translate)
+                .transform(GatewayErrors.transportFailures(PERSON_SERVICE, properties.baseUrl()));
+    }
+
+    public Mono<PersonProfile> findProfile(UUID userUid) {
+        return metrics.timePersonService(Mono.defer(() -> individualsApi.getIndividualById(userUid)))
+                .map(PersonClient::profileOf)
                 .onErrorMap(WebClientResponseException.class, PersonClient::translate)
                 .transform(GatewayErrors.transportFailures(PERSON_SERVICE, properties.baseUrl()));
     }
@@ -79,6 +87,16 @@ public class PersonClient {
             throw new ApiException(ErrorCode.INTERNAL_ERROR);
         }
         return body.getId();
+    }
+
+    private static PersonProfile profileOf(ResponseEntity<IndividualResponseDto> response) {
+        IndividualResponseDto body = response.getBody();
+        if (body == null || body.getUser() == null) {
+            log.error("person-service answered {} without the individual's user", response.getStatusCode());
+            throw new ApiException(ErrorCode.INTERNAL_ERROR);
+        }
+        IndividualResponseUserDto user = body.getUser();
+        return new PersonProfile(user.getEmail(), user.getFirstName(), user.getLastName());
     }
 
     // its body goes to the log only: it may name columns or constraints

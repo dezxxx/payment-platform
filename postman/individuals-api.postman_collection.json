@@ -211,6 +211,54 @@
           }
         },
         {
+          "name": "Ivan - last name changes in person-service",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('person-service now holds the new last name', () => pm.expect(pm.response.json().user.lastName).to.eql('Petrov-Senior'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"user\": { \"lastName\": \"Petrov-Senior\" }\n}" },
+            "url": { "raw": "{{personServiceUrl}}/api/v1/individuals/{{ivanUserUid}}", "host": ["{{personServiceUrl}}"], "path": ["api", "v1", "individuals", "{{ivanUserUid}}"] },
+            "description": "The profile changes where it lives. Keycloak keeps its old copy of the name - nobody updates it."
+          }
+        },
+        {
+          "name": "Ivan - who am I shows the new last name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('the profile comes from person-service, not from the token', () => {",
+                  "    pm.expect(body.lastName).to.eql('Petrov-Senior');",
+                  "    pm.expect(body.firstName).to.eql('Ivan');",
+                  "    pm.expect(body.email).to.eql(pm.collectionVariables.get('ivanEmail'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ivanAccessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "me"] },
+            "description": "The same access token as before: its family_name claim still says Petrov, yet /me answers Petrov-Senior."
+          }
+        },
+        {
           "name": "Ivan - refresh token",
           "event": [
             {
