@@ -44,7 +44,7 @@ openApiGenerate {
     library.set("spring-boot")
 
     inputSpec.set(contract.asFile.absolutePath)
-    outputDir.set(generatedDir.map { it.asFile.absolutePath })
+    outputDir.set(generatedDir)
 
     apiPackage.set("com.dezxxx.individuals.api")
     modelPackage.set("com.dezxxx.individuals.api.model")
@@ -67,7 +67,8 @@ openApiGenerate {
         mapOf(
             "interfaceOnly"         to "true",
             "reactive"              to "true",
-            "useSpringBoot3"        to "true",
+            "useSpringBoot4"        to "true",
+            "useJspecify"           to "true",
             "useJakartaEe"          to "true",
             "openApiNullable"       to "false",
             "useTags"               to "true",

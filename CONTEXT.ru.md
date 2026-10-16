@@ -95,8 +95,8 @@
 | Java | 25 (Gradle toolchain, игнорирует `JAVA_HOME`) | `gradle.properties` каждого модуля |
 | Spring Boot | 4.1.0 | `gradle/libs.versions.toml`; person-service — свой `build.gradle.kts` |
 | Gradle | 9.5.1 через Wrapper | `gradle/wrapper/` |
-| Lombok | да — 1.18.46 | корневой `build.gradle.kts` |
-| OpenAPI Generator | 7.25.0 в person-service (первая линейка с `useSpringBoot4`); в individuals-api и person-client пока 7.14.0, до следующей правки этих модулей | person-service — свой `build.gradle.kts`; остальные — `gradle/libs.versions.toml` |
+| Lombok | да — 1.18.46 | individuals-api — `gradle/libs.versions.toml`; person-service — BOM Spring Boot |
+| OpenAPI Generator | 7.25.0 в обоих модулях, с `useSpringBoot4` и `@Nullable` из JSpecify (`useJspecify`) | person-service — свой `build.gradle.kts`; individuals-api — `gradle/libs.versions.toml` |
 | Инструмент сборки | только Gradle Kotlin DSL | — |
 | Образ Keycloak | 26.7.2 | `.env` |
 | Testcontainers | 2.0.5, из Boot BOM | id артефактов отличаются от 1.x — см. раздел 9 |
@@ -112,7 +112,7 @@ Gradle toolchain сам подтягивает JDK 25, поэтому на чт�
 | Файл | Держит |
 |---|---|
 | `build.gradle.kts` person-service | версии трёх его плагинов; версии библиотек приходят из BOM Spring Boot, поэтому ни в одной строке зависимостей версии нет |
-| `gradle/libs.versions.toml` | то же для individuals-api и person-client, пока они не перейдут на схему person-service — потом файл уйдёт |
+| `gradle/libs.versions.toml` | то же для individuals-api, пока он не перейдёт на схему person-service — потом файл уйдёт |
 | `gradle.properties` | координаты, toolchain, URL Nexus |
 | `.env` | теги образов, порты и учётные данные для docker-compose |
 

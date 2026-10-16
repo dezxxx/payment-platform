@@ -94,8 +94,8 @@ These are settled. Do not change them without an explicit decision.
 | Java | 25 (Gradle toolchain, ignores `JAVA_HOME`) | each module's `gradle.properties` |
 | Spring Boot | 4.1.0 | `gradle/libs.versions.toml`; person-service: its `build.gradle.kts` |
 | Gradle | 9.5.1 via Wrapper | `gradle/wrapper/` |
-| Lombok | yes — 1.18.46 | root `build.gradle.kts` |
-| OpenAPI Generator | 7.25.0 in person-service (the first line with `useSpringBoot4`); still 7.14.0 in individuals-api and person-client until they are next touched | person-service: its `build.gradle.kts`; the others: `gradle/libs.versions.toml` |
+| Lombok | yes — 1.18.46 | individuals-api: `gradle/libs.versions.toml`; person-service: the Spring Boot BOM |
+| OpenAPI Generator | 7.25.0 in both modules, with `useSpringBoot4` and JSpecify `@Nullable` (`useJspecify`) | person-service: its `build.gradle.kts`; individuals-api: `gradle/libs.versions.toml` |
 | Build tool | Gradle Kotlin DSL only | — |
 | Keycloak image | 26.7.2 | `.env` |
 | Testcontainers | 2.0.5, inherited from the Boot BOM | artifact ids differ from 1.x — see section 9 |
@@ -111,7 +111,7 @@ which module runs which Gradle, Boot or generator.
 | File | Holds |
 |---|---|
 | person-service `build.gradle.kts` | its three plugin versions; library versions come from the Spring Boot BOM, so no dependency line carries one |
-| `gradle/libs.versions.toml` | the same for individuals-api and person-client, until they follow person-service - then the file goes |
+| `gradle/libs.versions.toml` | the same for individuals-api, until it follows person-service - then the file goes |
 | `gradle.properties` | coordinates, toolchain, Nexus URLs |
 | `.env` | image tags, ports and credentials for docker-compose |
 
