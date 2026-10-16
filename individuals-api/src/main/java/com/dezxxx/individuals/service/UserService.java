@@ -7,6 +7,7 @@ import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
 import com.dezxxx.individuals.gateway.person.PersonClient;
+import com.dezxxx.individuals.gateway.person.PersonProfile;
 import com.dezxxx.individuals.logging.RequestLog;
 import com.dezxxx.individuals.metrics.AuthMetrics;
 import com.dezxxx.individuals.util.KeycloakClaims;
@@ -29,9 +30,6 @@ import reactor.core.publisher.Mono;
 @RequiredArgsConstructor
 public class UserService {
 
-    private static final String EMAIL = "email";
-    private static final String GIVEN_NAME = "given_name";
-    private static final String FAMILY_NAME = "family_name";
     private static final String EMAIL_VERIFIED = "email_verified";
 
     private static final Set<String> KEYCLOAK_OWN_ROLES = Set.of("offline_access", "uma_authorization");
@@ -102,23 +100,27 @@ public class UserService {
         return tokenService.refresh(refreshToken);
     }
 
+    // the profile comes from person-service, its owner; the token only says who logged in and what they may do
     public Mono<CurrentUserResponseDto> currentUser(Jwt jwt) {
-        String keycloakUserId = jwt.getSubject();
-        return keycloakClient.findRegisteredAt(keycloakUserId)
-                .transform(span("me.findRegisteredAt"))
-                .map(registeredAt -> toCurrentUser(jwt, keycloakUserId, registeredAt))
-                .transform(span("me"));
+        return Mono.defer(() -> {
+            UUID userUid = KeycloakClaims.requireUserUid(jwt);
+            RequestLog.userUid(userUid);
+            String keycloakUserId = jwt.getSubject();
+            return Mono.zip(
+                            personClient.findProfile(userUid).transform(span("me.findProfile")),
+                            keycloakClient.findRegisteredAt(keycloakUserId).transform(span("me.findRegisteredAt")))
+                    .map(found -> toCurrentUser(jwt, userUid, keycloakUserId, found.getT1(), found.getT2()));
+        }).transform(span("me"));
     }
 
-    private CurrentUserResponseDto toCurrentUser(Jwt jwt, String keycloakUserId, OffsetDateTime registeredAt) {
-        UUID userUid = KeycloakClaims.requireUserUid(jwt);
-        RequestLog.userUid(userUid);
+    private CurrentUserResponseDto toCurrentUser(Jwt jwt, UUID userUid, String keycloakUserId,
+                                                 PersonProfile profile, OffsetDateTime registeredAt) {
         return new CurrentUserResponseDto()
                 .userUid(userUid)
                 .keycloakUserId(keycloakUserId)
-                .email(jwt.getClaimAsString(EMAIL))
-                .firstName(jwt.getClaimAsString(GIVEN_NAME))
-                .lastName(jwt.getClaimAsString(FAMILY_NAME))
+                .email(profile.email())
+                .firstName(profile.firstName())
+                .lastName(profile.lastName())
                 .emailVerified(jwt.getClaimAsBoolean(EMAIL_VERIFIED))
                 .roles(platformRoles(jwt))
                 .registeredAt(registeredAt);

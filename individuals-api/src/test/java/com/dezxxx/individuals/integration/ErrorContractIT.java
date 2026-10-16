@@ -1,5 +1,7 @@
 package com.dezxxx.individuals.integration;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.dezxxx.individuals.integration.support.IntegrationTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -90,6 +92,44 @@ class ErrorContractIT extends IntegrationTest {
                 .expectBody()
                 .jsonPath("$.error").isEqualTo("VALIDATION_ERROR")
                 .jsonPath("$.details[0]").isEqualTo("confirmPassword: must match password");
+    }
+
+    @Test
+    @DisplayName("given a method the path does not support, when calling, then 405 in our form with the Allow header")
+    void methodNotAllowedNamesTheAllowedMethods() {
+        // given / when
+        client.delete()
+                .uri(LOGIN)
+                .exchange()
+                // then
+                .expectStatus().isEqualTo(405)
+                .expectHeader().value("Allow", allow -> assertThat(allow).contains("POST"))
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("METHOD_NOT_ALLOWED")
+                .jsonPath("$.path").isEqualTo(LOGIN);
+    }
+
+    @Test
+    @DisplayName("given an empty email, when registering, then 400 names the field and person-service is never called")
+    void refusesEmptyEmail() {
+        // given
+        String body = registrationBody("", "Str0ngPass!", "Str0ngPass!");
+        int callsBefore = PERSON_SERVICE.receivedBodies().size();
+
+        // when
+        client.post()
+                .uri("/api/v1/auth/registration")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .exchange()
+                // then
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("VALIDATION_ERROR")
+                .jsonPath("$.details[?(@ =~ /email: .*/)]").exists();
+
+        // then
+        assertThat(PERSON_SERVICE.receivedBodies()).hasSize(callsBefore);
     }
 
     @Test

@@ -215,6 +215,7 @@ components:
             email:
               type: string
               format: email
+              minLength: 1
               maxLength: 1024
               example: ivan.petrov@example.org
             firstName:

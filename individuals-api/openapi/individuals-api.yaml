@@ -197,6 +197,10 @@ paths:
       tags: [auth]
       operationId: getCurrentUser
       summary: Get the currently authenticated user
+      description: |
+        The profile (email, first and last name) is read from person-service by the
+        token's user_uid; roles and emailVerified come from the token, registeredAt
+        from Keycloak. An individual person-service no longer finds answers 404.
       security:
         - bearerAuth: []
       responses:
@@ -246,6 +250,7 @@ components:
         email:
           type: string
           format: email
+          minLength: 1
           maxLength: 1024
           example: user@dezxxx.com
         password:
@@ -365,7 +370,7 @@ components:
         userUid:
           type: string
           format: uuid
-          description: Domain user identifier issued by person-service
+          description: The individual's id, issued by person-service
           example: 6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33
 
     CurrentUserResponse:
@@ -387,17 +392,17 @@ components:
         email:
           type: string
           format: email
+          description: From the individual's profile in person-service
           example: user@dezxxx.com
-        # copied into Keycloak at registration, so it can lag behind person-service
         firstName:
           type: string
           maxLength: 64
-          description: As recorded on the account. May lag the domain profile.
+          description: From the individual's profile in person-service - always the current value
           example: Ivan
         lastName:
           type: string
           maxLength: 64
-          description: As recorded on the account. May lag the domain profile.
+          description: From the individual's profile in person-service - always the current value
           example: Ivanov
         emailVerified:
           type: boolean
