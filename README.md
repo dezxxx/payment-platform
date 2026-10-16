@@ -80,6 +80,10 @@ make
 `make help` lists the rest — `make test`, `make it`, `make down`, `make logs`,
 `make reset-db` (empties Keycloak and the person database, e.g. before running
 the Postman collection again).
+`make verify` checks everything from scratch in order: person-service tests,
+the client into Nexus, individuals-api tests, images without cache, the stack
+up. The integration tests need the stack down, so `make verify-down` stops it
+first. Nexus credentials come from `.env`.
 Requires make, which ships with Linux and macOS; on Windows install it once
 with `winget install ezwinports.make`; it runs from Git Bash, PowerShell or the
 IDE. The steps behind it, if you would rather run them by hand, are below.

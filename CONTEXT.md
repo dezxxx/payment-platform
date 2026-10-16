@@ -643,7 +643,10 @@ outside its folder: plugin versions are in its own `build.gradle.kts`.
 
 `make` does all of it: `make` alone starts Nexus, builds the image and starts
 the stack, and `make help` lists the rest. The `Makefile` exists because there
-is no root build to hang the order on.
+is no root build to hang the order on. `make verify` runs the whole order from
+scratch (person-service `clean check`, client into Nexus, individuals-api
+`clean build`, images `--no-cache`, stack up); `make verify-down` stops the
+stack first, because the integration tests need its memory.
 
 What it runs, for when it is not installed:
 
@@ -658,8 +661,9 @@ cd person-service  && ./gradlew check      # contract, unit + integration tests,
 cd individuals-api && ./gradlew build
 ```
 
-Into Nexus: `make publish` (`publishClientPublicationToNexusRepository`, with
-`NEXUS_USERNAME` / `NEXUS_PASSWORD` set).
+Into Nexus: `make publish` (`publishClientPublicationToNexusRepository`;
+`NEXUS_USERNAME` / `NEXUS_PASSWORD` default to `NEXUS_ADMIN_USER` /
+`NEXUS_ADMIN_PASSWORD` from `.env`).
 
 **The image builds individuals-api itself**, as in the teacher's reference: a
 JDK stage runs `bootJar`, a JRE stage runs the jar. The build context is the

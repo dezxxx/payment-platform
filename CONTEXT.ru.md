@@ -607,7 +607,10 @@ individuals-api пока подключает `gradle/libs.versions.toml` как
 
 Всё это делает `make`: одна команда `make` поднимает Nexus, собирает образ и
 поднимает стенд, `make help` показывает остальные цели. `Makefile` существует
-потому, что корневой сборки нет.
+потому, что корневой сборки нет. `make verify` прогоняет весь порядок с нуля
+(person-service `clean check`, клиент в Nexus, individuals-api `clean build`,
+образы `--no-cache`, стенд); `make verify-down` сначала останавливает стенд,
+потому что интеграционным тестам нужна его память.
 
 Что он запускает, на случай, если make не установлен:
 
@@ -622,8 +625,9 @@ cd person-service  && ./gradlew check      # контракт, unit + интег
 cd individuals-api && ./gradlew build
 ```
 
-В Nexus: `make publish` (`publishClientPublicationToNexusRepository`, с
-заданными `NEXUS_USERNAME` / `NEXUS_PASSWORD`).
+В Nexus: `make publish` (`publishClientPublicationToNexusRepository`;
+`NEXUS_USERNAME` / `NEXUS_PASSWORD` по умолчанию берутся из `NEXUS_ADMIN_USER` /
+`NEXUS_ADMIN_PASSWORD` в `.env`).
 
 **Образ сам собирает individuals-api**, как в эталоне преподавателя: стадия на
 JDK выполняет `bootJar`, стадия на JRE запускает jar. Контекст сборки — корень
