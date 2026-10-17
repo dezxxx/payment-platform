@@ -136,6 +136,7 @@ is in §5 of `CONTEXT.md`.
 payment-platform/
 ├── individuals-api/      the orchestrator — module 1's deliverable
 ├── person-service/       the individual aggregate (module 2); publishes person-service-client to Nexus
+├── transaction-service/  wallets and transactions (module 3), port 8084; a skeleton so far
 ├── infra/                prometheus, tempo, loki, alloy, grafana provisioning
 ├── postman/
 └── docker-compose.yml

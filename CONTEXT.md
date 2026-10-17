@@ -604,6 +604,8 @@ Host ports, as fixed by the course handout. Values live in `.env`, never in
 
 `person-service` gets 8082 in module 2 - not from the handout, chosen because
 8081 is taken. The OpenAPI `servers` entries follow this table.
+`transaction-service` gets 8084 in module 3: the handout's 8082 belongs to
+person-service and 8083 to Nexus.
 
 **Nexus runs on 8083, not on its own default 8081.** The handout fixes 8081 for
 individuals-api, so Nexus is the one that has to move; the URLs live in
@@ -624,8 +626,9 @@ payment-platform/              a Git root, NOT a Gradle project
 ├── infra/                     prometheus, tempo, loki, alloy, grafana provisioning
 ├── postman/                   one collection per service: every endpoint and its failures
 ├── individuals-api/           the orchestrator; its C4 diagrams in diagrams-c4/
-└── person-service/            the individual aggregate; also publishes person-service-client -> Nexus
-                               its C4 diagrams in diagrams-c4/
+├── person-service/            the individual aggregate; also publishes person-service-client -> Nexus
+│                              its C4 diagrams in diagrams-c4/
+└── transaction-service/       wallets and transactions (module 3); a skeleton so far
 ```
 
 Each module is an independent Gradle build: its own `settings.gradle.kts`,
