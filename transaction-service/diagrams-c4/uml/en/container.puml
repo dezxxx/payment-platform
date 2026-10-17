@@ -1,0 +1,46 @@
+@startuml container
+!include <C4/C4_Container>
+
+title transaction-service — container diagram (C4, level 2)
+
+Person(client, "Client", "Creates wallets, deposits, transfers, withdraws")
+
+Container_Ext(individualsApi, "individuals-api", "Spring Boot WebFlux", "Orchestrator: checks the token, takes user_uid from it and passes the request on")
+Container_Ext(keycloak, "Keycloak", "identity provider", "Accounts, tokens, signing keys (JWKS)")
+Container_Ext(personService, "person-service", "Spring Boot MVC", "Holds individuals; transaction-service never calls it")
+
+System_Boundary(ts, "transaction-service") {
+    Container(app, "transaction-service", "Spring Boot MVC, Java 25, ShardingSphere-JDBC", "Wallets and transactions: init computes the terms, confirm creates the transaction; TransactionKafkaProducer publishes events, TransactionKafkaConsumer finalizes")
+    ContainerDb(shard0, "PostgreSQL shard_0", "wallets, transactions, transaction_events", "Users with hash(user_uid) % 2 = 0")
+    ContainerDb(shard1, "PostgreSQL shard_1", "wallets, transactions, transaction_events", "Users with hash(user_uid) % 2 = 1")
+}
+
+Container_Ext(kafka, "Kafka", "Apache Kafka 4, KRaft, one broker", "Event bus for deposit / withdrawal")
+Container_Ext(schemaRegistry, "Schema Registry", "Confluent", "Avro schemas of the events, compatibility checks")
+System_Ext(provider, "Fake Payment Provider", "Imitates an external payment provider; answers *Requested with *Completed or *Failed")
+
+Container_Ext(nexus, "Nexus", "Maven repository", "Holds transaction-service-client")
+Container_Ext(prometheus, "Prometheus", "metrics", "Scrapes /actuator/prometheus")
+Container_Ext(alloy, "Alloy", "telemetry agent", "Receives traces, reads logs")
+Container_Ext(grafana, "Grafana", "dashboards", "Metrics, traces (Tempo), logs (Loki)")
+
+Rel(client, individualsApi, "REST /api/v1/wallets, /api/v1/transactions", "HTTP, JSON, Bearer token")
+Rel(individualsApi, keycloak, "token check", "JWKS")
+Rel(individualsApi, personService, "individual's profile", "REST")
+Rel(individualsApi, app, "REST /api/v1/wallets, /api/v1/transactions, user_uid from the token", "transaction-service-client")
+Rel(app, shard0, "reads and writes", "JDBC via ShardingSphere")
+Rel(app, shard1, "reads and writes", "JDBC via ShardingSphere")
+Rel(app, kafka, "DepositRequested, WithdrawalRequested (from transaction_events)", "Avro")
+Rel(kafka, app, "DepositCompleted / Failed, WithdrawalCompleted / Failed", "Avro, consumer group")
+Rel(kafka, provider, "*Requested", "Avro")
+Rel(provider, kafka, "*Completed / *Failed", "Avro")
+Rel(app, schemaRegistry, "registers and reads schemas", "HTTP")
+Rel(provider, schemaRegistry, "reads schemas", "HTTP")
+Rel(nexus, individualsApi, "client import", "Maven")
+Rel(prometheus, app, "scrapes metrics", "HTTP")
+Rel(app, alloy, "traces", "OTLP")
+Rel(alloy, app, "reads JSON logs from stdout", "Docker")
+Rel(grafana, prometheus, "reads")
+
+SHOW_LEGEND()
+@enduml

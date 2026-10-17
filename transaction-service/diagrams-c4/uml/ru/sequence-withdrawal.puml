@@ -1,0 +1,61 @@
+@startuml sequence-withdrawal
+title Вывод (withdrawal)
+
+actor "Клиент" as Client
+participant "individuals-api" as IA
+box "transaction-service" #F5F9FF
+    participant "TransactionService" as TS
+    participant "WalletService" as WS
+    database "БД (шард пользователя)" as DB
+    participant "TransactionKafkaProducer" as Pub
+    participant "TransactionKafkaConsumer" as Cons
+end box
+queue "Kafka" as Kafka
+participant "Fake Payment Provider" as PP
+
+== init: расчёт условий, в БД ничего не пишется ==
+Client -> IA: POST /api/v1/transactions/withdrawal/init
+IA -> IA: user_uid из токена
+IA -> TS: calc withdrawal conditions (init)
+TS -> WS: проверка баланса
+WS --> TS: OK, комиссия, доступность
+TS --> IA: условия вывода
+IA --> Client: условия вывода
+
+== confirm: списание и создание транзакции ==
+Client -> IA: POST /api/v1/transactions/withdrawal/confirm
+IA -> TS: confirm withdrawal
+group одна транзакция БД
+    TS -> WS: списать средства (резерв)
+    WS -> DB: блокировка кошелька (FOR UPDATE), проверка баланса, Debit
+    TS -> DB: транзакция PENDING
+    TS -> DB: transaction_events: WithdrawalRequested
+end
+TS --> IA: status=PENDING, transactionId
+IA --> Client: status=PENDING, transactionId
+
+== асинхронно: событие уходит в Fake Payment Provider ==
+Pub -> DB: неотправленные записи transaction_events
+Pub -> Kafka: WithdrawalRequested (Avro, key = transactionId)
+Pub -> DB: запись transaction_events отправлена
+Kafka -> PP: WithdrawalRequested
+PP -> Kafka: WithdrawalCompleted или WithdrawalFailed
+
+== асинхронно: финализация ==
+Kafka -> Cons: WithdrawalCompleted / WithdrawalFailed
+alt WithdrawalCompleted
+    group одна транзакция БД
+        Cons -> DB: статус PENDING → COMPLETED
+    end
+else WithdrawalFailed
+    group одна транзакция БД
+        Cons -> DB: статус PENDING → FAILED, failure_reason
+        Cons -> WS: вернуть средства
+        WS -> DB: Credit
+    end
+end
+note right of Cons
+  Статус меняется только из PENDING:
+  повторное сообщение ничего не меняет
+end note
+@enduml

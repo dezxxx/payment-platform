@@ -567,6 +567,8 @@ person-service меняет только оригинал, а каждый но�
 
 `person-service` получает 8082 в модуле 2 — не из задания, выбрано потому, что
 8081 занят. Записи `servers` в OpenAPI следуют этой таблице.
+`transaction-service` получает 8084 в модуле 3: 8082 из задания занят
+person-service, 8083 — Nexus.
 
 **Nexus работает на 8083, а не на своём дефолтном 8081.** Задание закрепляет
 8081 за individuals-api, так что двигаться приходится Nexus; URL живут в
@@ -587,8 +589,9 @@ payment-platform/              Git root, а НЕ проект Gradle
 ├── infra/                     провижининг prometheus, tempo, loki, alloy, grafana
 ├── postman/                   коллекция на каждый сервис: все эндпоинты и их отказы
 ├── individuals-api/           оркестратор; его C4-диаграммы в diagrams-c4/
-└── person-service/            агрегат физлица; ещё публикует person-service-client -> Nexus
-                               его C4-диаграммы в diagrams-c4/
+├── person-service/            агрегат физлица; ещё публикует person-service-client -> Nexus
+│                              его C4-диаграммы в diagrams-c4/
+└── transaction-service/       кошельки и транзакции (модуль 3); пока каркас
 ```
 
 Каждый модуль — самостоятельная сборка Gradle: свой `settings.gradle.kts`,

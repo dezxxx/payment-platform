@@ -1,0 +1,61 @@
+@startuml sequence-deposit
+title Пополнение (deposit)
+
+actor "Клиент" as Client
+participant "individuals-api" as IA
+box "transaction-service" #F5F9FF
+    participant "TransactionService" as TS
+    participant "WalletService" as WS
+    database "БД (шард пользователя)" as DB
+    participant "TransactionKafkaProducer" as Pub
+    participant "TransactionKafkaConsumer" as Cons
+end box
+queue "Kafka" as Kafka
+participant "Fake Payment Provider" as PP
+
+== init: расчёт условий, в БД ничего не пишется ==
+Client -> IA: POST /api/v1/transactions/deposit/init
+IA -> IA: user_uid из токена
+IA -> TS: calc deposit conditions (init)
+TS -> WS: проверка кошелька (принадлежит user_uid, активен)
+WS --> TS: OK
+TS --> IA: условия (комиссия, итоговая сумма)
+IA --> Client: условия пополнения
+
+== confirm: создание транзакции ==
+Client -> IA: POST /api/v1/transactions/deposit/confirm
+IA -> TS: confirm deposit
+TS -> WS: проверка кошелька
+WS --> TS: OK
+group одна транзакция БД
+    TS -> DB: транзакция PENDING
+    TS -> DB: transaction_events: DepositRequested
+end
+TS --> IA: status=PENDING, transactionId
+IA --> Client: status=PENDING, transactionId
+
+== асинхронно: событие уходит в Fake Payment Provider ==
+Pub -> DB: неотправленные записи transaction_events
+Pub -> Kafka: DepositRequested (Avro, key = transactionId)
+Pub -> DB: запись transaction_events отправлена
+Kafka -> PP: DepositRequested
+PP -> Kafka: DepositCompleted или DepositFailed
+
+== асинхронно: финализация ==
+Kafka -> Cons: DepositCompleted / DepositFailed
+alt DepositCompleted
+    group одна транзакция БД
+        Cons -> DB: статус PENDING → COMPLETED
+        Cons -> WS: зачислить средства
+        WS -> DB: баланс += сумма
+    end
+else DepositFailed
+    group одна транзакция БД
+        Cons -> DB: статус PENDING → FAILED, failure_reason
+    end
+end
+note right of Cons
+  Статус меняется только из PENDING:
+  повторное сообщение ничего не меняет
+end note
+@enduml

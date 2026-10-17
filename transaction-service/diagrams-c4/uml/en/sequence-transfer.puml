@@ -1,0 +1,32 @@
+@startuml sequence-transfer
+title Transfer between one's own wallets
+
+actor "Client" as Client
+participant "individuals-api" as IA
+box "transaction-service" #F5F9FF
+    participant "TransactionService" as TS
+    participant "WalletService" as WS
+    database "DB (the user's shard)" as DB
+end box
+
+== init: compute the terms, nothing is written ==
+Client -> IA: POST /api/v1/transactions/transfer/init
+IA -> IA: user_uid from the token
+IA -> TS: calc transfer conditions (init)
+TS -> WS: check both wallets (belong to user_uid, active, same currency)
+WS --> TS: OK, fee, available balance
+TS --> IA: transfer terms
+IA --> Client: transfer terms
+
+== confirm: the whole transfer ==
+Client -> IA: POST /api/v1/transactions/transfer/confirm
+IA -> TS: confirm transfer
+group one DB transaction
+    TS -> WS: Debit + Credit
+    WS -> DB: lock both wallets (FOR UPDATE, by ascending uid)
+    WS -> DB: check the balance, debit A, credit B
+    TS -> DB: transaction COMPLETED (target_wallet_uid = B)
+end
+TS --> IA: status=COMPLETED, transactionId
+IA --> Client: status=COMPLETED, transactionId
+@enduml

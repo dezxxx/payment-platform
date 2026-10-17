@@ -1,0 +1,61 @@
+@startuml sequence-withdrawal
+title Withdrawal
+
+actor "Client" as Client
+participant "individuals-api" as IA
+box "transaction-service" #F5F9FF
+    participant "TransactionService" as TS
+    participant "WalletService" as WS
+    database "DB (the user's shard)" as DB
+    participant "TransactionKafkaProducer" as Pub
+    participant "TransactionKafkaConsumer" as Cons
+end box
+queue "Kafka" as Kafka
+participant "Fake Payment Provider" as PP
+
+== init: compute the terms, nothing is written ==
+Client -> IA: POST /api/v1/transactions/withdrawal/init
+IA -> IA: user_uid from the token
+IA -> TS: calc withdrawal conditions (init)
+TS -> WS: check the balance
+WS --> TS: OK, fee, availability
+TS --> IA: withdrawal terms
+IA --> Client: withdrawal terms
+
+== confirm: debit and create the transaction ==
+Client -> IA: POST /api/v1/transactions/withdrawal/confirm
+IA -> TS: confirm withdrawal
+group one DB transaction
+    TS -> WS: debit the funds (reserve)
+    WS -> DB: lock the wallet (FOR UPDATE), check the balance, Debit
+    TS -> DB: transaction PENDING
+    TS -> DB: transaction_events: WithdrawalRequested
+end
+TS --> IA: status=PENDING, transactionId
+IA --> Client: status=PENDING, transactionId
+
+== async: the event goes to Fake Payment Provider ==
+Pub -> DB: unsent rows of transaction_events
+Pub -> Kafka: WithdrawalRequested (Avro, key = transactionId)
+Pub -> DB: transaction_events row sent
+Kafka -> PP: WithdrawalRequested
+PP -> Kafka: WithdrawalCompleted or WithdrawalFailed
+
+== async: finalization ==
+Kafka -> Cons: WithdrawalCompleted / WithdrawalFailed
+alt WithdrawalCompleted
+    group one DB transaction
+        Cons -> DB: status PENDING → COMPLETED
+    end
+else WithdrawalFailed
+    group one DB transaction
+        Cons -> DB: status PENDING → FAILED, failure_reason
+        Cons -> WS: return the funds
+        WS -> DB: Credit
+    end
+end
+note right of Cons
+  The status changes only from PENDING:
+  a repeated message changes nothing
+end note
+@enduml
