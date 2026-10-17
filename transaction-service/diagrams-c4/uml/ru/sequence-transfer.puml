@@ -1,0 +1,32 @@
+@startuml sequence-transfer
+title Перевод между своими кошельками (transfer)
+
+actor "Клиент" as Client
+participant "individuals-api" as IA
+box "transaction-service" #F5F9FF
+    participant "TransactionService" as TS
+    participant "WalletService" as WS
+    database "БД (шард пользователя)" as DB
+end box
+
+== init: расчёт условий, в БД ничего не пишется ==
+Client -> IA: POST /api/v1/transactions/transfer/init
+IA -> IA: user_uid из токена
+IA -> TS: calc transfer conditions (init)
+TS -> WS: проверка обоих кошельков (принадлежат user_uid, активны, одна валюта)
+WS --> TS: OK, комиссия, доступный баланс
+TS --> IA: условия перевода
+IA --> Client: условия перевода
+
+== confirm: перевод целиком ==
+Client -> IA: POST /api/v1/transactions/transfer/confirm
+IA -> TS: confirm transfer
+group одна транзакция БД
+    TS -> WS: Debit + Credit
+    WS -> DB: блокировка обоих кошельков (FOR UPDATE, по возрастанию uid)
+    WS -> DB: проверка баланса, списание с A, зачисление на B
+    TS -> DB: транзакция COMPLETED (target_wallet_uid = B)
+end
+TS --> IA: status=COMPLETED, transactionId
+IA --> Client: status=COMPLETED, transactionId
+@enduml
