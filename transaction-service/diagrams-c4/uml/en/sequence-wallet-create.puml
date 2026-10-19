@@ -1,0 +1,49 @@
+@startuml sequence-wallet-create
+title Create a wallet (POST /wallets)
+
+actor "Client" as Client
+participant "individuals-api" as IA
+box "transaction-service" #F5F9FF
+    participant "WalletService" as WS
+    database "DB (shard by user_uid)" as DB
+end box
+
+Client -> IA: POST /api/v1/wallets (name, wallet type)
+alt invalid token
+    IA --> Client: 401
+end
+IA -> IA: user_uid from the token
+IA -> WS: create wallet, user_uid
+alt invalid request (@Valid: name empty or longer than 32, no type)
+    WS --> IA: 400 ErrorResponse
+    IA --> Client: 400
+end
+group one DB transaction
+    WS -> DB: SELECT * FROM wallet_types WHERE uid = :walletTypeUid
+    note right of DB
+      wallet_types is copied to every shard (broadcast),
+      read from any
+    end note
+    alt type not found
+        WS -> WS: ROLLBACK — nothing written
+        WS --> IA: 404 ErrorResponse
+        IA --> Client: 404
+    else type archived or not active
+        WS -> WS: ROLLBACK — nothing written
+        WS --> IA: 400 ErrorResponse
+        IA --> Client: 400
+    end
+    WS -> DB: INSERT INTO wallets (uid, name, wallet_type_uid, user_uid, status, balance)\nVALUES (:uid, :name, :walletTypeUid, :userUid, 'ACTIVE', 0)
+    note right of DB
+      ShardingSphere: hash(user_uid) % 2 —
+      the wallet lands in the user's shard
+    end note
+    alt DB error
+        WS -> WS: ROLLBACK — nothing written
+        WS --> IA: 500 ErrorResponse
+        IA --> Client: 500
+    end
+end
+WS --> IA: 201 WalletResponse
+IA --> Client: 201 WalletResponse
+@enduml

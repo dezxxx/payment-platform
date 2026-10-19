@@ -1,0 +1,33 @@
+@startuml sequence-wallets-of-user
+title Кошельки пользователя (GET /wallets/user/{userUid})
+
+actor "Клиент" as Client
+participant "individuals-api" as IA
+box "transaction-service" #F5F9FF
+    participant "WalletService" as WS
+    database "БД (шард по user_uid)" as DB
+end box
+
+Client -> IA: GET кошельки пользователя
+alt токен невалиден
+    IA --> Client: 401
+end
+IA -> IA: user_uid из токена
+note right of IA
+  userUid от клиента не принимается:
+  в путь подставляется user_uid из токена
+  (иначе можно читать чужие кошельки)
+end note
+IA -> WS: GET /wallets/user/{user_uid из токена}
+WS -> DB: SELECT * FROM wallets\nWHERE user_uid = :userUid AND archived_at IS NULL
+note right of DB
+  ShardingSphere: user_uid → один шард,
+  все кошельки пользователя лежат там
+end note
+alt кошельков нет
+    WS --> IA: 200 []
+    IA --> Client: 200 []
+end
+WS --> IA: 200 список WalletResponse
+IA --> Client: 200 список WalletResponse
+@enduml

@@ -6,7 +6,7 @@ participant "individuals-api" as IA
 box "transaction-service" #F5F9FF
     participant "TransactionService" as TS
     participant "WalletService" as WS
-    database "DB (the user's shard)" as DB
+    database "DB (shard by user_uid)" as DB
     participant "TransactionKafkaProducer" as Pub
     participant "TransactionKafkaConsumer" as Cons
 end box
@@ -14,48 +14,118 @@ queue "Kafka" as Kafka
 participant "Fake Payment Provider" as PP
 
 == init: compute the terms, nothing is written ==
-Client -> IA: POST /api/v1/transactions/deposit/init
+Client -> IA: POST /api/v1/transactions/deposit/init (walletUid, amount)
+alt invalid token
+    IA --> Client: 401
+end
 IA -> IA: user_uid from the token
-IA -> TS: calc deposit conditions (init)
-TS -> WS: check the wallet (belongs to user_uid, active)
+IA -> TS: calc deposit conditions (init), userUid
+alt invalid request (@Valid)
+    TS --> IA: 400 ErrorResponse
+    IA --> Client: 400
+end
+TS -> WS: check the wallet
+WS -> DB: SELECT * FROM wallets\nWHERE uid = :walletUid AND user_uid = :userUid
+alt 0 rows — wallet not found or not the user's
+    TS --> IA: 404 ErrorResponse
+    IA --> Client: 404
+else status <> 'ACTIVE'
+    TS --> IA: 400 ErrorResponse
+    IA --> Client: 400
+end
 WS --> TS: OK
-TS --> IA: terms (fee, total)
-IA --> Client: deposit terms
+TS -> TS: fee, total, new requestId (UUID)
+TS --> IA: terms + requestId
+IA --> Client: deposit terms + requestId
 
 == confirm: create the transaction ==
-Client -> IA: POST /api/v1/transactions/deposit/confirm
-IA -> TS: confirm deposit
-TS -> WS: check the wallet
-WS --> TS: OK
+Client -> IA: POST /api/v1/transactions/deposit/confirm (requestId, walletUid, amount)
+IA -> TS: confirm deposit, userUid
 group one DB transaction
-    TS -> DB: transaction PENDING
-    TS -> DB: transaction_events: DepositRequested
+    TS -> DB: SELECT uid, status FROM transactions\nWHERE user_uid = :userUid AND request_id = :requestId
+    alt 1 row — repeated confirm
+        TS --> IA: 200, its transactionId and current status
+        IA --> Client: 200, the same transactionId
+    end
+    TS -> WS: re-check the wallet
+    WS -> DB: SELECT * FROM wallets\nWHERE uid = :walletUid AND user_uid = :userUid
+    alt 0 rows or status <> 'ACTIVE'
+        TS -> TS: ROLLBACK — nothing written
+        TS --> IA: 404 / 400 ErrorResponse
+        IA --> Client: 404 / 400
+    end
+    TS -> TS: recompute the fee (the init terms are not trusted)
+    TS -> DB: INSERT INTO transactions\n(uid, user_uid, wallet_uid, amount, fee, type, status, request_id)\nVALUES (:transactionId, :userUid, :walletUid, :amount, :fee, 'DEPOSIT', 'PENDING', :requestId)
+    TS -> DB: INSERT INTO transaction_events\n(uid, transaction_uid, user_uid, event_type, payload, traceparent, sent_at)\nVALUES (:eventId, :transactionId, :userUid, 'DepositRequested', :payload, :traceparent, NULL)
+    alt DB error (incl. a UNIQUE (user_uid, request_id) violation)
+        TS -> TS: ROLLBACK — nothing written
+        TS --> IA: 500 ErrorResponse
+        IA --> Client: 500
+    end
 end
 TS --> IA: status=PENDING, transactionId
 IA --> Client: status=PENDING, transactionId
+note right of IA
+  init and confirm are separate HTTP requests and separate traces.
+  requestId links them: it is in the span attributes and logs of both.
+end note
 
 == async: the event goes to Fake Payment Provider ==
-Pub -> DB: unsent rows of transaction_events
-Pub -> Kafka: DepositRequested (Avro, key = transactionId)
-Pub -> DB: transaction_events row sent
+loop on a schedule (@Scheduled)
+    Pub -> DB: SELECT * FROM transaction_events\nWHERE sent_at IS NULL\nORDER BY created_at LIMIT :batchSize
+    note right of DB
+      no user_uid — ShardingSphere
+      reads both shards, as intended
+    end note
+    Pub -> Kafka: DepositRequested (Avro, key = transactionId, userId)\ntraceparent header from the row
+    alt the broker acknowledged
+        Kafka --> Pub: ack
+        Pub -> DB: UPDATE transaction_events SET sent_at = now()\nWHERE uid = :eventId AND user_uid = :userUid
+    else Kafka unavailable or no acknowledgement
+        Kafka --> Pub: error / timeout
+        Pub -> Pub: log ERROR; sent_at stays NULL — retried on the next run
+    end
+end
 Kafka -> PP: DepositRequested
-PP -> Kafka: DepositCompleted or DepositFailed
+PP -> Kafka: DepositCompleted or DepositFailed\n(transactionId, userId, traceparent — the same trace continues)
+note over PP
+  No answer — the transaction stays PENDING.
+  Visible on the "PENDING age" metric, which has an alert.
+end note
 
 == async: finalization ==
 Kafka -> Cons: DepositCompleted / DepositFailed
-alt DepositCompleted
-    group one DB transaction
-        Cons -> DB: status PENDING → COMPLETED
-        Cons -> WS: credit the funds
-        WS -> DB: balance += amount
-    end
-else DepositFailed
-    group one DB transaction
-        Cons -> DB: status PENDING → FAILED, failure_reason
+Cons -> TS: finalize (transactionId, userId)
+note right of Cons
+  userId from the event → ShardingSphere goes
+  to one shard, not to all
+end note
+group one DB transaction (TransactionService)
+    alt DepositCompleted
+        TS -> DB: UPDATE transactions SET status = 'COMPLETED', modified_at = now()\nWHERE uid = :transactionId AND user_uid = :userId AND status = 'PENDING'
+        alt 1 row changed — first processing
+            TS -> DB: SELECT wallet_uid, amount FROM transactions\nWHERE uid = :transactionId AND user_uid = :userId
+            TS -> WS: credit (walletUid, amount)
+            WS -> DB: UPDATE wallets SET balance = balance + :amount, modified_at = now()\nWHERE uid = :walletUid AND user_uid = :userId
+        else 0 rows changed
+            TS -> DB: SELECT status FROM transactions\nWHERE uid = :transactionId AND user_uid = :userId
+            alt 1 row, status already final — repeated message
+                TS -> TS: log INFO, balance untouched
+            else 0 rows — transaction not found
+                TS -> TS: exception → ROLLBACK
+            end
+        end
+    else DepositFailed
+        TS -> DB: UPDATE transactions SET status = 'FAILED', failure_reason = :failureReason,\nmodified_at = now()\nWHERE uid = :transactionId AND user_uid = :userId AND status = 'PENDING'
+        alt 0 rows changed
+            TS -> TS: as above: repeat — nothing; not found — exception
+        end
     end
 end
-note right of Cons
-  The status changes only from PENDING:
-  a repeated message changes nothing
-end note
+alt processing finished without an exception
+    Cons -> Kafka: commit offset
+else exception (DB unavailable, transaction not found)
+    Cons -> Cons: ROLLBACK; retry with a pause (DefaultErrorHandler)
+    Cons -> Kafka: retries exhausted → message to the DLT, log ERROR
+end
 @enduml

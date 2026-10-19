@@ -6,7 +6,7 @@ participant "individuals-api" as IA
 box "transaction-service" #F5F9FF
     participant "TransactionService" as TS
     participant "WalletService" as WS
-    database "БД (шард пользователя)" as DB
+    database "БД (шард по user_uid)" as DB
     participant "TransactionKafkaProducer" as Pub
     participant "TransactionKafkaConsumer" as Cons
 end box
@@ -14,48 +14,130 @@ queue "Kafka" as Kafka
 participant "Fake Payment Provider" as PP
 
 == init: расчёт условий, в БД ничего не пишется ==
-Client -> IA: POST /api/v1/transactions/withdrawal/init
+Client -> IA: POST /api/v1/transactions/withdrawal/init (walletUid, amount)
+alt токен невалиден
+    IA --> Client: 401
+end
 IA -> IA: user_uid из токена
-IA -> TS: calc withdrawal conditions (init)
-TS -> WS: проверка баланса
-WS --> TS: OK, комиссия, доступность
-TS --> IA: условия вывода
-IA --> Client: условия вывода
+IA -> TS: calc withdrawal conditions (init), userUid
+alt запрос невалиден (@Valid)
+    TS --> IA: 400 ErrorResponse
+    IA --> Client: 400
+end
+TS -> WS: проверка кошелька и баланса
+WS -> DB: SELECT * FROM wallets\nWHERE uid = :walletUid AND user_uid = :userUid
+alt 0 строк — кошелёк не найден или чужой
+    TS --> IA: 404 ErrorResponse
+    IA --> Client: 404
+else status <> 'ACTIVE' или balance < amount + fee
+    TS --> IA: 400 ErrorResponse
+    IA --> Client: 400
+end
+WS --> TS: OK
+TS -> TS: fee, итоговая сумма, новый requestId (UUID)
+TS --> IA: условия + requestId
+IA --> Client: условия вывода + requestId
 
 == confirm: списание и создание транзакции ==
-Client -> IA: POST /api/v1/transactions/withdrawal/confirm
-IA -> TS: confirm withdrawal
+Client -> IA: POST /api/v1/transactions/withdrawal/confirm (requestId, walletUid, amount)
+IA -> TS: confirm withdrawal, userUid
 group одна транзакция БД
-    TS -> WS: списать средства (резерв)
-    WS -> DB: блокировка кошелька (FOR UPDATE), проверка баланса, Debit
-    TS -> DB: транзакция PENDING
-    TS -> DB: transaction_events: WithdrawalRequested
+    TS -> DB: SELECT uid, status FROM transactions\nWHERE user_uid = :userUid AND request_id = :requestId
+    alt 1 строка — повторный confirm
+        TS --> IA: 200, её transactionId и текущий статус
+        IA --> Client: 200, тот же transactionId — второго списания нет
+    end
+    TS -> TS: пересчёт fee (условиям из init не доверяем)
+    TS -> WS: списать amount + fee (резерв)
+    WS -> DB: SELECT * FROM wallets\nWHERE uid = :walletUid AND user_uid = :userUid\nFOR UPDATE
+    alt 0 строк — кошелёк не найден или чужой
+        TS -> TS: ROLLBACK — в БД ничего не записано
+        TS --> IA: 404 ErrorResponse
+        IA --> Client: 404
+    else status <> 'ACTIVE' или balance < amount + fee
+        TS -> TS: ROLLBACK — в БД ничего не записано
+        TS --> IA: 400 ErrorResponse
+        IA --> Client: 400
+    end
+    WS -> DB: UPDATE wallets SET balance = balance - (:amount + :fee), modified_at = now()\nWHERE uid = :walletUid AND user_uid = :userUid
+    TS -> DB: INSERT INTO transactions\n(uid, user_uid, wallet_uid, amount, fee, type, status, request_id)\nVALUES (:transactionId, :userUid, :walletUid, :amount, :fee, 'WITHDRAWAL', 'PENDING', :requestId)
+    TS -> DB: INSERT INTO transaction_events\n(uid, transaction_uid, user_uid, event_type, payload, traceparent, sent_at)\nVALUES (:eventId, :transactionId, :userUid, 'WithdrawalRequested', :payload, :traceparent, NULL)
+    alt ошибка БД (в т.ч. нарушение UNIQUE (user_uid, request_id))
+        TS -> TS: ROLLBACK — списания нет, ничего не записано
+        TS --> IA: 500 ErrorResponse
+        IA --> Client: 500
+    end
 end
 TS --> IA: status=PENDING, transactionId
 IA --> Client: status=PENDING, transactionId
+note right of IA
+  init и confirm — разные HTTP-запросы и разные трассы.
+  Их связывает requestId: он в атрибутах спанов и в логах обоих.
+end note
 
 == асинхронно: событие уходит в Fake Payment Provider ==
-Pub -> DB: неотправленные записи transaction_events
-Pub -> Kafka: WithdrawalRequested (Avro, key = transactionId)
-Pub -> DB: запись transaction_events отправлена
+loop по расписанию (@Scheduled)
+    Pub -> DB: SELECT * FROM transaction_events\nWHERE sent_at IS NULL\nORDER BY created_at LIMIT :batchSize
+    note right of DB
+      без user_uid — ShardingSphere
+      читает оба шарда, так и нужно
+    end note
+    Pub -> Kafka: WithdrawalRequested (Avro, key = transactionId, userId)\nheader traceparent из записи
+    alt broker подтвердил запись
+        Kafka --> Pub: ack
+        Pub -> DB: UPDATE transaction_events SET sent_at = now()\nWHERE uid = :eventId AND user_uid = :userUid
+    else Kafka недоступна или не подтвердила
+        Kafka --> Pub: ошибка / тайм-аут
+        Pub -> Pub: лог ERROR; sent_at остаётся NULL — повтор на следующем запуске;\nденьги зарезервированы, транзакция PENDING
+    end
+end
 Kafka -> PP: WithdrawalRequested
-PP -> Kafka: WithdrawalCompleted или WithdrawalFailed
+PP -> Kafka: WithdrawalCompleted или WithdrawalFailed\n(transactionId, userId, traceparent — продолжение той же трассы)
+note over PP
+  Ответа нет — транзакция остаётся PENDING, деньги зарезервированы.
+  Видно по метрике «возраст PENDING», на неё алерт.
+end note
 
 == асинхронно: финализация ==
 Kafka -> Cons: WithdrawalCompleted / WithdrawalFailed
-alt WithdrawalCompleted
-    group одна транзакция БД
-        Cons -> DB: статус PENDING → COMPLETED
-    end
-else WithdrawalFailed
-    group одна транзакция БД
-        Cons -> DB: статус PENDING → FAILED, failure_reason
-        Cons -> WS: вернуть средства
-        WS -> DB: Credit
+Cons -> TS: финализировать (transactionId, userId)
+note right of Cons
+  userId из события → ShardingSphere идёт
+  в один шард, не во все
+end note
+group одна транзакция БД (TransactionService)
+    alt WithdrawalCompleted
+        TS -> DB: UPDATE transactions SET status = 'COMPLETED', modified_at = now()\nWHERE uid = :transactionId AND user_uid = :userId AND status = 'PENDING'
+        alt изменена 1 строка
+            TS -> TS: готово: деньги списаны ещё при confirm
+        else изменено 0 строк
+            TS -> DB: SELECT status FROM transactions\nWHERE uid = :transactionId AND user_uid = :userId
+            alt 1 строка, статус уже финальный — повтор сообщения
+                TS -> TS: лог INFO, ничего не меняем
+            else 0 строк — транзакция не найдена
+                TS -> TS: исключение → ROLLBACK
+            end
+        end
+    else WithdrawalFailed
+        TS -> DB: UPDATE transactions SET status = 'FAILED', failure_reason = :failureReason,\nmodified_at = now()\nWHERE uid = :transactionId AND user_uid = :userId AND status = 'PENDING'
+        alt изменена 1 строка — первая обработка
+            TS -> DB: SELECT wallet_uid, amount, fee FROM transactions\nWHERE uid = :transactionId AND user_uid = :userId
+            TS -> WS: вернуть amount + fee (walletUid)
+            WS -> DB: UPDATE wallets SET balance = balance + (:amount + :fee), modified_at = now()\nWHERE uid = :walletUid AND user_uid = :userId
+        else изменено 0 строк
+            TS -> DB: SELECT status FROM transactions\nWHERE uid = :transactionId AND user_uid = :userId
+            alt 1 строка, статус уже финальный — повтор сообщения
+                TS -> TS: лог INFO, деньги второй раз не возвращаем
+            else 0 строк — транзакция не найдена
+                TS -> TS: исключение → ROLLBACK
+            end
+        end
     end
 end
-note right of Cons
-  Статус меняется только из PENDING:
-  повторное сообщение ничего не меняет
-end note
+alt обработка завершилась без исключения
+    Cons -> Kafka: commit offset
+else исключение (БД недоступна, транзакция не найдена)
+    Cons -> Cons: ROLLBACK; retry с паузой (DefaultErrorHandler)
+    Cons -> Kafka: попытки кончились → сообщение в DLT, лог ERROR
+end
 @enduml

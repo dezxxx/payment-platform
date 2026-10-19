@@ -9,9 +9,15 @@
 | sequence: пополнение | `transaction-service/diagrams-c4/png/ru/sequence-deposit.png` |
 | sequence: перевод | `transaction-service/diagrams-c4/png/ru/sequence-transfer.png` |
 | sequence: вывод | `transaction-service/diagrams-c4/png/ru/sequence-withdrawal.png` |
+| sequence: создание кошелька | `transaction-service/diagrams-c4/png/ru/sequence-wallet-create.png` |
+| sequence: кошелёк по id | `transaction-service/diagrams-c4/png/ru/sequence-wallet-get.png` |
+| sequence: кошельки пользователя | `transaction-service/diagrams-c4/png/ru/sequence-wallets-of-user.png` |
+| sequence: статус транзакции | `transaction-service/diagrams-c4/png/ru/sequence-transaction-status.png` |
+| sequence: поиск транзакций | `transaction-service/diagrams-c4/png/ru/sequence-transactions-search.png` |
 
-Sequence-диаграммы построены на диаграммах из ТЗ: участники и шаги те же. Ниже — места, где я
-считаю нужным отойти от ТЗ, и почему.
+Sequence-диаграммы пополнения, перевода и вывода построены на диаграммах из ТЗ: участники и шаги
+те же. На каждой диаграмме показаны ветки отказа, границы транзакций БД и что пишется в БД.
+Ниже — места, где я считаю нужным отойти от ТЗ, и почему.
 
 ## Устройство сервиса и транзакции
 
@@ -63,6 +69,8 @@ Sequence-диаграммы построены на диаграммах из Т
 | 11 | `userUid` приходит от клиента: `/wallets/user/{userUid}`, `?userUid=` | `user_uid` берёт individuals-api из токена; transaction-service проверяет, что кошелёк и транзакция принадлежат ему | иначе, подставив чужой `userUid`, можно читать чужие кошельки и транзакции |
 | 12 | события в JSON, суммы как `100.0` | Avro + Schema Registry, суммы — `decimal` | Schema Registry отклоняет несовместимую схему, контракт событий не ломается молча. Сумма с плавающей точкой даёт ошибки округления |
 | 13 | individuals-api вызывает сервис через Feign | сгенерированный из контракта реактивный HTTP-клиент `transaction-service-client`, как `person-service-client` в модуле 2 | individuals-api работает на WebFlux, а Feign блокирует поток event loop |
+| 18 | `DepositCompleted`, `WithdrawalCompleted` / `WithdrawalFailed`: `transactionId`, `status`, … — без `userId` | ответы провайдера несут `userId` из запроса | шард выбирается по `user_uid`; без него consumer искал бы транзакцию во всех шардах, с ним — один запрос в один шард |
+| 19 | `init` и `confirm` ничем не связаны; в теории — `requestId` при confirm как идемпотентный ключ | `init` возвращает `requestId` (ничего не сохраняя), клиент передаёт его в `confirm`; `confirm` сохраняет его в `transactions.request_id`, уникально в пределах `user_uid` | связь `init` и `confirm` в трассировке и логах; повторный `confirm` с тем же `requestId` возвращает уже созданную транзакцию, а не списывает второй раз |
 
 ## Стек и инфраструктура
 

@@ -1,0 +1,36 @@
+@startuml sequence-transaction-status
+title Статус транзакции (GET /transactions/{transactionId}/status)
+
+actor "Клиент" as Client
+participant "individuals-api" as IA
+box "transaction-service" #F5F9FF
+    participant "TransactionService" as TS
+    database "БД (шард по user_uid)" as DB
+end box
+
+Client -> IA: GET /api/v1/transactions/{transactionId}/status
+alt токен невалиден
+    IA --> Client: 401
+end
+IA -> IA: user_uid из токена
+IA -> TS: get status (transactionId, user_uid)
+alt transactionId не UUID
+    TS --> IA: 400 ErrorResponse
+    IA --> Client: 400
+end
+TS -> DB: SELECT uid, status, failure_reason FROM transactions\nWHERE uid = :transactionId AND user_uid = :userUid
+note right of DB
+  user_uid в условии: один шард
+  и проверка, что транзакция своя
+end note
+alt не найдена или чужая
+    TS --> IA: 404 ErrorResponse
+    IA --> Client: 404
+end
+TS --> IA: 200 TransactionStatusResponse\n(status: PENDING / COMPLETED / FAILED, failure_reason)
+IA --> Client: 200 TransactionStatusResponse
+note right of Client
+  Клиент опрашивает этот endpoint,
+  пока PENDING не сменится на итог
+end note
+@enduml

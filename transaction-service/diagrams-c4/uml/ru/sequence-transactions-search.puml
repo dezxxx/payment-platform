@@ -1,0 +1,47 @@
+@startuml sequence-transactions-search
+title Поиск транзакций (GET /transactions)
+
+actor "Клиент" as Client
+participant "individuals-api" as IA
+box "transaction-service" #F5F9FF
+    participant "TransactionService" as TS
+    database "БД (шард по user_uid)" as DB
+end box
+
+Client -> IA: GET /api/v1/transactions\n?walletUid&type&status&dateFrom&dateTo&page=0&size=20
+alt токен невалиден
+    IA --> Client: 401
+end
+IA -> IA: user_uid из токена
+note right of IA
+  фильтр userUid от клиента не принимается:
+  подставляется user_uid из токена
+end note
+IA -> TS: search (user_uid, фильтры, page, size)
+alt параметры невалидны
+    TS --> IA: 400 ErrorResponse
+    IA --> Client: 400
+    note right of Client
+      type не из deposit / withdrawal / transfer;
+      status не из PENDING / COMPLETED / FAILED;
+      dateFrom позже dateTo;
+      page < 0; size < 1 или больше 100
+    end note
+end
+TS -> DB: SELECT * FROM transactions\nWHERE user_uid = :userUid\n  [AND wallet_uid = :walletUid] [AND type = :type] [AND status = :status]\n  [AND created_at >= :dateFrom] [AND created_at < :dateTo]\nORDER BY created_at DESC, uid\nLIMIT :size OFFSET :page * :size
+note right of DB
+  [ ] — условие добавляется, только если фильтр передан.
+  user_uid всегда в условии → ShardingSphere идёт в один шард
+  и видны только свои транзакции; чужой walletUid даёт пустой список.
+  Пагинация: LIMIT — сколько строк на странице,
+  OFFSET — сколько пропустить (page = 2, size = 20 → пропустить 40).
+  ORDER BY с uid — порядок стабилен, страницы не перекрываются.
+  Индекс (user_uid, created_at).
+end note
+alt ничего не найдено
+    TS --> IA: 200 []
+    IA --> Client: 200 []
+end
+TS --> IA: 200 список TransactionStatusResponse (не больше size)
+IA --> Client: 200 список TransactionStatusResponse
+@enduml

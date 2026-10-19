@@ -6,27 +6,74 @@ participant "individuals-api" as IA
 box "transaction-service" #F5F9FF
     participant "TransactionService" as TS
     participant "WalletService" as WS
-    database "БД (шард пользователя)" as DB
+    database "БД (шард по user_uid)" as DB
 end box
 
 == init: расчёт условий, в БД ничего не пишется ==
-Client -> IA: POST /api/v1/transactions/transfer/init
+Client -> IA: POST /api/v1/transactions/transfer/init (walletUid, targetWalletUid, amount)
+alt токен невалиден
+    IA --> Client: 401
+end
 IA -> IA: user_uid из токена
-IA -> TS: calc transfer conditions (init)
-TS -> WS: проверка обоих кошельков (принадлежат user_uid, активны, одна валюта)
-WS --> TS: OK, комиссия, доступный баланс
-TS --> IA: условия перевода
-IA --> Client: условия перевода
+IA -> TS: calc transfer conditions (init), userUid
+alt запрос невалиден (@Valid) или walletUid = targetWalletUid
+    TS --> IA: 400 ErrorResponse
+    IA --> Client: 400
+end
+TS -> WS: проверка обоих кошельков
+WS -> DB: SELECT w.*, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid IN (:walletUid, :targetWalletUid) AND w.user_uid = :userUid
+alt вернулось меньше 2 строк — кошелёк не найден или чужой
+    TS --> IA: 404 ErrorResponse
+    IA --> Client: 404
+else status <> 'ACTIVE', разные currency_code или balance < amount + fee
+    TS --> IA: 400 ErrorResponse
+    IA --> Client: 400
+end
+WS --> TS: OK
+TS -> TS: fee, новый requestId (UUID)
+TS --> IA: условия + requestId
+IA --> Client: условия перевода + requestId
 
 == confirm: перевод целиком ==
-Client -> IA: POST /api/v1/transactions/transfer/confirm
-IA -> TS: confirm transfer
+Client -> IA: POST /api/v1/transactions/transfer/confirm\n(requestId, walletUid, targetWalletUid, amount)
+IA -> TS: confirm transfer, userUid
 group одна транзакция БД
+    TS -> DB: SELECT uid, status FROM transactions\nWHERE user_uid = :userUid AND request_id = :requestId
+    alt 1 строка — повторный confirm
+        TS --> IA: 200, её transactionId и статус
+        IA --> Client: 200, тот же transactionId — второго перевода нет
+    end
+    TS -> TS: пересчёт fee (условиям из init не доверяем)
     TS -> WS: Debit + Credit
-    WS -> DB: блокировка обоих кошельков (FOR UPDATE, по возрастанию uid)
-    WS -> DB: проверка баланса, списание с A, зачисление на B
-    TS -> DB: транзакция COMPLETED (target_wallet_uid = B)
+    WS -> DB: SELECT w.*, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid IN (:walletUid, :targetWalletUid) AND w.user_uid = :userUid\nORDER BY w.uid\nFOR UPDATE OF w
+    note right of DB
+      ORDER BY uid — оба кошелька блокируются
+      всегда в одном порядке: два встречных перевода
+      не ждут друг друга вечно (deadlock)
+    end note
+    alt вернулось меньше 2 строк — кошелёк не найден или чужой
+        TS -> TS: ROLLBACK — в БД ничего не записано
+        TS --> IA: 404 ErrorResponse
+        IA --> Client: 404
+    else status <> 'ACTIVE', разные currency_code или balance < amount + fee
+        TS -> TS: ROLLBACK — в БД ничего не записано
+        TS --> IA: 400 ErrorResponse
+        IA --> Client: 400
+    end
+    WS -> DB: UPDATE wallets SET balance = balance - (:amount + :fee), modified_at = now()\nWHERE uid = :walletUid AND user_uid = :userUid
+    WS -> DB: UPDATE wallets SET balance = balance + :amount, modified_at = now()\nWHERE uid = :targetWalletUid AND user_uid = :userUid
+    TS -> DB: INSERT INTO transactions\n(uid, user_uid, wallet_uid, target_wallet_uid, amount, fee, type, status, request_id)\nVALUES (:transactionId, :userUid, :walletUid, :targetWalletUid, :amount, :fee,\n'TRANSFER', 'COMPLETED', :requestId)
+    alt ошибка БД (в т.ч. нарушение UNIQUE (user_uid, request_id))
+        TS -> TS: ROLLBACK — ни списания, ни зачисления
+        TS --> IA: 500 ErrorResponse
+        IA --> Client: 500
+    end
 end
 TS --> IA: status=COMPLETED, transactionId
 IA --> Client: status=COMPLETED, transactionId
+note right of IA
+  Kafka нет: оба кошелька одного пользователя
+  в одном шарде — одна ACID-транзакция.
+  init и confirm связаны requestId (атрибуты спанов и логи).
+end note
 @enduml

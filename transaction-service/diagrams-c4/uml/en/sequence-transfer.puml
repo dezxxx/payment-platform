@@ -6,27 +6,74 @@ participant "individuals-api" as IA
 box "transaction-service" #F5F9FF
     participant "TransactionService" as TS
     participant "WalletService" as WS
-    database "DB (the user's shard)" as DB
+    database "DB (shard by user_uid)" as DB
 end box
 
 == init: compute the terms, nothing is written ==
-Client -> IA: POST /api/v1/transactions/transfer/init
+Client -> IA: POST /api/v1/transactions/transfer/init (walletUid, targetWalletUid, amount)
+alt invalid token
+    IA --> Client: 401
+end
 IA -> IA: user_uid from the token
-IA -> TS: calc transfer conditions (init)
-TS -> WS: check both wallets (belong to user_uid, active, same currency)
-WS --> TS: OK, fee, available balance
-TS --> IA: transfer terms
-IA --> Client: transfer terms
+IA -> TS: calc transfer conditions (init), userUid
+alt invalid request (@Valid) or walletUid = targetWalletUid
+    TS --> IA: 400 ErrorResponse
+    IA --> Client: 400
+end
+TS -> WS: check both wallets
+WS -> DB: SELECT w.*, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid IN (:walletUid, :targetWalletUid) AND w.user_uid = :userUid
+alt fewer than 2 rows — wallet not found or not the user's
+    TS --> IA: 404 ErrorResponse
+    IA --> Client: 404
+else status <> 'ACTIVE', different currency_code or balance < amount + fee
+    TS --> IA: 400 ErrorResponse
+    IA --> Client: 400
+end
+WS --> TS: OK
+TS -> TS: fee, new requestId (UUID)
+TS --> IA: terms + requestId
+IA --> Client: transfer terms + requestId
 
 == confirm: the whole transfer ==
-Client -> IA: POST /api/v1/transactions/transfer/confirm
-IA -> TS: confirm transfer
+Client -> IA: POST /api/v1/transactions/transfer/confirm\n(requestId, walletUid, targetWalletUid, amount)
+IA -> TS: confirm transfer, userUid
 group one DB transaction
+    TS -> DB: SELECT uid, status FROM transactions\nWHERE user_uid = :userUid AND request_id = :requestId
+    alt 1 row — repeated confirm
+        TS --> IA: 200, its transactionId and status
+        IA --> Client: 200, the same transactionId — no second transfer
+    end
+    TS -> TS: recompute the fee (the init terms are not trusted)
     TS -> WS: Debit + Credit
-    WS -> DB: lock both wallets (FOR UPDATE, by ascending uid)
-    WS -> DB: check the balance, debit A, credit B
-    TS -> DB: transaction COMPLETED (target_wallet_uid = B)
+    WS -> DB: SELECT w.*, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid IN (:walletUid, :targetWalletUid) AND w.user_uid = :userUid\nORDER BY w.uid\nFOR UPDATE OF w
+    note right of DB
+      ORDER BY uid — both wallets are always locked
+      in the same order: two opposite transfers
+      never wait for each other forever (deadlock)
+    end note
+    alt fewer than 2 rows — wallet not found or not the user's
+        TS -> TS: ROLLBACK — nothing written
+        TS --> IA: 404 ErrorResponse
+        IA --> Client: 404
+    else status <> 'ACTIVE', different currency_code or balance < amount + fee
+        TS -> TS: ROLLBACK — nothing written
+        TS --> IA: 400 ErrorResponse
+        IA --> Client: 400
+    end
+    WS -> DB: UPDATE wallets SET balance = balance - (:amount + :fee), modified_at = now()\nWHERE uid = :walletUid AND user_uid = :userUid
+    WS -> DB: UPDATE wallets SET balance = balance + :amount, modified_at = now()\nWHERE uid = :targetWalletUid AND user_uid = :userUid
+    TS -> DB: INSERT INTO transactions\n(uid, user_uid, wallet_uid, target_wallet_uid, amount, fee, type, status, request_id)\nVALUES (:transactionId, :userUid, :walletUid, :targetWalletUid, :amount, :fee,\n'TRANSFER', 'COMPLETED', :requestId)
+    alt DB error (incl. a UNIQUE (user_uid, request_id) violation)
+        TS -> TS: ROLLBACK — neither debit nor credit
+        TS --> IA: 500 ErrorResponse
+        IA --> Client: 500
+    end
 end
 TS --> IA: status=COMPLETED, transactionId
 IA --> Client: status=COMPLETED, transactionId
+note right of IA
+  No Kafka: both wallets of one user are
+  in one shard — one ACID transaction.
+  init and confirm are linked by requestId (span attributes and logs).
+end note
 @enduml
