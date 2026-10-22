@@ -136,7 +136,7 @@ is in §5 of `CONTEXT.md`.
 payment-platform/
 ├── individuals-api/      the orchestrator — module 1's deliverable
 ├── person-service/       the individual aggregate (module 2); publishes person-service-client to Nexus
-├── transaction-service/  wallets and transactions (module 3), port 8084; a skeleton so far
+├── transaction-service/  wallets and transactions (module 3), port 8084; design approved, code in progress
 ├── infra/                prometheus, tempo, loki, alloy, grafana provisioning
 ├── postman/
 └── docker-compose.yml
@@ -159,7 +159,7 @@ payload.
 |---|---|
 | [`CONTEXT.md`](CONTEXT.md) | The working document: decisions, rules, the registration flow, progress. The long read. |
 | [`CONTEXT.ru.md`](CONTEXT.ru.md) | Russian mirror. English wins if the two disagree. |
-| [`individuals-api/diagrams-c4/`](individuals-api/diagrams-c4), [`person-service/diagrams-c4/`](person-service/diagrams-c4) | C4 diagrams of each service: container, component and sequence. PlantUML in `uml/{en,ru}`, a rendered picture of each in `png/{en,ru}`. |
+| [`individuals-api/diagrams-c4/`](individuals-api/diagrams-c4), [`person-service/diagrams-c4/`](person-service/diagrams-c4), [`transaction-service/diagrams-c4/`](transaction-service/diagrams-c4) | C4 diagrams of each service: container, component and sequence. PlantUML in `uml/{en,ru}`, a rendered picture of each in `png/{en,ru}`; transaction-service keeps English only. |
 | [`postman/`](postman) | Two Postman collections. `individuals-api`: two users through every endpoint, the failures, Swagger and metrics, with the tokens carried between requests for you - import it, press Run on a fresh stack. `person-service`: one individual through all six operations, every RFC 9457 failure, the soft delete and the compensation individuals-api calls; each run takes a fresh email, so it runs again on the same database. |
 
 ## Status
@@ -174,5 +174,6 @@ Module 1 is not finished. What is honest as of today:
 | 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, 20 requests, tokens captured automatically, 52 assertions |
 | 📦 Nexus | In the compose file. person-service publishes `person-service-client` into it, and individuals-api resolves the client from it by coordinates |
 | ✅ Module 2 | **`person-service`**: the contract (`/api/v1/individuals`, six operations, RFC 9457 errors), Flyway migrations, JPA, transactions, the Envers audit, Swagger UI, metrics, JSON logs and traces with a Grafana dashboard, a Docker image in compose, tests, and `person-service-client` in Nexus. individuals-api registers through it, with address and personal data, and compensates a failed Keycloak part by deleting the individual. Done, merged into `main` |
+| 🚧 Module 3 | **`transaction-service`**: wallets, deposit, transfer and withdrawal over two PostgreSQL shards (ShardingSphere-JDBC), deposit and withdrawal finished through Kafka. The design - C4 diagrams with every failure branch - is approved; the code is in progress on `module-3-transaction-service` |
 
-The ordered to-do lists live in §8 (module 1) and §8a (module 2) of `CONTEXT.md` and are kept current.
+The ordered to-do lists live in §8 (module 1), §8a (module 2) and §8b (module 3) of `CONTEXT.md` and are kept current.

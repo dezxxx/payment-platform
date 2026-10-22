@@ -628,7 +628,7 @@ payment-platform/              a Git root, NOT a Gradle project
 ├── individuals-api/           the orchestrator; its C4 diagrams in diagrams-c4/
 ├── person-service/            the individual aggregate; also publishes person-service-client -> Nexus
 │                              its C4 diagrams in diagrams-c4/
-└── transaction-service/       wallets and transactions (module 3); a skeleton so far
+└── transaction-service/       wallets and transactions (module 3); its C4 diagrams in diagrams-c4/
 ```
 
 Each module is an independent Gradle build: its own `settings.gradle.kts`,
@@ -1217,6 +1217,95 @@ The API never frees it - that is a deliberate support action.
 - [ ] Your full manual test of the application
 - [ ] Decide the commits and the branches they go to, then push and open the PR
       `module-2-person-service` -> `main`
+
+---
+
+## 8b. Progress — module 3 (transaction-service)
+
+Wallets and their transactions: deposit, transfer, withdrawal. Branch
+`module-3-transaction-service`, PR #2. The teacher approved the design
+(C4 diagrams in `transaction-service/diagrams-c4/`) on 2026-10-22; the code
+follows the sequence diagrams step by step, and a question that comes up
+while coding is decided before it is coded. The next push carries working code.
+
+### Agreed deviations from the module 3 handout
+
+| Handout | Here | Why |
+|---|---|---|
+| Wallets Service is a separate service with its own database (`WalletServiceClient`) | wallets live inside transaction-service, one database | the debit, the transaction row and the event commit in one database transaction |
+| withdrawal: debit, then a separate `PENDING` write | one database transaction: lock the wallet, debit, `PENDING`, event | a crash between two steps would leave money debited with no transaction |
+| confirm writes `PENDING`, then sends to Kafka | the event is written to the table `transaction_events` in the same transaction; `TransactionKafkaProducer` sends it to Kafka | the database and Kafka cannot be written atomically |
+| `DepositCompleted` has no sender | Fake Payment Provider stands in for the external provider: reads `*Requested`, answers `*Completed` or `*Failed` | without it no answer comes and the operation never ends |
+| no failure event for a deposit | `DepositFailed` → `FAILED`, the balance does not change | otherwise a failed deposit stays `PENDING` forever |
+| provider answers carry no `userId` | they carry `userId` from the request | the shard is chosen by `user_uid`: one query to one shard |
+| events in JSON, amounts as `100.0` | Avro + Schema Registry, amounts as `decimal` | the registry refuses an incompatible schema; floating point rounds money |
+| `init` and `confirm` are not linked | `init` returns a `requestId` (stores nothing), the client sends it in `confirm`, which stores it in `transactions.request_id`, unique per `user_uid` | links the two requests in traces and logs; a repeated `confirm` returns the existing transaction instead of a second debit |
+| `userUid` comes from the client (`/wallets/user/{userUid}`, `?userUid=`) | individuals-api fills it from the token; every other operation gets it in the header `X-User-Uid` | otherwise anyone could read others' wallets; the path already holds `walletUid` / `transactionId`, a GET has no body |
+| one path `/transactions/{type}/init` (and `/confirm`) with a `oneOf` body | six paths `/transactions/{deposit,withdrawal,transfer}/{init,confirm}`, each with its own body | the same URLs for the client; different operations are not mixed, each body has its own class and its own validation |
+| `/transactions/{transactionId}/confirm` in the list of functions | `/transactions/{type}/confirm`, as in the contract | `init` creates nothing, so there is no `transactionId` before `confirm` |
+| Feign client in individuals-api | the generated reactive `transaction-service-client`, as `person-service-client` | individuals-api is WebFlux, Feign would block the event loop |
+| ShardingSphere Spring Boot Starter | ShardingSphere-JDBC as the driver (`ShardingSphereDriver` + YAML rules) | the starter was removed in ShardingSphere 5.3 |
+| `client/KafkaProducer`, `client/KafkaConsumer` | `client/TransactionKafkaProducer`, `client/TransactionKafkaConsumer` | Kafka's own classes share those names |
+| port 8082 | 8084 | 8082 is person-service, 8083 is Nexus |
+| transfer between any wallets | transfer between wallets of one user (one shard, one ACID transaction) | the question of transfers between users is with the teacher (saga or XA) |
+
+### Decisions
+
+| Decision | Value |
+|---|---|
+| Web stack | Spring MVC, Spring Data JPA with Hibernate, over ShardingSphere-JDBC - blocking, like person-service. Only the generated `transaction-service-client` is reactive: it runs in individuals-api, never in transaction-service |
+| Sharding | 2 shards, key `user_uid` (`HASH_MOD`); `wallets`, `transactions`, `transaction_events` by `user_uid`, `wallet_types` copied to every shard. Every query carries `user_uid`, except the producer's scan of unsent events, which reads both shards on purpose |
+| Delivery | at-least-once. `TransactionKafkaProducer` (`@Scheduled`) reads `transaction_events WHERE sent_at IS NULL`, sets `sent_at` only after the broker acknowledges, leaves it `NULL` on a failure so the next run retries. The word "outbox" is not used in names |
+| Finalization | `TransactionKafkaConsumer` → `TransactionService.finalize(transactionId, userId)` in one transaction: `UPDATE transactions … WHERE status = 'PENDING'`; 1 row - first processing (deposit credits, failed withdrawal returns `amount + fee`); 0 rows - a repeat (log INFO, nothing changes) or an unknown transaction (exception). An exception → rollback, retry with a pause (`DefaultErrorHandler`), then the DLT |
+| Idempotency of confirm | the first statement of the confirm transaction claims the `requestId`: `INSERT … 'PENDING', :requestId ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid`. 1 row - this request owns it; 0 rows - a repeat: same parameters → `200` with the existing transaction and its status, other parameters → `409`. A concurrent second INSERT waits for the first transaction; a rollback frees the `requestId`. ShardingSphere 5.5.3 parses the statement; the concurrent case is still to be checked on the running shards |
+| Request validation | `@Valid` in the controller, before any database transaction: required fields, UUIDs, `amount > 0` with at most 2 decimals; for a transfer `walletUid ≠ targetWalletUid`. Failure → `400`, nothing written |
+| Fee and balance | the fee is computed after the wallet is read and before the check `balance < amount + fee` → `400`, in init and again in confirm (the init terms are not trusted). `fee` is `NULL` on insert and set by `UPDATE` in the same transaction |
+| Locks | confirm of a withdrawal and a transfer reads the wallet(s) `FOR UPDATE`; a transfer locks both in `ORDER BY uid`, so two opposite transfers never deadlock. `FOR UPDATE` guards different operations on one wallet, `requestId` guards repeats of the same one |
+| Balance | never negative: `amount > 0`, the check after the fee, the lock. A `CHECK (balance >= 0)` in the migration as the last guard |
+| Deposit | no balance check; the provider's refusal (not enough on the card, the bank refused) → `DepositFailed` |
+| Soft delete | every wallet read carries `archived_at IS NULL` |
+| Failures | a database error at any step → rollback, `500`, nothing written. A response lost after the commit → the client repeats confirm with the same `requestId` → `200` with the same transaction |
+| Errors | RFC 9457 body with `timestamp`, `error`, `traceId`, `details`, as person-service |
+
+### Contract
+
+`transaction-service/openapi/transaction-service.yaml`, generated with the same
+plugin and settings as person-service: server interfaces `WalletsApi`,
+`TransactionsApi` (implemented by `WalletRestControllerV1`,
+`TransactionRestControllerV1`) and the reactive `transaction-service-client`.
+Avro classes of the events come from `.avsc` files in a later step.
+
+| Item | Value |
+|---|---|
+| DTO names | exactly the handout's, no `Dto` suffix: `CreateWalletRequest`, `WalletResponse`, `DepositInitRequest`, `WithdrawalInitRequest`, `TransferInitRequest`, `TransactionInitResponse`, `DepositConfirmRequest`, `WithdrawalConfirmRequest`, `TransferConfirmRequest`, `TransactionConfirmResponse`, `TransactionStatusResponse`, `ErrorResponse` |
+| `TransactionInitResponse` | `amount`, `fee`, `total`, `requestId` |
+| `TransactionConfirmResponse` | `transactionId`, `status` |
+| `TransactionStatusResponse` | the same in the status and in the search: `transactionId`, `type`, `status`, `walletUid`, `targetWalletUid`, `amount`, `fee`, `failureReason`, `createdAt` |
+| `amount` checks | `> 0` from `exclusiveMinimum`; at most 2 decimals - the standard `@Digits(fraction = 2)` put on the field through `x-field-extra-annotation` |
+| `walletUid ≠ targetWalletUid` | our own class-level `@DifferentWallets` with a `ConstraintValidator` in the `validation` package, put on `TransferInitRequest` and `TransferConfirmRequest` through `x-class-extra-annotation`. Without it the same wallet twice reads as one row and would answer `404` |
+
+### Done
+
+- [x] Module skeleton: `com.dezxxx.transaction`, Spring MVC, port 8084, unit and
+      integration test tasks, `gradlew` executable
+- [x] C4 diagrams: container, component and eight sequence diagrams (deposit,
+      transfer, withdrawal, wallet create, wallet by id, a user's wallets,
+      transaction status, search). Every failure branch, transaction boundaries
+      and what is written to the database. English in the repository
+- [x] The design review: every comment of the teacher answered in the diagrams;
+      the design is approved
+- [x] Contract decisions above
+
+### Next
+
+- [ ] The contract `openapi/transaction-service.yaml` and its generation
+- [ ] Migrations, ShardingSphere-JDBC over two PostgreSQL shards; check
+      `INSERT … ON CONFLICT DO NOTHING RETURNING` with two concurrent inserts
+- [ ] Wallets, then init / confirm of each operation, following the diagrams
+- [ ] Kafka (KRaft) + Schema Registry, Avro events, producer, consumer, DLT;
+      Fake Payment Provider
+- [ ] Observability, tests, Postman collection; `transaction-service-client` in
+      individuals-api
 
 ---
 

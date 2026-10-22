@@ -18,7 +18,7 @@ else valid token
         TS --> IA: 400 ErrorResponse
         IA --> Client: 400
     else valid transactionId
-        TS -> DB: SELECT uid, status, failure_reason FROM transactions\nWHERE uid = :transactionId AND user_uid = :userUid
+        TS -> DB: SELECT uid, type, status, wallet_uid, target_wallet_uid, amount, fee,\nfailure_reason, created_at FROM transactions\nWHERE uid = :transactionId AND user_uid = :userUid
         note right of DB
           user_uid in the condition: one shard
           and a check that the transaction is the user's
@@ -30,7 +30,7 @@ else valid token
             TS --> IA: 404 ErrorResponse
             IA --> Client: 404
         else 1 row
-            TS --> IA: 200 TransactionStatusResponse\n(status: PENDING / COMPLETED / FAILED, failure_reason)
+            TS --> IA: 200 TransactionStatusResponse\n(transactionId, type, status, walletUid, targetWalletUid,\namount, fee, failureReason, createdAt)
             IA --> Client: 200 TransactionStatusResponse
             note right of Client
               The client polls this endpoint
