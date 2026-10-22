@@ -91,5 +91,7 @@ Avro-классы событий — из файлов `.avsc`, на следу�
 - [ ] Кошельки, затем init / confirm каждой операции, по диаграммам
 - [ ] Kafka (KRaft) + Schema Registry, Avro-события, producer, consumer, DLT;
       Fake Payment Provider
-- [ ] Наблюдаемость, тесты, коллекция Postman; `transaction-service-client` в
-      individuals-api
+- [ ] Наблюдаемость со своими метриками (lag Kafka, outbox, DLT, PENDING), тесты,
+      коллекция Postman; `transaction-service-client` в individuals-api
+- [ ] transaction-service в `make`, compose и Prometheus; дописать его в порядок
+      сборки и карту конфигурации корневого `CONTEXT.ru.md`

@@ -7,9 +7,12 @@
 
 ---
 
-## Контексты модулей
+## Как читать этот проект
 
-Что решено и сделано в каждом модуле, лежит в его собственном контексте:
+1. Этот файл: правила, обязательные для каждого модуля, и как платформа
+   собирается, запускается и проверяется.
+2. Контекст модуля, с которым работаешь: как он устроен, что решено, что
+   дальше.
 
 | Модуль | Контекст |
 |---|---|
@@ -17,17 +20,11 @@
 | 2 - person-service | [`person-service/CONTEXT.ru.md`](person-service/CONTEXT.ru.md) |
 | 3 - transaction-service | [`transaction-service/CONTEXT.ru.md`](transaction-service/CONTEXT.ru.md) |
 
-В этом файле только общее для всех: правила, порты, как платформа
-собирается, запускается и проверяется.
-
 ---
 
 ## 1. Что это за репозиторий
 
 `payment-platform` — монорепозиторий платёжной платформы.
-
-Модуль 1 сдаёт **individuals-api**: внешний входной слой, который оркестрирует
-регистрацию и аутентификацию пользователей. Сам он не хранит ничего.
 
 | Компонент | Источник правды для |
 |---|---|
@@ -89,7 +86,7 @@
 | Решение | Значение | Где живёт |
 |---|---|---|
 | Схема сборки | по независимой сборке Gradle на модуль, корневого проекта нет | `settings.gradle.kts` каждого модуля |
-| Базовый пакет | `com.dezxxx.individuals` | — |
+| Базовый пакет | `com.dezxxx.<модуль>`: `individuals`, `person`, `transaction` | `src/main/java` каждого модуля |
 | Maven group | `com.dezxxx` | `gradle.properties` каждого модуля |
 | Java | 25 (Gradle toolchain, игнорирует `JAVA_HOME`) | `gradle.properties` каждого модуля |
 | Spring Boot | 4.1.0 | `gradle/libs.versions.toml`; person-service — свой `build.gradle.kts` |
@@ -119,14 +116,9 @@ Gradle toolchain сам подтягивает JDK 25, поэтому на чт�
 
 ## 3. Архитектурные правила
 
-0. **Реактивный стек — Spring WebFlux, не Spring MVC.** Требование задания.
-   Netty вместо Tomcat, `Mono`/`Flux` вместо обычных типов возврата,
-   `WebClient` вместо `RestClient`, `SecurityWebFilterChain` вместо
-   `SecurityFilterChain`. Ничто в сервисе не имеет права блокировать event loop:
-   никаких `.block()`, никакого блокирующего JDBC, никакого блокирующего
-   HTTP-клиента. Оба OpenAPI-модуля генерируются с `reactive = true`, так что
-   сами контракты типизированы через `Mono`, и блокирующая реализация просто не
-   скомпилируется против них.
+0. **Веб-стек выбирается для каждого модуля.** individuals-api реактивный
+   (Spring WebFlux), см. его CONTEXT; person-service и transaction-service —
+   Spring MVC.
 
 1. **Сначала контракт, всегда.** Спецификация OpenAPI пишется до кода. Руками
    не пишется ничего, что может выдать генератор.
@@ -202,18 +194,7 @@ management:
 
 `prometheus.yml` обязан указывать на `metrics_path: /actuator/prometheus`.
 
-Обязательные метрики приложения:
-
-| Метрика | Тип | Смысл |
-|---|---|---|
-| `auth.registration` | counter | попытки регистрации |
-| `auth.registration.success` | counter | успешные регистрации |
-| `auth.registration.failure` | counter | неуспешные регистрации |
-| `auth.login` | counter | входы |
-| `auth.login.failure` | counter | неуспешные входы |
-| `auth.refresh` | counter | обновления токена |
-| `external.keycloak.requests` | timer | длительность вызова Keycloak |
-| `external.person_service.requests` | timer | длительность вызова person-service |
+Свои метрики приложения каждый модуль перечисляет в своём CONTEXT.
 
 Названы в точечной конвенции Micrometer, **без** суффикса `_total`, который
 показан в таблице задания. Prometheus сам дописывает `_total` счётчикам, поэтому
@@ -337,6 +318,9 @@ cd person-service  && ./gradlew publishClientPublicationToMavenLocal
 cd person-service  && ./gradlew check      # контракт, unit + интеграционные тесты, порог покрытия 80%
 cd individuals-api && ./gradlew build
 ```
+
+transaction-service пока не входит в `make`: `cd transaction-service && ./gradlew build`.
+В `make` и compose он войдёт на шаге инфраструктуры модуля 3.
 
 В Nexus: `make publish` (`publishClientPublicationToNexusRepository`;
 `NEXUS_USERNAME` / `NEXUS_PASSWORD` по умолчанию берутся из `NEXUS_ADMIN_USER` /

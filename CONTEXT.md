@@ -4,9 +4,12 @@ Project context for humans and LLMs. Read this first before touching anything.
 
 ---
 
-## Module contexts
+## How to read this project
 
-Each module keeps what was decided and done in it in its own context:
+1. This file: the rules every module must follow, and how the platform is
+   built, started and checked.
+2. The context of the module you work on: how it is built, what was decided,
+   what is next.
 
 | Module | Context |
 |---|---|
@@ -14,17 +17,11 @@ Each module keeps what was decided and done in it in its own context:
 | 2 - person-service | [`person-service/CONTEXT.md`](person-service/CONTEXT.md) |
 | 3 - transaction-service | [`transaction-service/CONTEXT.md`](transaction-service/CONTEXT.md) |
 
-This file holds only what all of them share: rules, ports, how the platform
-is built, started and checked.
-
 ---
 
 ## 1. What this repository is
 
 `payment-platform` — monorepo of the payment platform.
-
-Module 1 delivers **individuals-api**: the external entry layer that
-orchestrates user registration and authentication. It stores nothing itself.
 
 | Component | Is the source of truth for |
 |---|---|
@@ -88,7 +85,7 @@ These are settled. Do not change them without an explicit decision.
 | Decision | Value | Where it lives |
 |---|---|---|
 | Build layout | one independent Gradle build per module, no root project | each module's `settings.gradle.kts` |
-| Base package | `com.dezxxx.individuals` | — |
+| Base package | `com.dezxxx.<module>`: `individuals`, `person`, `transaction` | each module's `src/main/java` |
 | Maven group | `com.dezxxx` | each module's `gradle.properties` |
 | Java | 25 (Gradle toolchain, ignores `JAVA_HOME`) | each module's `gradle.properties` |
 | Spring Boot | 4.1.0 | `gradle/libs.versions.toml`; person-service: its `build.gradle.kts` |
@@ -118,14 +115,9 @@ which module runs which Gradle, Boot or generator.
 
 ## 3. Architectural rules
 
-0. **Reactive stack — Spring WebFlux, not Spring MVC.** Required by the
-   handout. Netty instead of Tomcat, `Mono`/`Flux` instead of plain return
-   types, `WebClient` instead of `RestClient`, `SecurityWebFilterChain` instead
-   of `SecurityFilterChain`. Nothing in the service may block the event loop:
-   no `.block()`, no blocking JDBC, no blocking HTTP client. Both OpenAPI
-   modules are generated with `reactive = true`, so the contracts themselves
-   are `Mono`-typed and a blocking implementation would not even compile
-   against them.
+0. **The web stack is chosen per module.** individuals-api is reactive
+   (Spring WebFlux), see its CONTEXT; person-service and transaction-service
+   are Spring MVC.
 
 1. **Contract first, always.** The OpenAPI spec is written before the code.
    Nothing is hand-written that a generator can produce.
@@ -202,18 +194,7 @@ management:
 
 `prometheus.yml` must point at `metrics_path: /actuator/prometheus`.
 
-Required application meters:
-
-| Meter | Type | Meaning |
-|---|---|---|
-| `auth.registration` | counter | registration attempts |
-| `auth.registration.success` | counter | successful registrations |
-| `auth.registration.failure` | counter | failed registrations |
-| `auth.login` | counter | logins |
-| `auth.login.failure` | counter | failed logins |
-| `auth.refresh` | counter | token refreshes |
-| `external.keycloak.requests` | timer | Keycloak call duration |
-| `external.person_service.requests` | timer | person-service call duration |
+Each module lists its own application meters in its CONTEXT.
 
 Named in Micrometer's dotted convention, **not** with the `_total` suffix the
 handout table shows. Prometheus appends `_total` to counters itself, so a meter
@@ -337,6 +318,9 @@ cd person-service  && ./gradlew publishClientPublicationToMavenLocal
 cd person-service  && ./gradlew check      # contract, unit + integration tests, 80% coverage gate
 cd individuals-api && ./gradlew build
 ```
+
+transaction-service is not in `make` yet: `cd transaction-service && ./gradlew build`.
+It joins `make` and compose at the module 3 infrastructure step.
 
 Into Nexus: `make publish` (`publishClientPublicationToNexusRepository`;
 `NEXUS_USERNAME` / `NEXUS_PASSWORD` default to `NEXUS_ADMIN_USER` /

@@ -92,5 +92,7 @@ Avro classes of the events come from `.avsc` files in a later step.
 - [ ] Wallets, then init / confirm of each operation, following the diagrams
 - [ ] Kafka (KRaft) + Schema Registry, Avro events, producer, consumer, DLT;
       Fake Payment Provider
-- [ ] Observability, tests, Postman collection; `transaction-service-client` in
-      individuals-api
+- [ ] Observability with its own meters (Kafka lag, outbox, DLT, PENDING), tests,
+      Postman collection; `transaction-service-client` in individuals-api
+- [ ] transaction-service in `make`, compose and Prometheus; add it to the build
+      order and the configuration map of the root `CONTEXT.md`

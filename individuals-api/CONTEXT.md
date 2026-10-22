@@ -2,9 +2,34 @@
 
 Module 1. Shared rules, ports and how the platform is started: [`CONTEXT.md`](../CONTEXT.md).
 
+Module 1 delivers **individuals-api**: the external entry layer that
+orchestrates user registration and authentication. It stores nothing itself.
+
 ---
 
 ## 1. Architecture
+
+### Reactive stack — Spring WebFlux, not Spring MVC
+
+Required by the handout. Netty instead of Tomcat, `Mono`/`Flux` instead of plain
+return types, `WebClient` instead of `RestClient`, `SecurityWebFilterChain`
+instead of `SecurityFilterChain`. Nothing in the service may block the event
+loop: no `.block()`, no blocking JDBC, no blocking HTTP client. Both OpenAPI
+modules are generated with `reactive = true`, so the contracts themselves are
+`Mono`-typed and a blocking implementation would not even compile against them.
+
+### Application meters
+
+| Meter | Type | Meaning |
+|---|---|---|
+| `auth.registration` | counter | registration attempts |
+| `auth.registration.success` | counter | successful registrations |
+| `auth.registration.failure` | counter | failed registrations |
+| `auth.login` | counter | logins |
+| `auth.login.failure` | counter | failed logins |
+| `auth.refresh` | counter | token refreshes |
+| `external.keycloak.requests` | timer | Keycloak call duration |
+| `external.person_service.requests` | timer | person-service call duration |
 
 ### individuals-api layers
 

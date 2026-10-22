@@ -2,9 +2,35 @@
 
 Модуль 1. Общие правила, порты и как запускается платформа: [`CONTEXT.ru.md`](../CONTEXT.ru.md).
 
+Модуль 1 сдаёт **individuals-api**: внешний входной слой, который оркестрирует
+регистрацию и аутентификацию пользователей. Сам он не хранит ничего.
+
 ---
 
 ## 1. Архитектура
+
+### Реактивный стек — Spring WebFlux, не Spring MVC
+
+Требование задания. Netty вместо Tomcat, `Mono`/`Flux` вместо обычных типов
+возврата, `WebClient` вместо `RestClient`, `SecurityWebFilterChain` вместо
+`SecurityFilterChain`. Ничто в сервисе не имеет права блокировать event loop:
+никаких `.block()`, никакого блокирующего JDBC, никакого блокирующего
+HTTP-клиента. Оба OpenAPI-модуля генерируются с `reactive = true`, так что сами
+контракты типизированы через `Mono`, и блокирующая реализация просто не
+скомпилируется против них.
+
+### Метрики приложения
+
+| Метрика | Тип | Смысл |
+|---|---|---|
+| `auth.registration` | counter | попытки регистрации |
+| `auth.registration.success` | counter | успешные регистрации |
+| `auth.registration.failure` | counter | неуспешные регистрации |
+| `auth.login` | counter | входы |
+| `auth.login.failure` | counter | неуспешные входы |
+| `auth.refresh` | counter | обновления токена |
+| `external.keycloak.requests` | timer | длительность вызова Keycloak |
+| `external.person_service.requests` | timer | длительность вызова person-service |
 
 ### Слои individuals-api
 
