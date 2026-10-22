@@ -78,7 +78,7 @@ make
 ```
 
 `make help` lists the rest — `make test`, `make it`, `make down`, `make logs`,
-`make reset-db` (empties Keycloak and the person database, e.g. before running
+`make reset-db` (empties Keycloak, the person database and both transaction shards, e.g. before running
 the Postman collection again).
 `make verify` checks everything from scratch in order: person-service and
 transaction-service tests, their clients into Nexus, individuals-api tests,

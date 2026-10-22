@@ -92,9 +92,15 @@ Avro-классы событий — из файлов `.avsc`, на следу�
 - [x] `Dockerfile`, оба шарда в compose, `make verify` / `rebuild` собирают образ,
       Prometheus собирает `/actuator/prometheus`
 
+- [x] Кошельки по диаграммам: создание, по id, кошельки пользователя. `WalletRestControllerV1` →
+      `WalletService` → `WalletRepository`, `WalletTypeRepository`; `WalletMapper`;
+      `GlobalExceptionHandler` (RFC 9457, как в person-service) с `TransactionServiceException`
+      (у Spring уже есть `TransactionException`). Типы кошельков USD и EUR засеяны V003,
+      uid оканчивается числовым кодом ISO 4217 (`…0840`, `…0978`). Трассировка по OTLP, как в person-service
+
 ### Дальше
 
-- [ ] Кошельки, затем init / confirm каждой операции, по диаграммам
+- [ ] init / confirm каждой операции, по диаграммам
 - [ ] Kafka (KRaft) + Schema Registry, Avro-события, producer, consumer, DLT;
       Fake Payment Provider
 - [ ] Наблюдаемость со своими метриками (lag Kafka, outbox, DLT, PENDING), тесты,

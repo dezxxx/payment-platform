@@ -1,14 +1,19 @@
 package com.dezxxx.transaction.integration.support;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.client.RestTestClient;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-@SpringBootTest
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "management.tracing.export.enabled=false")
+@AutoConfigureRestTestClient
 public abstract class IntegrationTest {
 
     private static final String POSTGRES_IMAGE = "postgres:18.2";
@@ -26,6 +31,9 @@ public abstract class IntegrationTest {
         System.setProperty("TRANSACTION_DB_USER", SHARD_0.getUsername());
         System.setProperty("TRANSACTION_DB_PASSWORD", SHARD_0.getPassword());
     }
+
+    @Autowired
+    protected RestTestClient client;
 
     @Autowired
     protected JdbcTemplate jdbc;

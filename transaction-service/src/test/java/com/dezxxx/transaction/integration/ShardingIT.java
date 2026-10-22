@@ -29,15 +29,15 @@ class ShardingIT extends IntegrationTest {
     private DataSource dataSource;
 
     @Test
-    @DisplayName("given the service started, when reading Flyway history of each shard, then V001 and V002 are applied on both")
+    @DisplayName("given the service started, when reading Flyway history of each shard, then V001 to V003 are applied on both")
     void migratesEveryShard() {
         // when
         List<String> shard0 = versions(shard(SHARD_0));
         List<String> shard1 = versions(shard(SHARD_1));
 
         // then
-        assertThat(shard0).containsExactly("001", "002");
-        assertThat(shard1).containsExactly("001", "002");
+        assertThat(shard0).containsExactly("001", "002", "003");
+        assertThat(shard1).containsExactly("001", "002", "003");
     }
 
     @Test

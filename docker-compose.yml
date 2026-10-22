@@ -92,11 +92,14 @@ services:
         condition: service_healthy
       transaction-postgres-1:
         condition: service_healthy
+      alloy:
+        condition: service_started
     environment:
       TRANSACTION_SHARD_0_URL: jdbc:postgresql://transaction-postgres-0:5432/${TRANSACTION_DB_NAME}
       TRANSACTION_SHARD_1_URL: jdbc:postgresql://transaction-postgres-1:5432/${TRANSACTION_DB_NAME}
       TRANSACTION_DB_USER: ${TRANSACTION_DB_USER}
       TRANSACTION_DB_PASSWORD: ${TRANSACTION_DB_PASSWORD}
+      OTLP_TRACES_ENDPOINT: http://alloy:4318/v1/traces
     # the JRE image has no curl or wget, only bash
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8084 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]

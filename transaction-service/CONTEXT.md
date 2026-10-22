@@ -93,9 +93,15 @@ Avro classes of the events come from `.avsc` files in a later step.
 - [x] `Dockerfile`, both shards in compose, `make verify` / `rebuild` build the image,
       Prometheus scrapes `/actuator/prometheus`
 
+- [x] Wallets by the diagrams: create, by id, a user's wallets. `WalletRestControllerV1` →
+      `WalletService` → `WalletRepository`, `WalletTypeRepository`; `WalletMapper`;
+      `GlobalExceptionHandler` (RFC 9457, as person-service) with `TransactionServiceException`
+      (Spring already has a `TransactionException`). Wallet types USD and EUR seeded by V003,
+      the uid ends with the ISO 4217 number (`…0840`, `…0978`). Tracing over OTLP, as person-service
+
 ### Next
 
-- [ ] Wallets, then init / confirm of each operation, following the diagrams
+- [ ] init / confirm of each operation, following the diagrams
 - [ ] Kafka (KRaft) + Schema Registry, Avro events, producer, consumer, DLT;
       Fake Payment Provider
 - [ ] Observability with its own meters (Kafka lag, outbox, DLT, PENDING), tests,

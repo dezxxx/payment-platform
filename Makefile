@@ -39,7 +39,7 @@ help:
 	@echo   make down         stop the stack, keep the volumes
 	@echo   make restart      down, then up
 	@echo   make rebuild      rebuild the images from scratch, then start
-	@echo   make reset-db     wipe both databases - Keycloak users and persons - then start
+	@echo   make reset-db     wipe every database - Keycloak users, persons, wallets and transactions - then start
 	@echo   make logs         follow the application logs
 	@echo   make ps           what is running
 	@echo == all modules ==
@@ -93,7 +93,8 @@ rebuild:
 	@$(DOCKER_COMPOSE) up -d
 
 reset-db: down
-	docker volume rm $(PROJECT)_keycloak-postgres-data $(PROJECT)_person-postgres-data
+	docker volume rm $(PROJECT)_keycloak-postgres-data $(PROJECT)_person-postgres-data \
+		$(PROJECT)_transaction-postgres-0-data $(PROJECT)_transaction-postgres-1-data
 	$(MAKE) up
 
 logs:
