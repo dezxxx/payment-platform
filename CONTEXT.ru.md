@@ -1225,12 +1225,14 @@ Avro-классы событий — из файлов `.avsc`, на следу�
 
 | Пункт | Значение |
 |---|---|
-| Имена DTO | ровно из ТЗ, без суффикса `Dto`: `CreateWalletRequest`, `WalletResponse`, `DepositInitRequest`, `WithdrawalInitRequest`, `TransferInitRequest`, `TransactionInitResponse`, `DepositConfirmRequest`, `WithdrawalConfirmRequest`, `TransferConfirmRequest`, `TransactionConfirmResponse`, `TransactionStatusResponse`, `ErrorResponse` |
+| Имена DTO | схемы ровно из ТЗ: `CreateWalletRequest`, `WalletResponse`, `DepositInitRequest`, `WithdrawalInitRequest`, `TransferInitRequest`, `TransactionInitResponse`, `DepositConfirmRequest`, `WithdrawalConfirmRequest`, `TransferConfirmRequest`, `TransactionConfirmResponse`, `TransactionStatusResponse`, `ErrorResponse`. У сгенерированных Java-классов суффикс `Dto` (`modelNameSuffix`), как в person-service: по HTTP ходит `WalletResponseDto`, сущность остаётся внутри |
 | `TransactionInitResponse` | `amount`, `fee`, `total`, `requestId` |
 | `TransactionConfirmResponse` | `transactionId`, `status` |
 | `TransactionStatusResponse` | одинаковый в статусе и в поиске: `transactionId`, `type`, `status`, `walletUid`, `targetWalletUid`, `amount`, `fee`, `failureReason`, `createdAt` |
 | Проверки `amount` | `> 0` из `exclusiveMinimum`; не больше 2 знаков — стандартная `@Digits(fraction = 2)`, ставится на поле через `x-field-extra-annotation` |
 | `walletUid ≠ targetWalletUid` | своя аннотация класса `@DifferentWallets` с `ConstraintValidator` в пакете `validation`, ставится на `TransferInitRequest` и `TransferConfirmRequest` через `x-class-extra-annotation`. Без неё один кошелёк дважды читается как одна строка и дал бы `404` |
+| `TransferWallets` | интерфейс с `getWalletUid()` и `getTargetWalletUid()`; оба DTO перевода реализуют его через `x-implements`, поэтому валидатор читает их, не зная сгенерированных классов, и одинаково работает в сервере и в jar клиента |
+| Клиент | `openApiGenerateClient`: `spring-http-interface`, реактивный; свой source set `client` и jar `transaction-service-client` с API клиента, его DTO и пакетом `validation` |
 
 ### Сделано
 
@@ -1242,10 +1244,12 @@ Avro-классы событий — из файлов `.avsc`, на следу�
       пишется в БД. В репозитории — английские
 - [x] Ревью дизайна: все замечания учителя учтены в диаграммах; дизайн утверждён
 - [x] Решения по контракту выше
+- [x] Контракт `openapi/transaction-service.yaml`, генерация сервера и клиента,
+      `@DifferentWallets` с unit-тестами
 
 ### Дальше
 
-- [ ] Контракт `openapi/transaction-service.yaml` и его генерация
+- [ ] Публикация `transaction-service-client` в Nexus
 - [ ] Миграции, ShardingSphere-JDBC на двух шардах PostgreSQL; проверить
       `INSERT … ON CONFLICT DO NOTHING RETURNING` двумя одновременными вставками
 - [ ] Кошельки, затем init / confirm каждой операции, по диаграммам

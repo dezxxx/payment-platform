@@ -1277,12 +1277,14 @@ Avro classes of the events come from `.avsc` files in a later step.
 
 | Item | Value |
 |---|---|
-| DTO names | exactly the handout's, no `Dto` suffix: `CreateWalletRequest`, `WalletResponse`, `DepositInitRequest`, `WithdrawalInitRequest`, `TransferInitRequest`, `TransactionInitResponse`, `DepositConfirmRequest`, `WithdrawalConfirmRequest`, `TransferConfirmRequest`, `TransactionConfirmResponse`, `TransactionStatusResponse`, `ErrorResponse` |
+| DTO names | schemas exactly the handout's: `CreateWalletRequest`, `WalletResponse`, `DepositInitRequest`, `WithdrawalInitRequest`, `TransferInitRequest`, `TransactionInitResponse`, `DepositConfirmRequest`, `WithdrawalConfirmRequest`, `TransferConfirmRequest`, `TransactionConfirmResponse`, `TransactionStatusResponse`, `ErrorResponse`. The generated Java classes carry a `Dto` suffix (`modelNameSuffix`), as in person-service: `WalletResponseDto` goes over HTTP, the entity stays inside |
 | `TransactionInitResponse` | `amount`, `fee`, `total`, `requestId` |
 | `TransactionConfirmResponse` | `transactionId`, `status` |
 | `TransactionStatusResponse` | the same in the status and in the search: `transactionId`, `type`, `status`, `walletUid`, `targetWalletUid`, `amount`, `fee`, `failureReason`, `createdAt` |
 | `amount` checks | `> 0` from `exclusiveMinimum`; at most 2 decimals - the standard `@Digits(fraction = 2)` put on the field through `x-field-extra-annotation` |
 | `walletUid ≠ targetWalletUid` | our own class-level `@DifferentWallets` with a `ConstraintValidator` in the `validation` package, put on `TransferInitRequest` and `TransferConfirmRequest` through `x-class-extra-annotation`. Without it the same wallet twice reads as one row and would answer `404` |
+| `TransferWallets` | interface with `getWalletUid()` and `getTargetWalletUid()`; both transfer DTOs implement it through `x-implements`, so the validator reads them without knowing the generated classes and works in the server and in the client jar alike |
+| Client | `openApiGenerateClient`: `spring-http-interface`, reactive; its own `client` source set and `transaction-service-client` jar holding the client API, its DTOs and the `validation` package |
 
 ### Done
 
@@ -1295,10 +1297,12 @@ Avro classes of the events come from `.avsc` files in a later step.
 - [x] The design review: every comment of the teacher answered in the diagrams;
       the design is approved
 - [x] Contract decisions above
+- [x] The contract `openapi/transaction-service.yaml`, server and client generation,
+      `@DifferentWallets` with its unit tests
 
 ### Next
 
-- [ ] The contract `openapi/transaction-service.yaml` and its generation
+- [ ] Publishing `transaction-service-client` to Nexus
 - [ ] Migrations, ShardingSphere-JDBC over two PostgreSQL shards; check
       `INSERT … ON CONFLICT DO NOTHING RETURNING` with two concurrent inserts
 - [ ] Wallets, then init / confirm of each operation, following the diagrams
