@@ -251,6 +251,10 @@ Host ports, as fixed by the course handout. Values live in `.env`, never in
 | individuals-api | 8081 | 8081 |
 | keycloak-postgres | 5433 | 5432 |
 | person-postgres | 5434 | 5432 |
+| person-service | 8082 | 8082 |
+| transaction-service | 8084 | 8084 |
+| transaction-postgres-0 | 5435 | 5432 |
+| transaction-postgres-1 | 5436 | 5432 |
 | prometheus | 9090 | 9090 |
 | tempo | 3200, 4318 | 3200, 4318 |
 | loki | 3100 | 3100 |
@@ -328,8 +332,8 @@ cd transaction-service && ./gradlew check  # contract, unit + integration tests
 cd individuals-api && ./gradlew build
 ```
 
-transaction-service is not in compose yet; it joins at the module 3
-infrastructure step.
+transaction-service builds its image itself, like person-service, and starts
+once both of its PostgreSQL shards are healthy.
 
 Into Nexus: `make publish` (`publishClientPublicationToNexusRepository`;
 `NEXUS_USERNAME` / `NEXUS_PASSWORD` default to `NEXUS_ADMIN_USER` /

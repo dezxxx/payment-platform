@@ -4,9 +4,22 @@ server:
 spring:
   application:
     name: transaction-service
+  datasource:
+    driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
+    # the shard addresses in sharding.yaml come from the same environment variables as transaction.shards
+    url: jdbc:shardingsphere:classpath:sharding.yaml?placeholder-type=environment
+
+transaction:
+  shards:
+    - url: ${TRANSACTION_SHARD_0_URL:jdbc:postgresql://localhost:5435/transaction}
+      username: ${TRANSACTION_DB_USER:transaction}
+      password: ${TRANSACTION_DB_PASSWORD:transaction}
+    - url: ${TRANSACTION_SHARD_1_URL:jdbc:postgresql://localhost:5436/transaction}
+      username: ${TRANSACTION_DB_USER:transaction}
+      password: ${TRANSACTION_DB_PASSWORD:transaction}
 
 management:
   endpoints:
     web:
       exposure:
-        include: "health,info"
+        include: "health,info,prometheus"

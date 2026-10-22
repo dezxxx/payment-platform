@@ -84,6 +84,61 @@ services:
       timeout: 5s
       retries: 10
 
+  transaction-service:
+    build:
+      context: ./transaction-service
+    depends_on:
+      transaction-postgres-0:
+        condition: service_healthy
+      transaction-postgres-1:
+        condition: service_healthy
+    environment:
+      TRANSACTION_SHARD_0_URL: jdbc:postgresql://transaction-postgres-0:5432/${TRANSACTION_DB_NAME}
+      TRANSACTION_SHARD_1_URL: jdbc:postgresql://transaction-postgres-1:5432/${TRANSACTION_DB_NAME}
+      TRANSACTION_DB_USER: ${TRANSACTION_DB_USER}
+      TRANSACTION_DB_PASSWORD: ${TRANSACTION_DB_PASSWORD}
+    # the JRE image has no curl or wget, only bash
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8084 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ports:
+      - "${TRANSACTION_SERVICE_PORT}:8084"
+
+  transaction-postgres-0:
+    image: ${POSTGRES_IMAGE}
+    environment:
+      POSTGRES_DB: ${TRANSACTION_DB_NAME}
+      POSTGRES_USER: ${TRANSACTION_DB_USER}
+      POSTGRES_PASSWORD: ${TRANSACTION_DB_PASSWORD}
+    ports:
+      - "${TRANSACTION_POSTGRES_0_PORT}:5432"
+    volumes:
+      - transaction-postgres-0-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TRANSACTION_DB_USER} -d ${TRANSACTION_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  transaction-postgres-1:
+    image: ${POSTGRES_IMAGE}
+    environment:
+      POSTGRES_DB: ${TRANSACTION_DB_NAME}
+      POSTGRES_USER: ${TRANSACTION_DB_USER}
+      POSTGRES_PASSWORD: ${TRANSACTION_DB_PASSWORD}
+    ports:
+      - "${TRANSACTION_POSTGRES_1_PORT}:5432"
+    volumes:
+      - transaction-postgres-1-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TRANSACTION_DB_USER} -d ${TRANSACTION_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   individuals-api:
     build:
       # root context: the build needs gradle/libs.versions.toml and pulls person-service-client from Nexus
@@ -202,6 +257,8 @@ services:
 volumes:
   keycloak-postgres-data:
   person-postgres-data:
+  transaction-postgres-0-data:
+  transaction-postgres-1-data:
   prometheus-data:
   nexus-data:
   tempo-data:

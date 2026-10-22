@@ -38,10 +38,12 @@
 | Решение | Значение |
 |---|---|
 | Веб-стек | Spring MVC, Spring Data JPA с Hibernate поверх ShardingSphere-JDBC — блокирующий, как person-service. Реактивный только сгенерированный `transaction-service-client`: он работает в individuals-api, а не в transaction-service |
-| Шардирование | 2 шарда, ключ `user_uid` (`HASH_MOD`); `wallets`, `transactions`, `transaction_events` по `user_uid`, `wallet_types` — копия на каждом шарде. Каждый запрос идёт с `user_uid`, кроме выборки неотправленных событий producer-ом, которая намеренно читает оба шарда |
+| Шардирование | 2 шарда, ключ `user_uid`, алгоритм `INLINE` `hash(user_uid) % 2` (`HASH_MOD` в 5.5.3 — автоматический и переименовал бы таблицы в `wallets_0`, `wallets_1`); `wallets`, `transactions`, `transaction_events` по `user_uid`, `wallet_types` — копия на каждом шарде (`BROADCAST`). Правила в `sharding.yaml`. Каждый запрос идёт с `user_uid`, кроме выборки неотправленных событий producer-ом, которая намеренно читает оба шарда |
+| Миграции | Flyway работает с каждым шардом напрямую (`ShardMigrations`), до создания источника данных ShardingSphere: через ShardingSphere он видел бы одну логическую базу. `flyway-core` без стартера Spring Boot. У каждого шарда своя `flyway_schema_history` |
+| Схема | DDL из ТЗ, плюс `transactions.request_id` и таблица `transaction_events` (`payload JSONB`, `traceparent VARCHAR(55)`, `sent_at`) из диаграмм; таблицы в `public` |
 | Доставка | at-least-once. `TransactionKafkaProducer` (`@Scheduled`) читает `transaction_events WHERE sent_at IS NULL`, ставит `sent_at` только после подтверждения broker-а, при ошибке оставляет `NULL`, и следующий запуск повторяет. Слово «outbox» в именах не используется |
 | Финализация | `TransactionKafkaConsumer` → `TransactionService.finalize(transactionId, userId)` одной транзакцией: `UPDATE transactions … WHERE status = 'PENDING'`; 1 строка — первая обработка (пополнение зачисляет, неуспешный вывод возвращает `amount + fee`); 0 строк — повтор (log INFO, ничего не меняется) или неизвестная транзакция (исключение). Исключение → откат, повтор с паузой (`DefaultErrorHandler`), затем DLT |
-| Идемпотентность confirm | первая команда транзакции confirm занимает `requestId`: `INSERT … 'PENDING', :requestId ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid`. 1 строка — запрос его занял; 0 строк — повтор: те же параметры → `200` с уже созданной транзакцией и её статусом, другие → `409`. Одновременный второй INSERT ждёт окончания первой транзакции; откат освобождает `requestId`. ShardingSphere 5.5.3 разбирает эту команду; одновременный случай ещё проверить на живых шардах |
+| Идемпотентность confirm | первая команда транзакции confirm занимает `requestId`: `INSERT … 'PENDING', :requestId ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid`. 1 строка — запрос его занял; 0 строк — повтор: те же параметры → `200` с уже созданной транзакцией и её статусом, другие → `409`. Одновременный второй INSERT ждёт окончания первой транзакции; откат освобождает `requestId`. ShardingSphere 5.5.3 разбирает эту команду; одновременный случай проверяет `ShardingIT` на двух шардах |
 | Проверка запроса | `@Valid` в контроллере до любой транзакции БД: обязательные поля, UUID, `amount > 0` и не больше 2 знаков после запятой; у перевода `walletUid ≠ targetWalletUid`. Ошибка → `400`, ничего не записано |
 | Комиссия и баланс | fee считается после чтения кошелька и до проверки `balance < amount + fee` → `400`, в init и заново в confirm (условиям из init не доверяем). `fee` при вставке `NULL`, заполняется `UPDATE` в той же транзакции |
 | Блокировки | confirm вывода и перевода читает кошелёк(и) `FOR UPDATE`; перевод блокирует оба в порядке `ORDER BY uid`, поэтому два встречных перевода не попадают в deadlock. `FOR UPDATE` защищает разные операции над одним кошельком, `requestId` — повторы одной и той же |
@@ -84,15 +86,17 @@ Avro-классы событий — из файлов `.avsc`, на следу�
       `@DifferentWallets` с unit-тестами
 - [x] `transaction-service-client` публикуется (`maven-publish`, как в person-service);
       в `Makefile` под `transaction-*`
+- [x] Миграции V001-V002, ShardingSphere-JDBC на двух шардах PostgreSQL, Flyway
+      на каждый шард; `ShardingIT` проверяет оба шарда, broadcast-таблицу, один шард
+      на кошелёк, одновременный захват `requestId` и `CHECK (balance >= 0)`
+- [x] `Dockerfile`, оба шарда в compose, `make verify` / `rebuild` собирают образ,
+      Prometheus собирает `/actuator/prometheus`
 
 ### Дальше
 
-- [ ] Миграции, ShardingSphere-JDBC на двух шардах PostgreSQL; проверить
-      `INSERT … ON CONFLICT DO NOTHING RETURNING` двумя одновременными вставками
 - [ ] Кошельки, затем init / confirm каждой операции, по диаграммам
 - [ ] Kafka (KRaft) + Schema Registry, Avro-события, producer, consumer, DLT;
       Fake Payment Provider
 - [ ] Наблюдаемость со своими метриками (lag Kafka, outbox, DLT, PENDING), тесты,
       коллекция Postman; `transaction-service-client` в individuals-api
-- [ ] transaction-service в compose и Prometheus; дописать его в карту
-      конфигурации корневого `CONTEXT.ru.md`
+- [ ] Дописать transaction-service в карту конфигурации корневого `CONTEXT.ru.md`

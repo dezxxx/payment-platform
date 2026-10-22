@@ -22,6 +22,9 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.addAll(listOf("-parameters", "-Xlint:all", "-Xlint:-processing"))
 }
 
+// its BOM 5.5.3 points at a parent pom that was never published, so every module names the version
+val shardingsphereVersion = "5.5.3"
+
 dependencies {
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
@@ -31,13 +34,36 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("io.micrometer:micrometer-registry-prometheus")
+
+    implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    // no Flyway starter: Spring Boot would migrate the ShardingSphere DataSource, each shard is migrated on its own
+    implementation("org.flywaydb:flyway-core")
+    implementation("org.flywaydb:flyway-database-postgresql")
+    runtimeOnly("org.postgresql:postgresql")
+
+    runtimeOnly("org.apache.shardingsphere:shardingsphere-jdbc:$shardingsphereVersion")
+    runtimeOnly("org.apache.shardingsphere:shardingsphere-sharding-core:$shardingsphereVersion")
+    runtimeOnly("org.apache.shardingsphere:shardingsphere-broadcast-core:$shardingsphereVersion")
+    runtimeOnly("org.apache.shardingsphere:shardingsphere-parser-sql-engine-postgresql:$shardingsphereVersion")
+    runtimeOnly("org.apache.shardingsphere:shardingsphere-database-connector-postgresql:$shardingsphereVersion")
+    runtimeOnly("org.apache.shardingsphere:shardingsphere-infra-data-source-pool-hikari:$shardingsphereVersion")
+    runtimeOnly("org.apache.shardingsphere:shardingsphere-infra-url-classpath:$shardingsphereVersion")
+    runtimeOnly("org.apache.shardingsphere:shardingsphere-standalone-mode-repository-memory:$shardingsphereVersion")
+    runtimeOnly("org.apache.shardingsphere:shardingsphere-authority-simple:$shardingsphereVersion")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-postgresql")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+        showStandardStreams = false
+    }
 }
 
 tasks.test {
@@ -157,6 +183,10 @@ val clientJar = tasks.register<Jar>("clientJar") {
 }
 
 tasks.named("assemble") { dependsOn(clientJar) }
+
+tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
+    archiveFileName.set("transaction-service.jar")
+}
 
 // io.spring.dependency-management hooks every pom with objects the configuration cache cannot store
 tasks.withType<GenerateMavenPom>().configureEach {

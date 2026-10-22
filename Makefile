@@ -74,7 +74,7 @@ verify:
 	cd $(PERSON) && $(PERSON)/$(WRAPPER) publishClientPublicationToNexusRepository
 	cd $(TRANSACTION) && $(TRANSACTION)/$(WRAPPER) publishClientPublicationToNexusRepository
 	cd $(API) && $(API)/$(WRAPPER) clean build --refresh-dependencies
-	$(DOCKER_COMPOSE) build --no-cache person-service individuals-api
+	$(DOCKER_COMPOSE) build --no-cache person-service transaction-service individuals-api
 	$(DOCKER_COMPOSE) up -d --wait
 
 # Nexus first: the image build downloads person-service-client from it
@@ -89,7 +89,7 @@ restart: down up
 
 rebuild:
 	@$(DOCKER_COMPOSE) up -d --wait nexus
-	@$(DOCKER_COMPOSE) build --no-cache person-service individuals-api
+	@$(DOCKER_COMPOSE) build --no-cache person-service transaction-service individuals-api
 	@$(DOCKER_COMPOSE) up -d
 
 reset-db: down
@@ -97,7 +97,7 @@ reset-db: down
 	$(MAKE) up
 
 logs:
-	$(DOCKER_COMPOSE) logs -f person-service individuals-api
+	$(DOCKER_COMPOSE) logs -f person-service transaction-service individuals-api
 
 ps:
 	$(DOCKER_COMPOSE) ps

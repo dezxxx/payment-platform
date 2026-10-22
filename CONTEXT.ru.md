@@ -250,6 +250,10 @@ management:
 | individuals-api | 8081 | 8081 |
 | keycloak-postgres | 5433 | 5432 |
 | person-postgres | 5434 | 5432 |
+| person-service | 8082 | 8082 |
+| transaction-service | 8084 | 8084 |
+| transaction-postgres-0 | 5435 | 5432 |
+| transaction-postgres-1 | 5436 | 5432 |
 | prometheus | 9090 | 9090 |
 | tempo | 3200, 4318 | 3200, 4318 |
 | loki | 3100 | 3100 |
@@ -327,8 +331,8 @@ cd transaction-service && ./gradlew check  # контракт, unit + интег
 cd individuals-api && ./gradlew build
 ```
 
-transaction-service пока не входит в compose; он войдёт туда на шаге
-инфраструктуры модуля 3.
+transaction-service сам собирает свой образ, как person-service, и стартует,
+когда оба его шарда PostgreSQL здоровы.
 
 В Nexus: `make publish` (`publishClientPublicationToNexusRepository`;
 `NEXUS_USERNAME` / `NEXUS_PASSWORD` по умолчанию берутся из `NEXUS_ADMIN_USER` /

@@ -38,10 +38,12 @@ while coding is decided before it is coded. The next push carries working code.
 | Decision | Value |
 |---|---|
 | Web stack | Spring MVC, Spring Data JPA with Hibernate, over ShardingSphere-JDBC - blocking, like person-service. Only the generated `transaction-service-client` is reactive: it runs in individuals-api, never in transaction-service |
-| Sharding | 2 shards, key `user_uid` (`HASH_MOD`); `wallets`, `transactions`, `transaction_events` by `user_uid`, `wallet_types` copied to every shard. Every query carries `user_uid`, except the producer's scan of unsent events, which reads both shards on purpose |
+| Sharding | 2 shards, key `user_uid`, `INLINE` algorithm `hash(user_uid) % 2` (`HASH_MOD` is an auto algorithm in 5.5.3 and would rename the tables to `wallets_0`, `wallets_1`); `wallets`, `transactions`, `transaction_events` by `user_uid`, `wallet_types` copied to every shard (`BROADCAST`). Rules in `sharding.yaml`. Every query carries `user_uid`, except the producer's scan of unsent events, which reads both shards on purpose |
+| Migrations | Flyway runs on each shard directly (`ShardMigrations`), before the ShardingSphere DataSource is created: through ShardingSphere it would see one logical database. `flyway-core` without the Spring Boot starter. Each shard keeps its own `flyway_schema_history` |
+| Schema | the handout's DDL, plus `transactions.request_id` and the table `transaction_events` (`payload JSONB`, `traceparent VARCHAR(55)`, `sent_at`) from the diagrams; tables in `public` |
 | Delivery | at-least-once. `TransactionKafkaProducer` (`@Scheduled`) reads `transaction_events WHERE sent_at IS NULL`, sets `sent_at` only after the broker acknowledges, leaves it `NULL` on a failure so the next run retries. The word "outbox" is not used in names |
 | Finalization | `TransactionKafkaConsumer` → `TransactionService.finalize(transactionId, userId)` in one transaction: `UPDATE transactions … WHERE status = 'PENDING'`; 1 row - first processing (deposit credits, failed withdrawal returns `amount + fee`); 0 rows - a repeat (log INFO, nothing changes) or an unknown transaction (exception). An exception → rollback, retry with a pause (`DefaultErrorHandler`), then the DLT |
-| Idempotency of confirm | the first statement of the confirm transaction claims the `requestId`: `INSERT … 'PENDING', :requestId ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid`. 1 row - this request owns it; 0 rows - a repeat: same parameters → `200` with the existing transaction and its status, other parameters → `409`. A concurrent second INSERT waits for the first transaction; a rollback frees the `requestId`. ShardingSphere 5.5.3 parses the statement; the concurrent case is still to be checked on the running shards |
+| Idempotency of confirm | the first statement of the confirm transaction claims the `requestId`: `INSERT … 'PENDING', :requestId ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid`. 1 row - this request owns it; 0 rows - a repeat: same parameters → `200` with the existing transaction and its status, other parameters → `409`. A concurrent second INSERT waits for the first transaction; a rollback frees the `requestId`. ShardingSphere 5.5.3 parses the statement; the concurrent case is checked by `ShardingIT` on two shards |
 | Request validation | `@Valid` in the controller, before any database transaction: required fields, UUIDs, `amount > 0` with at most 2 decimals; for a transfer `walletUid ≠ targetWalletUid`. Failure → `400`, nothing written |
 | Fee and balance | the fee is computed after the wallet is read and before the check `balance < amount + fee` → `400`, in init and again in confirm (the init terms are not trusted). `fee` is `NULL` on insert and set by `UPDATE` in the same transaction |
 | Locks | confirm of a withdrawal and a transfer reads the wallet(s) `FOR UPDATE`; a transfer locks both in `ORDER BY uid`, so two opposite transfers never deadlock. `FOR UPDATE` guards different operations on one wallet, `requestId` guards repeats of the same one |
@@ -85,15 +87,17 @@ Avro classes of the events come from `.avsc` files in a later step.
       `@DifferentWallets` with its unit tests
 - [x] `transaction-service-client` is published (`maven-publish`, as in person-service);
       in the `Makefile` under `transaction-*`
+- [x] Migrations V001-V002, ShardingSphere-JDBC over two PostgreSQL shards, Flyway
+      on each shard; `ShardingIT` checks both shards, the broadcast table, one shard
+      per wallet, the concurrent `requestId` claim and `CHECK (balance >= 0)`
+- [x] `Dockerfile`, both shards in compose, `make verify` / `rebuild` build the image,
+      Prometheus scrapes `/actuator/prometheus`
 
 ### Next
 
-- [ ] Migrations, ShardingSphere-JDBC over two PostgreSQL shards; check
-      `INSERT … ON CONFLICT DO NOTHING RETURNING` with two concurrent inserts
 - [ ] Wallets, then init / confirm of each operation, following the diagrams
 - [ ] Kafka (KRaft) + Schema Registry, Avro events, producer, consumer, DLT;
       Fake Payment Provider
 - [ ] Observability with its own meters (Kafka lag, outbox, DLT, PENDING), tests,
       Postman collection; `transaction-service-client` in individuals-api
-- [ ] transaction-service in compose and Prometheus; add it to the configuration
-      map of the root `CONTEXT.md`
+- [ ] Add transaction-service to the configuration map of the root `CONTEXT.md`

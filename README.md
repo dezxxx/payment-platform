@@ -173,7 +173,7 @@ Module 1 is not finished. What is honest as of today:
 | | |
 |---|---|
 | ✅ Working | Contract, Gradle build, Keycloak realm, `KeycloakClient` and `PersonClient`, `UserService` with compensation, `TokenService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — all eight meters, and JSON logs carrying every field the module requires |
-| 🐳 Compose | `make up` brings up eleven services and builds the app inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
+| 🐳 Compose | `make up` brings up fourteen services and builds the app inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
 | 🧪 Tests | **individuals-api: 67 tests, green — 50 unit and 17 integration**; every test case the module 1 handout lists carries its code (`UT-REG-001`, `IT-KC-001`) in its display name, against a real Keycloak and PostgreSQL in containers; coverage on the key services 100%. **person-service: 57 tests, green — 38 unit and 19 integration** on a real PostgreSQL, every scenario of the module 2 handout; **97% of lines**. Both builds fail below 80% |
 | 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, 20 requests, tokens captured automatically, 52 assertions |
 | 📦 Nexus | In the compose file. person-service publishes `person-service-client` into it, and individuals-api resolves the client from it by coordinates |
