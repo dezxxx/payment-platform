@@ -82,10 +82,11 @@ Avro-классы событий — из файлов `.avsc`, на следу�
 - [x] Решения по контракту выше
 - [x] Контракт `openapi/transaction-service.yaml`, генерация сервера и клиента,
       `@DifferentWallets` с unit-тестами
+- [x] `transaction-service-client` публикуется (`maven-publish`, как в person-service);
+      в `Makefile` под `transaction-*`
 
 ### Дальше
 
-- [ ] Публикация `transaction-service-client` в Nexus
 - [ ] Миграции, ShardingSphere-JDBC на двух шардах PostgreSQL; проверить
       `INSERT … ON CONFLICT DO NOTHING RETURNING` двумя одновременными вставками
 - [ ] Кошельки, затем init / confirm каждой операции, по диаграммам
@@ -93,5 +94,5 @@ Avro-классы событий — из файлов `.avsc`, на следу�
       Fake Payment Provider
 - [ ] Наблюдаемость со своими метриками (lag Kafka, outbox, DLT, PENDING), тесты,
       коллекция Postman; `transaction-service-client` в individuals-api
-- [ ] transaction-service в `make`, compose и Prometheus; дописать его в порядок
-      сборки и карту конфигурации корневого `CONTEXT.ru.md`
+- [ ] transaction-service в compose и Prometheus; дописать его в карту
+      конфигурации корневого `CONTEXT.ru.md`

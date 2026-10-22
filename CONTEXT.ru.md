@@ -302,9 +302,15 @@ individuals-api пока подключает `gradle/libs.versions.toml` как
 Всё это делает `make`: одна команда `make` поднимает Nexus, собирает образ и
 поднимает стенд, `make help` показывает остальные цели. `Makefile` существует
 потому, что корневой сборки нет. `make verify` прогоняет весь порядок с нуля
-(person-service `clean check`, клиент в Nexus, individuals-api `clean build`,
-образы `--no-cache`, стенд); `make verify-down` сначала останавливает стенд,
-потому что интеграционным тестам нужна его память.
+(person-service и transaction-service `clean check`, их клиенты в Nexus,
+individuals-api `clean build`, образы `--no-cache`, стенд); `make verify-down`
+сначала останавливает стенд, потому что интеграционным тестам нужна его память.
+
+`Makefile` — один файл, разбитый на блоки: платформа (стенд, `verify`), все
+модули (`build`, `test`, `it`, `check`, `publish`, `clean`), затем по блоку на
+модуль с теми же командами под его префиксом — `person-`, `individuals-`,
+`transaction-`, — чтобы проверять модуль отдельно, например
+`make transaction-publish-local`.
 
 Что он запускает, на случай, если make не установлен:
 
@@ -316,11 +322,13 @@ individuals-api пока подключает `gradle/libs.versions.toml` как
 ```bash
 cd person-service  && ./gradlew publishClientPublicationToMavenLocal
 cd person-service  && ./gradlew check      # контракт, unit + интеграционные тесты, порог покрытия 80%
+cd transaction-service && ./gradlew publishClientPublicationToMavenLocal
+cd transaction-service && ./gradlew check  # контракт, unit + интеграционные тесты
 cd individuals-api && ./gradlew build
 ```
 
-transaction-service пока не входит в `make`: `cd transaction-service && ./gradlew build`.
-В `make` и compose он войдёт на шаге инфраструктуры модуля 3.
+transaction-service пока не входит в compose; он войдёт туда на шаге
+инфраструктуры модуля 3.
 
 В Nexus: `make publish` (`publishClientPublicationToNexusRepository`;
 `NEXUS_USERNAME` / `NEXUS_PASSWORD` по умолчанию берутся из `NEXUS_ADMIN_USER` /

@@ -83,10 +83,11 @@ Avro classes of the events come from `.avsc` files in a later step.
 - [x] Contract decisions above
 - [x] The contract `openapi/transaction-service.yaml`, server and client generation,
       `@DifferentWallets` with its unit tests
+- [x] `transaction-service-client` is published (`maven-publish`, as in person-service);
+      in the `Makefile` under `transaction-*`
 
 ### Next
 
-- [ ] Publishing `transaction-service-client` to Nexus
 - [ ] Migrations, ShardingSphere-JDBC over two PostgreSQL shards; check
       `INSERT … ON CONFLICT DO NOTHING RETURNING` with two concurrent inserts
 - [ ] Wallets, then init / confirm of each operation, following the diagrams
@@ -94,5 +95,5 @@ Avro classes of the events come from `.avsc` files in a later step.
       Fake Payment Provider
 - [ ] Observability with its own meters (Kafka lag, outbox, DLT, PENDING), tests,
       Postman collection; `transaction-service-client` in individuals-api
-- [ ] transaction-service in `make`, compose and Prometheus; add it to the build
-      order and the configuration map of the root `CONTEXT.md`
+- [ ] transaction-service in compose and Prometheus; add it to the configuration
+      map of the root `CONTEXT.md`

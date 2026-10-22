@@ -1,3 +1,4 @@
+import org.gradle.api.publish.maven.tasks.GenerateMavenPom
 import org.openapitools.generator.gradle.plugin.tasks.GenerateTask
 
 plugins {
@@ -5,6 +6,7 @@ plugins {
     id("org.springframework.boot") version "4.1.0"
     id("io.spring.dependency-management") version "1.1.7"
     id("org.openapi.generator") version "7.25.0"
+    `maven-publish`
 }
 
 java {
@@ -155,3 +157,62 @@ val clientJar = tasks.register<Jar>("clientJar") {
 }
 
 tasks.named("assemble") { dependsOn(clientJar) }
+
+// io.spring.dependency-management hooks every pom with objects the configuration cache cannot store
+tasks.withType<GenerateMavenPom>().configureEach {
+    notCompatibleWithConfigurationCache("io.spring.dependency-management edits every generated pom")
+}
+
+// the client's own dependencies, with the versions Spring Boot picked, written into its pom
+val clientDependencies = configurations["clientRuntimeClasspath"].incoming.resolutionResult.rootComponent.map { root ->
+    root.dependencies
+        .filterIsInstance<org.gradle.api.artifacts.result.ResolvedDependencyResult>()
+        .mapNotNull { it.selected.moduleVersion }
+        .map { Triple(it.group, it.name, it.version) }
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("client") {
+            val dependencyList = clientDependencies
+            artifact(clientJar)
+            groupId = project.group.toString()
+            artifactId = "transaction-service-client"
+            version = project.version.toString()
+            pom {
+                name.set("transaction-service-client")
+                description.set("Generated DTOs and HTTP service client of transaction-service")
+                withXml {
+                    val dependencies = asNode().appendNode("dependencies")
+                    dependencyList.get().forEach { (group, name, version) ->
+                        dependencies.appendNode("dependency").apply {
+                            appendNode("groupId", group)
+                            appendNode("artifactId", name)
+                            appendNode("version", version)
+                            appendNode("scope", "compile")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "nexus"
+            val releases = providers.gradleProperty("nexusReleasesUrl").get()
+            val snapshots = providers.gradleProperty("nexusSnapshotsUrl").get()
+            url = uri(if (version.toString().endsWith("SNAPSHOT")) snapshots else releases)
+            isAllowInsecureProtocol = providers.gradleProperty("nexusAllowInsecureProtocol").get().toBoolean()
+            val user = providers.environmentVariable("NEXUS_USERNAME").orNull
+            val pass = providers.environmentVariable("NEXUS_PASSWORD").orNull
+            if (user != null && pass != null) {
+                credentials {
+                    username = user
+                    password = pass
+                }
+                // Nexus answers an anonymous request with 403, and Gradle sends credentials only after a 401
+                authentication { create<BasicAuthentication>("basic") }
+            }
+        }
+    }
+}

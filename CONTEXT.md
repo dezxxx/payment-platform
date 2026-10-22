@@ -302,9 +302,16 @@ outside its folder: plugin versions are in its own `build.gradle.kts`.
 `make` does all of it: `make` alone starts Nexus, builds the image and starts
 the stack, and `make help` lists the rest. The `Makefile` exists because there
 is no root build to hang the order on. `make verify` runs the whole order from
-scratch (person-service `clean check`, client into Nexus, individuals-api
-`clean build`, images `--no-cache`, stack up); `make verify-down` stops the
-stack first, because the integration tests need its memory.
+scratch (person-service and transaction-service `clean check`, their clients
+into Nexus, individuals-api `clean build`, images `--no-cache`, stack up);
+`make verify-down` stops the stack first, because the integration tests need
+its memory.
+
+The `Makefile` is one file in blocks: the platform (stack, `verify`), all
+modules (`build`, `test`, `it`, `check`, `publish`, `clean`), then one block per
+module with the same commands under its prefix - `person-`, `individuals-`,
+`transaction-` - so one module is checked on its own, e.g.
+`make transaction-publish-local`.
 
 What it runs, for when it is not installed:
 
@@ -316,11 +323,13 @@ both, so each module is built from its own folder. Until Nexus is up,
 ```bash
 cd person-service  && ./gradlew publishClientPublicationToMavenLocal
 cd person-service  && ./gradlew check      # contract, unit + integration tests, 80% coverage gate
+cd transaction-service && ./gradlew publishClientPublicationToMavenLocal
+cd transaction-service && ./gradlew check  # contract, unit + integration tests
 cd individuals-api && ./gradlew build
 ```
 
-transaction-service is not in `make` yet: `cd transaction-service && ./gradlew build`.
-It joins `make` and compose at the module 3 infrastructure step.
+transaction-service is not in compose yet; it joins at the module 3
+infrastructure step.
 
 Into Nexus: `make publish` (`publishClientPublicationToNexusRepository`;
 `NEXUS_USERNAME` / `NEXUS_PASSWORD` default to `NEXUS_ADMIN_USER` /
