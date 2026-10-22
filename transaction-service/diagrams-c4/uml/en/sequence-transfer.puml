@@ -13,67 +13,117 @@ end box
 Client -> IA: POST /api/v1/transactions/transfer/init (walletUid, targetWalletUid, amount)
 alt invalid token
     IA --> Client: 401
-end
-IA -> IA: user_uid from the token
-IA -> TS: calc transfer conditions (init), userUid
-alt invalid request (@Valid) or walletUid = targetWalletUid
-    TS --> IA: 400 ErrorResponse
-    IA --> Client: 400
-end
-TS -> WS: check both wallets
-WS -> DB: SELECT w.*, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid IN (:walletUid, :targetWalletUid) AND w.user_uid = :userUid
-alt fewer than 2 rows — wallet not found or not the user's
-    TS --> IA: 404 ErrorResponse
-    IA --> Client: 404
-else status <> 'ACTIVE', different currency_code or balance < amount + fee
-    TS --> IA: 400 ErrorResponse
-    IA --> Client: 400
-end
-WS --> TS: OK
-TS -> TS: fee, new requestId (UUID)
-TS --> IA: terms + requestId
-IA --> Client: transfer terms + requestId
-
-== confirm: the whole transfer ==
-Client -> IA: POST /api/v1/transactions/transfer/confirm\n(requestId, walletUid, targetWalletUid, amount)
-IA -> TS: confirm transfer, userUid
-group one DB transaction
-    TS -> DB: SELECT uid, status FROM transactions\nWHERE user_uid = :userUid AND request_id = :requestId
-    alt 1 row — repeated confirm
-        TS --> IA: 200, its transactionId and status
-        IA --> Client: 200, the same transactionId — no second transfer
-    end
-    TS -> TS: recompute the fee (the init terms are not trusted)
-    TS -> WS: Debit + Credit
-    WS -> DB: SELECT w.*, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid IN (:walletUid, :targetWalletUid) AND w.user_uid = :userUid\nORDER BY w.uid\nFOR UPDATE OF w
-    note right of DB
-      ORDER BY uid — both wallets are always locked
-      in the same order: two opposite transfers
-      never wait for each other forever (deadlock)
-    end note
-    alt fewer than 2 rows — wallet not found or not the user's
-        TS -> TS: ROLLBACK — nothing written
-        TS --> IA: 404 ErrorResponse
-        IA --> Client: 404
-    else status <> 'ACTIVE', different currency_code or balance < amount + fee
-        TS -> TS: ROLLBACK — nothing written
+else valid token
+    IA -> IA: user_uid from the token
+    IA -> TS: calc transfer conditions (init), userUid
+    alt invalid body (@Valid in the controller): missing field, not a UUID,\namount <= 0, more than 2 decimal places, walletUid = targetWalletUid
         TS --> IA: 400 ErrorResponse
         IA --> Client: 400
-    end
-    WS -> DB: UPDATE wallets SET balance = balance - (:amount + :fee), modified_at = now()\nWHERE uid = :walletUid AND user_uid = :userUid
-    WS -> DB: UPDATE wallets SET balance = balance + :amount, modified_at = now()\nWHERE uid = :targetWalletUid AND user_uid = :userUid
-    TS -> DB: INSERT INTO transactions\n(uid, user_uid, wallet_uid, target_wallet_uid, amount, fee, type, status, request_id)\nVALUES (:transactionId, :userUid, :walletUid, :targetWalletUid, :amount, :fee,\n'TRANSFER', 'COMPLETED', :requestId)
-    alt DB error (incl. a UNIQUE (user_uid, request_id) violation)
-        TS -> TS: ROLLBACK — neither debit nor credit
-        TS --> IA: 500 ErrorResponse
-        IA --> Client: 500
+    else valid body
+        TS -> WS: read both wallets
+        WS -> DB: SELECT w.uid, w.status, w.balance, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid IN (:walletUid, :targetWalletUid)\n  AND w.user_uid = :userUid AND w.archived_at IS NULL
+        alt DB error
+            TS --> IA: 500 ErrorResponse
+            IA --> Client: 500
+        else fewer than 2 rows — wallet not found, not the user's or archived
+            TS --> IA: 404 ErrorResponse
+            IA --> Client: 404
+        else status <> 'ACTIVE' or different currency_code
+            TS --> IA: 400 ErrorResponse
+            IA --> Client: 400
+        else wallets are fine
+            TS -> TS: compute the fee
+            alt balance < amount + fee
+                TS --> IA: 400 ErrorResponse — not enough including the fee
+                IA --> Client: 400
+            else enough funds
+                TS -> TS: new requestId (UUID), not stored in the DB
+                TS --> IA: amount, fee, total, requestId
+                IA --> Client: 200, transfer terms + requestId
+            end
+        end
     end
 end
-TS --> IA: status=COMPLETED, transactionId
-IA --> Client: status=COMPLETED, transactionId
+
+== confirm: the whole transfer, one DB transaction ==
+Client -> IA: POST /api/v1/transactions/transfer/confirm\n(requestId, walletUid, targetWalletUid, amount)
+alt invalid token
+    IA --> Client: 401
+else valid token
+    IA -> IA: user_uid from the token
+    IA -> TS: confirm transfer, userUid
+    alt invalid body (@Valid in the controller): missing field, not a UUID,\namount <= 0, more than 2 decimal places, walletUid = targetWalletUid
+        TS --> IA: 400 ErrorResponse — no DB transaction was started
+        IA --> Client: 400
+    else valid body
+        group one DB transaction
+            TS -> DB: INSERT INTO transactions\n(uid, user_uid, wallet_uid, target_wallet_uid, amount, type, status, request_id)\nVALUES (:transactionId, :userUid, :walletUid, :targetWalletUid, :amount,\n'TRANSFER', 'PENDING', :requestId)\nON CONFLICT (user_uid, request_id) DO NOTHING\nRETURNING uid
+            note right of DB
+              The requestId is claimed first, in one statement.
+              If another request with this requestId has not finished
+              its transaction yet, this INSERT waits for it.
+              The PENDING row is not visible outside until COMMIT.
+            end note
+            alt 0 rows — requestId already taken (a repeat, incl. a concurrent one)
+                TS -> DB: SELECT uid, status, type, wallet_uid, target_wallet_uid, amount\nFROM transactions\nWHERE user_uid = :userUid AND request_id = :requestId
+                alt type, wallets or amount differ from the request
+                    TS --> IA: 409 ErrorResponse — requestId already used for another operation
+                    IA --> Client: 409
+                else same parameters
+                    TS --> IA: 200, its transactionId and status
+                    IA --> Client: 200, the same transactionId — no second transfer
+                end
+            else 1 row — requestId claimed by this request
+                TS -> WS: Debit + Credit
+                WS -> DB: SELECT w.uid, w.status, w.balance, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid IN (:walletUid, :targetWalletUid)\n  AND w.user_uid = :userUid AND w.archived_at IS NULL\nORDER BY w.uid\nFOR UPDATE OF w
+                note right of DB
+                  ORDER BY uid — both wallets are always locked
+                  in the same order: two opposite transfers
+                  never wait for each other forever (deadlock)
+                end note
+                alt fewer than 2 rows — wallet not found, not the user's or archived
+                    TS -> DB: ROLLBACK — no transaction row, the requestId is free again
+                    TS --> IA: 404 ErrorResponse
+                    IA --> Client: 404
+                else status <> 'ACTIVE' or different currency_code
+                    TS -> DB: ROLLBACK — nothing written
+                    TS --> IA: 400 ErrorResponse
+                    IA --> Client: 400
+                else wallets are fine
+                    TS -> TS: compute the fee (the init terms are not trusted)
+                    alt balance < amount + fee
+                        TS -> DB: ROLLBACK — nothing written
+                        TS --> IA: 400 ErrorResponse — not enough including the fee
+                        IA --> Client: 400
+                    else enough funds
+                        WS -> DB: UPDATE wallets SET balance = balance - (:amount + :fee), modified_at = now()\nWHERE uid = :walletUid AND user_uid = :userUid
+                        WS -> DB: UPDATE wallets SET balance = balance + :amount, modified_at = now()\nWHERE uid = :targetWalletUid AND user_uid = :userUid
+                        TS -> DB: UPDATE transactions SET fee = :fee, status = 'COMPLETED', modified_at = now()\nWHERE uid = :transactionId AND user_uid = :userUid
+                        alt DB error
+                            TS -> DB: ROLLBACK — no debit, no credit, no transaction
+                            TS --> IA: 500 ErrorResponse
+                            IA --> Client: 500
+                        else writes succeeded
+                            TS -> DB: COMMIT — debit, credit and transaction saved together
+                            TS --> IA: 200, status=COMPLETED, transactionId
+                            IA --> Client: 200, status=COMPLETED, transactionId
+                        end
+                    end
+                end
+            end
+        end
+        note right of DB
+          A DB error at any step of the group (incl. a lock
+          timeout) → ROLLBACK, 500, nothing written.
+          Response lost after COMMIT → the client repeats
+          confirm with the same requestId → "0 rows" branch → 200.
+        end note
+    end
+end
 note right of IA
   No Kafka: both wallets of one user are
   in one shard — one ACID transaction.
   init and confirm are linked by requestId (span attributes and logs).
+  confirm without init is allowed: confirm checks everything itself.
 end note
 @enduml

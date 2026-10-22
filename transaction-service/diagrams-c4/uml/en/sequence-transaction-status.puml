@@ -11,26 +11,32 @@ end box
 Client -> IA: GET /api/v1/transactions/{transactionId}/status
 alt invalid token
     IA --> Client: 401
+else valid token
+    IA -> IA: user_uid from the token
+    IA -> TS: get status (transactionId, user_uid)
+    alt transactionId is not a UUID
+        TS --> IA: 400 ErrorResponse
+        IA --> Client: 400
+    else valid transactionId
+        TS -> DB: SELECT uid, status, failure_reason FROM transactions\nWHERE uid = :transactionId AND user_uid = :userUid
+        note right of DB
+          user_uid in the condition: one shard
+          and a check that the transaction is the user's
+        end note
+        alt DB error
+            TS --> IA: 500 ErrorResponse
+            IA --> Client: 500
+        else 0 rows — not found or not the user's
+            TS --> IA: 404 ErrorResponse
+            IA --> Client: 404
+        else 1 row
+            TS --> IA: 200 TransactionStatusResponse\n(status: PENDING / COMPLETED / FAILED, failure_reason)
+            IA --> Client: 200 TransactionStatusResponse
+            note right of Client
+              The client polls this endpoint
+              until PENDING turns into the outcome
+            end note
+        end
+    end
 end
-IA -> IA: user_uid from the token
-IA -> TS: get status (transactionId, user_uid)
-alt transactionId is not a UUID
-    TS --> IA: 400 ErrorResponse
-    IA --> Client: 400
-end
-TS -> DB: SELECT uid, status, failure_reason FROM transactions\nWHERE uid = :transactionId AND user_uid = :userUid
-note right of DB
-  user_uid in the condition: one shard
-  and a check that the transaction is the user's
-end note
-alt not found or not the user's
-    TS --> IA: 404 ErrorResponse
-    IA --> Client: 404
-end
-TS --> IA: 200 TransactionStatusResponse\n(status: PENDING / COMPLETED / FAILED, failure_reason)
-IA --> Client: 200 TransactionStatusResponse
-note right of Client
-  The client polls this endpoint
-  until PENDING turns into the outcome
-end note
 @enduml

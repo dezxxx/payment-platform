@@ -4,16 +4,16 @@
 
 | Диаграмма | Файл |
 |---|---|
-| контейнерная | `transaction-service/diagrams-c4/png/ru/container.png` |
-| компонентная | `transaction-service/diagrams-c4/png/ru/component.png` |
-| sequence: пополнение | `transaction-service/diagrams-c4/png/ru/sequence-deposit.png` |
-| sequence: перевод | `transaction-service/diagrams-c4/png/ru/sequence-transfer.png` |
-| sequence: вывод | `transaction-service/diagrams-c4/png/ru/sequence-withdrawal.png` |
-| sequence: создание кошелька | `transaction-service/diagrams-c4/png/ru/sequence-wallet-create.png` |
-| sequence: кошелёк по id | `transaction-service/diagrams-c4/png/ru/sequence-wallet-get.png` |
-| sequence: кошельки пользователя | `transaction-service/diagrams-c4/png/ru/sequence-wallets-of-user.png` |
-| sequence: статус транзакции | `transaction-service/diagrams-c4/png/ru/sequence-transaction-status.png` |
-| sequence: поиск транзакций | `transaction-service/diagrams-c4/png/ru/sequence-transactions-search.png` |
+| контейнерная | `transaction-service/diagrams-c4/png/en/container.png` |
+| компонентная | `transaction-service/diagrams-c4/png/en/component.png` |
+| sequence: пополнение | `transaction-service/diagrams-c4/png/en/sequence-deposit.png` |
+| sequence: перевод | `transaction-service/diagrams-c4/png/en/sequence-transfer.png` |
+| sequence: вывод | `transaction-service/diagrams-c4/png/en/sequence-withdrawal.png` |
+| sequence: создание кошелька | `transaction-service/diagrams-c4/png/en/sequence-wallet-create.png` |
+| sequence: кошелёк по id | `transaction-service/diagrams-c4/png/en/sequence-wallet-get.png` |
+| sequence: кошельки пользователя | `transaction-service/diagrams-c4/png/en/sequence-wallets-of-user.png` |
+| sequence: статус транзакции | `transaction-service/diagrams-c4/png/en/sequence-transaction-status.png` |
+| sequence: поиск транзакций | `transaction-service/diagrams-c4/png/en/sequence-transactions-search.png` |
 
 Sequence-диаграммы пополнения, перевода и вывода построены на диаграммах из ТЗ: участники и шаги
 те же. На каждой диаграмме показаны ветки отказа, границы транзакций БД и что пишется в БД.
