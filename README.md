@@ -35,7 +35,7 @@ Two systems, two identifiers, and they are not interchangeable:
 Registration writes to both systems and there is no transaction across them, so
 the flow carries an explicit **compensation**: when the Keycloak part fails, the
 half-made account is deleted and so is the individual in person-service, and the
-caller gets the original error. See §4 of `CONTEXT.md`.
+caller gets the original error. See §2 of `individuals-api/CONTEXT.md`.
 
 ## The API
 
@@ -128,7 +128,7 @@ on a second registration, because person-service already holds their email.
 | Prometheus | http://localhost:9090 |
 
 The full port map, including why Nexus runs on 8083 instead of its own default,
-is in §5 of `CONTEXT.md`.
+is in §4 of `CONTEXT.md`.
 
 ## Layout
 
@@ -157,8 +157,9 @@ payload.
 
 | File | What it is |
 |---|---|
-| [`CONTEXT.md`](CONTEXT.md) | The working document: decisions, rules, the registration flow, progress. The long read. |
-| [`CONTEXT.ru.md`](CONTEXT.ru.md) | Russian mirror. English wins if the two disagree. |
+| [`CONTEXT.md`](CONTEXT.md) | What every module shares: rules, ports, how the platform is built, started and checked. |
+| `<module>/CONTEXT.md` | What was decided and done in that module: [`individuals-api`](individuals-api/CONTEXT.md), [`person-service`](person-service/CONTEXT.md), [`transaction-service`](transaction-service/CONTEXT.md). |
+| `CONTEXT.ru.md` next to each | Russian mirror. English wins if the two disagree. |
 | [`individuals-api/diagrams-c4/`](individuals-api/diagrams-c4), [`person-service/diagrams-c4/`](person-service/diagrams-c4), [`transaction-service/diagrams-c4/`](transaction-service/diagrams-c4) | C4 diagrams of each service: container, component and sequence. PlantUML in `uml/{en,ru}`, a rendered picture of each in `png/{en,ru}`; transaction-service keeps English only. |
 | [`postman/`](postman) | Two Postman collections. `individuals-api`: two users through every endpoint, the failures, Swagger and metrics, with the tokens carried between requests for you - import it, press Run on a fresh stack. `person-service`: one individual through all six operations, every RFC 9457 failure, the soft delete and the compensation individuals-api calls; each run takes a fresh email, so it runs again on the same database. |
 
@@ -176,4 +177,4 @@ Module 1 is not finished. What is honest as of today:
 | ✅ Module 2 | **`person-service`**: the contract (`/api/v1/individuals`, six operations, RFC 9457 errors), Flyway migrations, JPA, transactions, the Envers audit, Swagger UI, metrics, JSON logs and traces with a Grafana dashboard, a Docker image in compose, tests, and `person-service-client` in Nexus. individuals-api registers through it, with address and personal data, and compensates a failed Keycloak part by deleting the individual. Done, merged into `main` |
 | 🚧 Module 3 | **`transaction-service`**: wallets, deposit, transfer and withdrawal over two PostgreSQL shards (ShardingSphere-JDBC), deposit and withdrawal finished through Kafka. The design - C4 diagrams with every failure branch - is approved; the code is in progress on `module-3-transaction-service` |
 
-The ordered to-do lists live in §8 (module 1), §8a (module 2) and §8b (module 3) of `CONTEXT.md` and are kept current.
+The ordered to-do lists live in the "Progress" section of each module's `CONTEXT.md` and are kept current.

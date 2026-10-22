@@ -4,6 +4,21 @@ Project context for humans and LLMs. Read this first before touching anything.
 
 ---
 
+## Module contexts
+
+Each module keeps what was decided and done in it in its own context:
+
+| Module | Context |
+|---|---|
+| 1 - individuals-api | [`individuals-api/CONTEXT.md`](individuals-api/CONTEXT.md) |
+| 2 - person-service | [`person-service/CONTEXT.md`](person-service/CONTEXT.md) |
+| 3 - transaction-service | [`transaction-service/CONTEXT.md`](transaction-service/CONTEXT.md) |
+
+This file holds only what all of them share: rules, ports, how the platform
+is built, started and checked.
+
+---
+
 ## 1. What this repository is
 
 `payment-platform` — monorepo of the payment platform.
@@ -22,12 +37,11 @@ name sits in person-service and in the Keycloak account, but only one of them
 is the source: the account holds a copy, written once at registration, and
 nobody keeps it in step afterwards. Reading a domain field out of Keycloak
 because it happens to be there is the easiest way to lose this boundary — see
-`/me` in section 5 for where module 1 does exactly that, and why.
+`/me` in section 3 of `individuals-api/CONTEXT.md` for where module 1 does exactly that, and why.
 
 The root is deliberately named after the platform, not after one service:
 `transaction-service`, `payment-service`, `webhook-collector-service` and
 `notification-service` land here in later modules.
-
 
 ### The whole platform, for later modules
 
@@ -63,22 +77,7 @@ differently:
 
 Two integration styles coexist on purpose: synchronous REST where an answer is
 needed now, Kafka where the work can finish later. Compensation exists because
-of the first style - see "Compensation policy" below.
-
-#### Naming: `person-service` or `users-service`
-
-The module 1 handout names the domain service `person-service`, and this
-repository follows it: the Gradle module, the contract, the generated
-`person-client` artifact, the `person` database schema and the
-`individuals.person-service.*` properties all use that name. The platform
-description above calls the same service **Users Service**.
-
-Treated as one service under two names until the course says otherwise. If a
-later module requires the second name, the rename touches: `settings.gradle.kts`,
-the module directory, `person-service/openapi/person-service.yaml`, the
-published artifact coordinates, `PersonsApi`, the Flyway schema, the compose
-service `person-postgres`, and `PersonServiceProperties`. It is a mechanical
-change, but it is not a small one, so it is not done speculatively.
+of the first style - see "Compensation policy" in `individuals-api/CONTEXT.md`.
 
 ---
 
@@ -98,7 +97,7 @@ These are settled. Do not change them without an explicit decision.
 | OpenAPI Generator | 7.25.0 in both modules, with `useSpringBoot4` and JSpecify `@Nullable` (`useJspecify`) | person-service: its `build.gradle.kts`; individuals-api: `gradle/libs.versions.toml` |
 | Build tool | Gradle Kotlin DSL only | — |
 | Keycloak image | 26.7.2 | `.env` |
-| Testcontainers | 2.0.5, inherited from the Boot BOM | artifact ids differ from 1.x — see section 9 |
+| Testcontainers | 2.0.5, inherited from the Boot BOM | artifact ids differ from 1.x — see section 5 of `individuals-api/CONTEXT.md` |
 
 The Gradle toolchain provisions JDK 25 itself, so whatever `JAVA_HOME` points
 at is irrelevant to the build and must not be "fixed" to make it work.
@@ -184,79 +183,6 @@ which module runs which Gradle, Boot or generator.
    `Accept-Language` if real localisation is ever wanted — and no other code
    moves.
 
-### individuals-api layers
-
-Mandatory chain, one direction only:
-
-```
-rest -> service -> gateway -> external system
-```
-
-The first package is `rest`, not `controller`: this service speaks REST and
-nothing else — no view layer, no server-rendered page, no message consumer — so
-the package is named after the protocol it serves rather than after the Spring
-stereotype inside it. `api` was not available, that name belongs to the
-generated code.
-
-| Layer | Holds | Never does |
-|---|---|---|
-| `rest` | accepts and returns DTOs, implements the generated `AuthApi` | business logic; direct calls to Keycloak or person-service |
-| `service` | orchestration of the registration and login scenarios | HTTP, JSON, Keycloak or person-client types |
-| `gateway` | every outbound call, one client per external system | domain decisions |
-| `validation`, `error`, `config`, `metrics` | validation rules, error mapping, security wiring, meters | anything belonging to another layer |
-
-As in the teacher's component diagram: `AuthController` calls two services,
-and each external system has exactly one client.
-
-- `UserService` — registration and `/me`; its last registration step gets the
-  tokens through `TokenService.issueTokens`, as the component diagram draws
-  `UserService -> TokenService`
-- `TokenService` — login and refresh
-- `KeycloakClient` — everything Keycloak: the token endpoint (login, refresh,
-  the service-account token, cached) and the Admin API (account, password,
-  role, rollback, registration date)
-- `PersonClient` — wraps the generated `PersonsApi`: create the person, get
-  its `user_uid`
-
-Each client turns the other side's errors into our `ApiException` itself, in a
-private `translate` method - there are no separate translator classes.
-`util/GatewayErrors` is shared by both: "the other side did not answer at
-all" becomes **503**.
-
-**Identifiers.** The business layer knows only the domain `user_uid`. The
-Keycloak `sub` is stored as a technical link (`keycloak_user_id`) and never
-becomes the platform's primary identifier. Nothing above the gateway layer is
-allowed to address a user by it.
-
-**Why clients rather than repositories.** individuals-api owns no data, so it
-has no repository. The client takes that seat in the layer chain and is
-injected into the service through the constructor. The rule that Service and
-Controller never get invented interfaces of their own still holds.
-
-Patterns in play: `PersonClient` and `KeycloakClient` are **Adapters** - they
-translate the other side's types and errors into ours, so nothing above them
-holds a foreign payload. `KeycloakClient` is also a **Facade** over Keycloak's
-two APIs.
-
-### Compensation policy
-
-The order - the individual first, the Keycloak account second - guarantees no
-Keycloak account is ever left without an individual. The inverse case is real:
-if the Keycloak steps fail, the individual already exists in person-service.
-
-When that happens the service:
-
-- deletes the half-made Keycloak account if the password or the role failed
-  (`KeycloakClient.rollbackAccountWithError`);
-- removes the whole individual through
-  `DELETE /api/v1/individuals/compensate-registration/{id}` (`UserService.compensate`),
-  so the same email can register again;
-- returns the original error to the client;
-- if that delete fails too, answers `503 REGISTRATION_INCONSISTENT` and logs the
-  `user_uid` for a manual clean-up - the partial failure is never hidden.
-
-Nothing here silently retries or pretends the registration succeeded.
-
 ### Observability
 
 **Metrics.** Actuator plus Prometheus. Only `health` is exposed over HTTP by
@@ -331,261 +257,9 @@ builders, which is another reason the gateways must not construct their own.
 `spanId`, request path, HTTP method, response status, business error code, and
 the domain `user_uid` when known.
 
-### Keycloak realm
-
-`realm/realm-export.json` must define:
-
-- a realm of its own for the course
-- a confidential client for individuals-api
-- a service account on that client for the Admin REST API
-- a mapper putting `user_uid` into the token, or a consistent way to read it
-  through `/me`
-- the roles needed to read and manage users (`view-users`, `manage-users` from
-  `realm-management`)
-- `upConfig` declaring `user_uid` as a user profile attribute — see below
-
-The client secret is a credential: it lives in `.env`, never in the export
-committed to git.
-
-JSON carries no comments, so the file is described block by block in
-`realm/README.md`, together with the facts it repeats elsewhere in the project.
-
-#### Why `upConfig` is not optional
-
-Since Keycloak 24 the declarative user profile is always on, and unmanaged
-attributes are **disabled** by default. An attribute that the profile does not
-declare is dropped silently: `POST /admin/realms/{realm}/users` still answers
-`201`, the account is created, and the attribute is simply not there. No error,
-no warning. The protocol mapper then has nothing to map and the claim never
-appears in the token.
-
-That is exactly what happened here, and it was invisible until a token was
-decoded. The fix is to declare `user_uid` in `upConfig`. Declaring `upConfig`
-replaces the whole default profile, so `username`, `email`, `firstName` and
-`lastName` have to be listed again with their original validations.
-
-Editing the user profile needs `manage-realm`, which our service account
-deliberately does **not** have — it is configuration, not runtime work, so it
-belongs in `realm-export.json` and nowhere else.
-
-#### Verified against a running Keycloak 26.7.2
-
-Checked end to end after a `down -v` and a fresh import:
-
-| Check | Result |
-|---|---|
-| `client_credentials` on `individuals-api` | token issued — client is confidential, secret matches `.env`, service account is on |
-| `GET /admin/realms/{realm}/users` with that token | `200` — `view-users` really is granted |
-| create user with `credentials` + `attributes` in one call | `201`, account complete |
-| password grant as that user | tokens issued, and `user_uid` present as a claim |
-| same, but `"temporary": true` | `400 invalid_grant`, `Account is not fully set up` |
-| create a second user with an existing email | `409`, `User exists with same email` |
-| password grant with a wrong password | `400 invalid_grant`, `Invalid user credentials` |
-
-Two consequences for the gateway code:
-
-- Keycloak answers a bad password with **400**, not 401. `KeycloakClient`
-  translates it: our contract says 401, and the client must never see 400 here.
-- `400 invalid_grant` covers both a wrong password and a not-fully-set-up
-  account. The status code alone cannot tell them apart — only
-  `error_description` can. Log the description, return 401.
-
-### Deviations from the course handout, and why
-
-| Handout | Here | Reason |
-|---|---|---|
-| `generatorName("java")` | `"spring"` + `library("spring-http-interface")` | the same handout mandates Spring HTTP Service Clients, not a generic Java client |
-| `$buildDir` | `layout.buildDirectory` | `$buildDir` was removed in Gradle 9 — the handout snippet does not compile here |
-| spec kept in `common/` | spec kept in the module that owns it | matches the artifact table: `person-service/openapi/person-service.yaml` |
-| Spring Boot 4.0.6 | 4.1.0 | 4.1.0 reached GA after the handout was written |
-| `proselyte` / `com.example` | `dezxxx` / `com.dezxxx` | handout placeholders |
-| Tempo traces under `/tmp/tempo/traces` | `/var/tempo`, with an explicit wal path | that is where docker-compose mounts the named volume; under `/tmp` the traces die with the container and the volume stays empty |
-| `RestClient` as the standard HTTP client (and `Feign/OpenAPI` on the platform diagram) | Spring HTTP Service Clients over `WebClientAdapter` | The **style** the handout mandates - annotated `@HttpExchange` interfaces behind generated proxies - is followed exactly; `person-client` is generated from the OpenAPI document with `library = spring-http-interface`. Only the adapter differs. `RestClient` is synchronous and `RestClientAdapter` cannot return `Mono` at all, so adopting it would mean regenerating the client with `reactive = false` and wrapping every call in `Mono.fromCallable(...).subscribeOn(boundedElastic())`. A bare call would park a Netty event loop thread that serves hundreds of connections. The same handout's C4 diagram labels this service **Spring Boot WebFlux**, and the two requirements pull against each other; the reactive adapter is the one that keeps WebFlux worth having |
-| postgres volume at `/var/lib/postgresql/data` | `/var/lib/postgresql` | PostgreSQL 18 moved the data directory one level down and refuses to start when the old path is mounted — the container exits with code 1 |
-
 ---
 
-## 4. Registration flow (the core scenario)
-
-Nine steps, in this order. The order **is** the design, not an implementation
-detail: person-service goes first because it issues the identity, and a refusal
-from it leaves nothing to undo anywhere.
-
-1. `individuals-api` accepts the registration request
-2. validates format, required fields and password confirmation
-3. `POST /api/v1/individuals` — person-service creates the individual with its
-   user and address
-4. it answers with the individual's id - the `user_uid` the whole platform will use
-5. obtains a service-account token (`client_credentials`)
-6. `POST /admin/realms/{realm}/users` — creates the account, **without a
-   password**, carrying `user_uid` as a user attribute
-7. `PUT /admin/realms/{realm}/users/{id}/reset-password` — sets the password
-8. assigns the realm role `USER` (Keycloak gives no role on its own)
-9. logs in via `/realms/{realm}/protocol/openid-connect/token` (`password`) and
-   returns access token, refresh token, lifetime and `user_uid`
-
-Step 6 body — note what is *not* in it:
-
-```json
-{
-  "username": "user@dezxxx.com",
-  "email": "user@dezxxx.com",
-  "firstName": "Ivan",
-  "lastName": "Ivanov",
-  "enabled": true,
-  "emailVerified": false,
-  "attributes": { "user_uid": ["6f1d2a4e-8c3b-4a7f-9e2d-1b5c7a9f0e33"] }
-}
-```
-
-The account is created with **201** and an empty body; the new id exists only in
-the `Location` header, and parsing it out is `KeycloakClient`'s job.
-
-Step 7 body:
-
-```json
-{ "type": "password", "value": "Str0ngP@ssw0rd", "temporary": false }
-```
-
-`temporary: false` is mandatory. A temporary password makes Keycloak attach the
-`UPDATE_PASSWORD` required action, and step 9 then fails with
-`400 invalid_grant: Account is not fully set up` — after everything else looked
-successful.
-
-**Keycloak could accept the password inside step 6**, in a `credentials[]`
-array, saving one round trip and making account creation atomic. The handout
-names the `reset-password` endpoint explicitly, so the two-call form is what is
-implemented; the cost is the gap described below.
-
-### Where it can break, and what the client is told
-
-| Where | Client sees | Created so far |
-|---|---|---|
-| `@Valid` | **400** `VALIDATION_ERROR`, one `details[]` line per bad field | nothing |
-| person-service `409` | **409** `USER_ALREADY_EXISTS` | nothing |
-| person-service `5xx` | **503** `DEPENDENCY_UNAVAILABLE` | nothing |
-| person-service `400` | **500** `INTERNAL_ERROR` — their validation and ours disagree, which is our bug | nothing |
-| *— `user_uid` issued; from here a failure is compensated —* | | |
-| Keycloak create | the Keycloak error as is (**503** `DEPENDENCY_UNAVAILABLE`, **409** `USER_ALREADY_EXISTS`) | nothing — the individual is removed |
-| Keycloak reset-password or role | the same | nothing — the account and the individual are removed |
-| the compensation itself | **503** `REGISTRATION_INCONSISTENT` | the individual; `user_uid` in the log for a manual clean-up |
-| login | **503** `DEPENDENCY_UNAVAILABLE` | everything — **not** an inconsistency |
-
-The last row is the subtle one. If only the login failed, the individual and the
-account both exist and work; we merely failed to hand tokens over, and the caller
-can log in normally. So the login is outside the compensation.
-
-**Compensation.** A failure at step 7 or 8 leaves an account that can never be
-logged into while its email stays taken, so `KeycloakClient.rollbackAccountWithError`
-deletes it first. Then, for any Keycloak failure, `UserService.compensate` calls
-`DELETE /api/v1/individuals/compensate-registration/{id}`: person-service removes
-the whole aggregate (a hard delete, unlike the soft `DELETE /api/v1/individuals/{id}`),
-so a registration that never completed leaves no data and the email is free again.
-The client gets the original error. Only if that delete fails too do the systems
-disagree, and that is `REGISTRATION_INCONSISTENT` with the `user_uid` in the log.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client
-    participant Ctl as AuthController
-    participant Svc as UserService
-    participant PGw as PersonClient
-    participant AGw as KeycloakClient
-    participant Ps as person-service
-    participant Kc as Keycloak
-
-    Client->>Ctl: POST /api/v1/auth/registration
-    Ctl->>Svc: register
-    Note over Svc: format and password confirmation
-    Svc->>PGw: create the individual
-    PGw->>Ps: POST /api/v1/individuals
-    Ps-->>PGw: 201, individual id
-    PGw-->>Svc: user_uid = individual id
-    Svc->>AGw: create account
-    AGw->>Kc: POST token client_credentials<br/>(cached until 10 s before expiry)
-    Kc-->>AGw: access token
-    AGw->>Kc: POST /admin/realms/REALM/users<br/>user_uid attribute, no password
-    Kc-->>AGw: 201 Location header
-    AGw-->>Svc: keycloak user id
-    Svc->>AGw: set password
-    AGw->>Kc: PUT /admin/realms/REALM/users/ID/reset-password
-    Kc-->>AGw: 204
-    Svc->>AGw: assign role USER
-    AGw->>Kc: POST .../role-mappings/realm
-    Kc-->>AGw: 204
-    Svc->>AGw: log in (through TokenService.issueTokens)
-    AGw->>Kc: POST token grant_type=password
-    Kc-->>AGw: access, refresh, expiresIn
-    AGw-->>Svc: tokens, user_uid read from the token
-    Svc-->>Ctl: TokenResponse plus user_uid
-    Ctl-->>Client: 201
-```
-
----
-
-## 5. External API
-
-| Method | Path | Auth |
-|---|---|---|
-| POST | `/api/v1/auth/registration` | none |
-| POST | `/api/v1/auth/login` | none |
-| POST | `/api/v1/auth/refresh-token` | none |
-| GET | `/api/v1/auth/me` | Bearer |
-
-### What each endpoint does
-
-**`POST /registration`** — creates the individual, then the Keycloak account,
-then logs in on the caller's behalf so the client never has to send a second
-request. Answers `201` with `TokenResponse`. A duplicate email is a `409`, and
-it can be raised by either side: `person-service` may already hold that email,
-and Keycloak answers `User exists with same email` with its own `409`. Both map
-to the same `409` outward — the client does not care which store objected.
-
-**`POST /login`** — no database of ours is touched. Email and password go
-straight to Keycloak as `grant_type=password`; on success `200` with
-`TokenResponse`. Bad credentials come back from Keycloak as `400 invalid_grant`
-and are translated to `401`.
-
-**`POST /refresh-token`** — a thin wrapper over `grant_type=refresh_token`.
-Keycloak normally rotates the refresh token too, so both tokens in the response
-are fresh. `200` on success; an expired or revoked token is `401`.
-
-**`GET /auth/me`** — protected. Spring Security validates the JWT against the
-realm's JWKS, then the service makes two calls in parallel: the profile from
-person-service by the token's `user_uid` (`PersonClient.findProfile` →
-`GET /api/v1/individuals/{id}`), and `GET /admin/realms/{realm}/users/{id}` by
-`sub` through `KeycloakClient`.
-
-The call to Keycloak is deliberate, not laziness about parsing the token. A JWT
-is a snapshot from the moment it was issued and stays valid for its lifetime, so
-a token alone cannot tell us whether the account was disabled or deleted a
-minute ago; the Admin API can. It also carries fields the token does not, such
-as the creation timestamp. If the account is gone, `/me` answers `404`; if the
-token itself is bad or expired, `401`.
-
-The roles in `CurrentUserResponse` are read from the token's `realm_access`, not
-from a second Admin API call — they are already there and cost nothing.
-
-**`email`, `firstName` and `lastName` come from person-service, the owner of the
-profile.** individuals-api still writes a copy of the names into Keycloak at
-registration, and nothing keeps that copy in step: a PATCH in person-service
-changes only the original, and every new token is built from the stale copy.
-So nothing on the platform reads the names from the token. The token gives only
-what is genuinely about the account: `user_uid`, `sub`, `roles`,
-`email_verified`. An individual person-service no longer finds - archived by the
-soft delete - answers `404` on `/me`, even with a valid token.
-
-`registeredAt` is declared in `CurrentUserResponse` and comes from Keycloak's
-`createdTimestamp`, which is epoch milliseconds. `KeycloakClient` converts
-it to UTC and its method is `findRegisteredAt`, returning `Mono<OffsetDateTime>`
-— no layer above the client sees the raw number, and none of them holds a
-Keycloak payload either. The record it is parsed into,
-`KeycloakUserRepresentation`, is a private record inside `KeycloakClient` with that one field;
-it is named after Keycloak's own model so the name can be looked up in their
-reference.
-
-### Port map
+## 4. Port map
 
 Host ports, as fixed by the course handout. Values live in `.env`, never in
 `docker-compose.yml`.
@@ -616,7 +290,7 @@ asks every repository for sources and reports the whole lookup as failed.
 
 ---
 
-## 6. Module layout
+## 5. Module layout
 
 ```
 payment-platform/              a Git root, NOT a Gradle project
@@ -642,7 +316,7 @@ outside its folder: plugin versions are in its own `build.gradle.kts`.
 
 ---
 
-## 7. Build order
+## 6. Build order
 
 `make` does all of it: `make` alone starts Nexus, builds the image and starts
 the stack, and `make help` lists the rest. The `Makefile` exists because there
@@ -686,708 +360,19 @@ run in the image - `make test` and `make it` do that.
 
 ---
 
-## 8. Progress — module 1
+## 7. Running and checking
 
-### Acceptance criteria
-
-The module is accepted only when every line below is true. These are the
-handout's, verbatim in meaning.
-
-| # | Criterion |
-|---|---|
-| 1 | the monorepo contains individuals-api and person-service |
-| 2 | the OpenAPI contracts exist and pass `openApiValidate` |
-| 3 | registration works through the orchestration scenario |
-| 4 | `user_uid` is written into Keycloak as a user attribute |
-| 5 | `/login`, `/refresh-token` and `/me` work |
-| 6 | the HTTP client with its DTOs is published to Nexus |
-| 7 | `docker compose up --build` brings up the infrastructure and the app |
-| 8 | `/actuator/health` and `/actuator/prometheus` are reachable |
-| 9 | traces are visible in Grafana/Tempo |
-| 10 | unit and integration tests exist |
-| 11 | the main scenario is covered at 80% or better on the key services |
-| 12 | README.md and CONTEXT.md are written |
-
-Criterion 11 needs a coverage tool, and the build has none yet - JaCoCo is on
-the list below. **JaCoCo is not named by the handout**; the 80% figure is, and
-JaCoCo is simply what measures it.
-
-### The student's own checklist
-
-Twelve checks the handout hands over separately from the criteria above. They
-overlap, but not completely: several of these are about *where a thing lives*
-rather than whether it works, which no test can fail for us.
-
-| # | Check | Where it stands |
-|---|---|---|
-| 1 | OpenAPI describes every external method and every error | ✅ all four operations, shared `ErrorResponse`, examples on each |
-| 2 | no DTO written by hand over a contract that already describes it | ✅ `useBeanValidation` + generated models only; `git grep` finds no hand-written model |
-| 3 | individuals-api stores no domain data of the user | ✅ no database at all - see §1, and the `/me` debt in §5 |
-| 4 | person-service is named as the source of domain truth | ✅ §1, first table |
-| 5 | `user_uid` runs end to end and is never replaced by `sub` | ✅ enforced by IT-KC-002, which compares against the value person-service issued |
-| 6 | every outbound call is inside a client | ✅ `gateway/` is the only package holding a foreign payload |
-| 7 | metrics reachable through `/actuator/prometheus` | ✅ IT-OBS-001 |
-| 8 | traces leave over OTLP to Tempo | ✅ IT-OBS-002 asserts the push; Tempo's own indexing verified by hand on the live stack |
-| 9 | logs are JSON and carry correlation | ✅ ECS to stdout, `traceId` and `spanId` on every record - IT-OBS-003 |
-| 10 | at least one integration test against Keycloak | ✅ three |
-| 11 | person-service migrations are attached and runnable | ✅ IT-DB-001 runs them on a real PostgreSQL |
-| 12 | `person-client` is published to Nexus | ❌ only `publishToMavenLocal`; same gap as criterion 6 |
-
-Eleven of twelve. The one that is open is the one open acceptance criterion
-too, plus criterion 11's coverage number - everything else the handout asks
-for is done and proven rather than asserted.
-
-### Mandatory test cases
-
-**Unit** - orchestration, validation, error mapping, conflicts, parsing the
-answers of external systems.
-
-| Code | Scenario | Expected |
-|---|---|---|
-| UT-REG-001 | valid registration request | person-service is called first, then Keycloak, then tokens are returned |
-| UT-REG-002 | password and confirmation differ | 400, Keycloak is never called |
-| UT-REG-003 | person-service reports an email conflict | 409, Keycloak is never called |
-| UT-REG-004 | individual created, Keycloak unreachable | 502/503, the partial failure is recorded |
-| UT-LOG-001 | successful login | access and refresh tokens returned |
-| UT-LOG-002 | wrong password | 401 |
-| UT-REF-001 | successful token refresh | a new access token is returned |
-| UT-ME-001 | valid bearer token | the current user is returned |
-
-**Integration** - containers, real HTTP against Keycloak, tokens, actuator,
-tracing.
-
-| Code | Scenario | Expected |
-|---|---|---|
-| IT-KC-001 | registration against a real Keycloak container | the user appears in the realm |
-| IT-KC-002 | after registration | the `user_uid` attribute is found in Keycloak |
-| IT-KC-003 | `/login` against the real token endpoint | a real JWT comes back |
-| IT-OBS-001 | `/actuator/prometheus` | Prometheus metrics are readable |
-| IT-OBS-002 | after a request | a trace is visible in Tempo/Grafana |
-| IT-OBS-003 | log records | carry `traceId` and `spanId` |
-| IT-DB-001 | person-service migrations against PostgreSQL | Flyway succeeds |
-
-**Where these classes must live.** `individuals-api/build.gradle.kts` filters
-`test` to `com.dezxxx.individuals.unit.*` and `integrationTest` to
-`com.dezxxx.individuals.integration.*`. A test placed anywhere else runs in
-neither task and fails silently by never running at all.
-
-### Done
-
-- [x] Monorepo root `payment-platform`, git on `main`
-- [x] Directory skeleton for all modules
-- [x] `.gitignore`
-- [x] `gradle/libs.versions.toml` — every version extracted
-- [x] `gradle.properties` — coordinates, toolchain, Nexus
-- [x] `settings.gradle.kts` — modules, Nexus + mavenLocal, placeholders for the
-      next course modules
-- [x] Root `build.gradle.kts` — toolchain 25, Lombok, test conventions
-- [x] Gradle Wrapper 9.5.1
-- [x] `person-client/build.gradle.kts` — generate + publish to Nexus
-- [x] `individuals-api/build.gradle.kts` — Boot app, contract-first, split
-      unit / integration test tasks
-- [x] `person-service/build.gradle.kts` — contract validation only
-- [x] `individuals-api/openapi/individuals-api.yaml` — 4 endpoints, shared
-      error model, payload examples on every external method
-- [x] `person-service/openapi/person-service.yaml` — the 3 frozen operations,
-      schemas mirroring the DDL, same shared error model
-- [x] Flyway `V001__init_person_schema.sql`
-- [x] Flyway `V002__seed_countries.sql` — all 249 ISO 3166-1 entries
-- [x] `.env` + `.env.example` + `docker-compose.yml` — images pinned, ports per
-      the handout table
-- [x] **First real `./gradlew build` — green.** See section 9.
-- [x] `application.yml` / `application-docker.yml` / `logback-spring.xml`
-- [x] `realm/realm-export.json` — realm, confidential client, service account,
-      `user_uid` mapper, `upConfig`, realm-management roles
-- [x] `individuals-api/Dockerfile` (never built yet)
-- [x] `infra/` — prometheus, tempo, loki, alloy, grafana provisioning
-- [x] `error/` — 7 classes, both roads (advice and security handlers)
-- [x] `config/` — security, HTTP clients, Keycloak and person-service properties
-- [x] `gateway/` — `KeycloakClient` and `PersonClient`, one per external system
-- [x] `UserService` — registration with compensation, and `/me`
-- [x] `TokenService` — login and refresh
-- [x] `README.md` — first version: what it is, the four endpoints, how to run
-      it, and an honest status table
-- [x] `validation/` — `PasswordsMatch` and its validator, attached to the
-      generated model from the contract; three tests, run through a real
-      `Validator` so a rule that stops reaching the class cannot pass silently
-- [x] `testRuntimeOnly(libs.junit.platform.launcher)` — the catalog entry had
-      been there unused, and without it the test JVM refused to start at all,
-      so no test in this module had ever run
-- [x] `rest/AuthController implements AuthApi` — the four endpoints are served.
-      **First live run of the API**, against a Keycloak in Docker: health
-      **200**; `/me` without a token **401** in the contract's error shape; a
-      mismatched confirmation **400** carrying
-      `confirmPassword: must match password`; a well-formed registration
-      **503**, having reached person-service, which is not running; an unknown
-      login **401**, translated from Keycloak's `invalid_grant`
-- [x] `UserServiceTest` (then `RegistrationServiceTest`) — six cases, given/when/then. Found a real
-      defect on the first run: `then(login(...))` evaluates its argument while
-      the chain is assembled, so the gateway was called before the password
-      was set and even on registrations that failed. Harmless only because the
-      gateway builds a lazy `WebClient` chain; fixed with `Mono.defer`
-- [x] `metrics/AuthMetrics` — all eight meters, verified live in Prometheus
-- [x] **`docker compose up` brings up the whole stack.** Nine services, and
-      three defects surfaced in the process - see below
-- [x] Four Grafana panels for our own meters. The provisioned dashboard drew
-      only Spring's built-in `http_server_requests_*` and knew nothing about
-      `AuthMetrics` - the meters existed and no panel looked at them, which is
-      the failure mode the "a metric name is a contract" rule warns about
-- [x] **The public prefix is `/api/v1/auth/...`, not `/v1/auth/...`.** The
-      handout's own endpoint table omits the prefix while its curl examples and
-      its `@HttpExchange("/api/v1/persons")` example both carry it; two
-      independent places against one, and `person-service.yaml` was already on
-      `/api/v1/persons`, so the repository had been contradicting itself.
-      Caught by a counter: `/api/v1/auth/login` answered **401** exactly like
-      the real path, because an unknown path is not in `permitAll` and the
-      security entry point translates any filter rejection into
-      `INVALID_CREDENTIALS`. The bodies were identical - only
-      `auth_login_total` showed that one of the two never reached the service
-- [x] `integrationTest` no longer fails the build. Gradle fails a `Test` task
-      whose filter matches nothing, and `check` depends on it, so
-      `./gradlew build` had been red since the JUnit launcher was wired in -
-      the task had simply never been reached before that
-- [x] **`logging/` - the fields the module requires on every record.** Three of
-      the eight were there; the path, method, status, business error code and
-      `user_uid` lived only inside the text of one message, and only on records
-      written by `GlobalExceptionHandler`. `RequestLog` now travels in the
-      Reactor Context and is copied into the MDC on every signal, because the
-      MDC is thread-local and a reactive chain hops threads on each outbound
-      call. That copy only happens when `spring.reactor.context-propagation` is
-      exactly `auto`, which had never been set - an integration test proved the
-      records come out with no trace id on the default. Set in
-      `application.yml`, where production needs it too. A comment in that file
-      had claimed the application already did all of this; it did not, and
-      there was no MDC call anywhere in `main`
-- [x] **Every test case the handout requires - all fifteen codes, 22 unit and
-      11 integration, green.** `TokenServiceTest` and `UserServiceTest` close UT-LOG-001,
-      UT-LOG-002, UT-REF-001 and UT-ME-001; `AuthControllerIT`,
-      `ObservabilityIT` and `PersonSchemaMigrationIT` close the seven IT codes.
-      person-service is stubbed on reactor-netty, since module 1 does not
-      contain it, and Tempo is stubbed too - whether Tempo indexes what it is
-      given is Tempo's promise, ours ends at the socket. Each code opens the
-      `@DisplayName`, so a Gradle report matches the handout without guessing
-- [x] **`REGISTRATION_INCONSISTENT` answers 503, not 500.** UT-REG-004 fixes
-      502 or 503 for "individual created, Keycloak unreachable". The case for
-      500 was that the split is ours rather than the dependency's, and that 503
-      invites a retry now guaranteed to answer **409 (Conflict)**; the
-      acceptance criteria win, and both sides are recorded on the constant. The
-      test asserts the status rather than only the code - the mismatch had
-      survived precisely because nothing did
-- [x] `spring-boot-testcontainers` removed. Declared and never used:
-      `@ServiceConnection` has nothing to attach to here, since Keycloak comes
-      from a third party and the application opens no datasource of its own
-- [x] **JaCoCo, and criterion 11 answered with a number: the key services are
-      at 100%.** Generated code is excluded - `com.dezxxx.individuals.api` is
-      models with getters, and counting them would move the percentage a long
-      way while saying nothing. Both suites feed the report, because a gateway
-      is exercised only by the integration tests. The 80% rule is scoped to
-      `com.dezxxx.individuals.service` on purpose: a repository-wide average
-      would hide a bare `UserService` behind a well covered `config`.
-      What the report showed beyond the criterion: `gateway.keycloak` is at
-      **0%** - its error translator only runs when Keycloak answers with a
-      failure, and no test of ours makes it do that
-- [x] **Nexus is in compose, and `person-client` really comes from it.**
-      Publishing was proven by removing the artifact from `~/.m2` and from
-      Gradle's cache and rebuilding with `--refresh-dependencies`: the build
-      passed, and the only place left to get `com.dezxxx:person-client` from
-      was Nexus. Closes criterion 6 and the last line of the student checklist.
-      Three things had to be sorted out on the way:
-      1. **Nexus answers an unauthenticated read with 403, not 401**, and
-         Gradle only retries with credentials after a 401. Fixed with
-         `authentication { create<BasicAuthentication>("basic") }` in both
-         places - the publish repository and the resolve repository.
-      2. **Community Edition refuses to serve repository content until its
-         EULA is accepted**, answering 403 with an explanatory body. Accepted
-         once, in the browser; the state lives in the `nexus-data` volume.
-      3. The container's own port stays 8081 internally and is published on
-         8083, because the handout gives 8081 to individuals-api.
-      Upgrading the image from 3.87.1 to 3.96.1 kept the volume, the EULA and
-      the published artifact - so the repository survives a version change, not
-      only a restart.
-
-- [x] **Every account gets the `USER` role, and `/me` answers with it alone.**
-      The role was declared in the realm export and granted to nobody. Two
-      declarative routes were tried and neither works: Keycloak builds its own
-      `default-roles-<realm>` composite before it reads ours and keeps its own,
-      and `realmRoles` in the create-user body is accepted with **201** and
-      ignored. So `KeycloakClient.assignPlatformRole` grants it - two
-      calls, because Keycloak resolves a role mapping by id and the id is known
-      only after reading the role. Granted after the password, inside the block
-      that compensates, so a failure there removes the half-made account like
-      any other.
-      That surfaced a missing permission: the service account had `view-users`,
-      `query-users` and `manage-users`, but reading a realm role needs
-      `view-realm`. Without it registration answered **503**, which is also the
-      real reason a duplicate address did - not the missing person-service.
-      `/me` filters Keycloak's own three roles out of the answer: they say what
-      an account may do inside Keycloak, and a client reading `roles` is asking
-      a business question.
-- [x] `details` is always an array, empty when there is nothing to report. The
-      handout's error example shows one, and a client that checks the length
-      before reading `details[0]` then behaves the same on every error instead
-      of telling an absent field from an empty one.
-- [x] **Postman collection** - required by the handout's artifact list. Two
-      users, Ivan and Anna, each registered, asked `/me`, refreshed and logged
-      in, then a check that each token still answers for its own user; six
-      failures; health, Swagger, the contract file and the metrics. Nothing is
-      copied by hand. Verified with `newman`: 52 assertions, green.
-- [x] **Reworked to the teacher's component diagram.** `AuthController` ->
-      `UserService` / `TokenService` -> one `KeycloakClient`, plus `PersonClient`.
-      The three gateways, both error translators and the Keycloak records
-      folded into those two clients; Javadoc replaced by short `//` comments.
-      The ten error-translation cases moved into `KeycloakClientTest`.
-- [x] **The image builds the application itself** (section 7), and compose
-      runs a WireMock stub as `person-service`, so registration works end to
-      end in module 1.
-- [x] **Swagger UI shows the contract**, not a spec springdoc guesses from
-      the code: `openapi/individuals-api.yaml` is copied into the jar and
-      served at `/openapi/individuals-api.yaml`.
-- [x] **A broken token answers in our error shape.** A present but
-      undecodable token was rejected by the resource server's own entry point
-      - an empty 401 with the decoder's message in `WWW-Authenticate`. Ours is
-      now set on `oauth2ResourceServer` as well; `ErrorContractIT` pins it.
-- [x] **Every scenario step is a named span**, so Tempo reads as the flow
-      rather than as bare `http post`: `registration` ->
-      `registration.createPerson`, `.createAccount`, `.resetPassword`,
-      `.assignRole`, `.login` (and `.rollbackAccount` on failure); `login` ->
-      `login.getToken`, `login.readUserUid`; the same for `refresh`; `me` ->
-      `me.findRegisteredAt`. Named in the services, because only a service
-      knows which scenario a call belongs to - `KeycloakClient.login` serves
-      both registration and login. Done with `util/Spans`:
-      `mono.name(step).tap(Micrometer.observation(registry))` from
-      `reactor-core-micrometer`. Not an annotation: a method returning `Mono`
-      returns before any work happens, so `@Observed` (which handles only
-      `CompletionStage`) would close the span at ~0 ms, and `@WithSpan` needs
-      the OpenTelemetry instrumentation starter - a second tracing system next
-      to Boot's. `ObservabilityIT` checks every registration step reaches the
-      collector.
-
-### Two failures share 401, and the code is what tells them apart
-
-`AUTHENTICATION_REQUIRED` - no usable token: none sent, expired, signed by an
-unknown key, or a path that does not exist, since anything outside the public
-list has to be authenticated before it can be routed.
-
-`INVALID_CREDENTIALS` - a password was compared and did not match. The login
-flow, and nothing else.
-
-`REFRESH_TOKEN_INVALID` - the refresh token is spent: expired, already used,
-or revoked. Keycloak answers `invalid_grant` to this and to a wrong password
-alike, so `KeycloakClient` cannot tell them apart; `TokenService.refresh`
-can, because no password reached it. A client reads this one as "the session
-ended, show the login form".
-
-Until this was split, `ApiAuthenticationEntryPoint` mapped every filter-chain
-rejection to `INVALID_CREDENTIALS`, so a typo in a URL answered *"Email or
-password is incorrect"* on a request that carried no password at all. The
-status was right - **401 (Unauthorized)** is what a resource server owes an
-unauthenticated caller - and the message sent the reader looking in the wrong
-place.
-
-**A path that does not exist still answers 401, not 404, and that is
-deliberate.** Answering "no such path" to an unauthenticated caller maps out
-the API for anyone who asks. `ErrorContractIT` pins both this and the split.
-
-### What the first full compose run cost
-
-The Dockerfile, `infra/tempo/tempo.yml` and the OTLP metrics registry had never
-been exercised. All three were broken:
-
-1. **The image did not build at all.** `publishToMavenLocal` and `bootJar` were
-   asked for in one Gradle invocation; Gradle resolved individuals-api's
-   compile classpath before the publish had written anything, fell through to
-   the Nexus that does not exist inside the container, and died. Split into two
-   invocations. Note for later: the Nexus URL is `localhost:8083`, which inside
-   a container means the container itself - it will need the compose service
-   name when Nexus arrives.
-2. **Tempo accepted no traces.** The app was exporting to the right address and
-   getting "connection refused" while Tempo answered `ready` on 3200. Tempo
-   embeds the OpenTelemetry receiver, and since collector 0.104 an omitted
-   `endpoint` binds to localhost rather than 0.0.0.0 - so the receiver was
-   listening only to itself. Written out explicitly.
-3. **A failed metrics push every minute.** The OpenTelemetry starter brings an
-   OTLP meter registry along with the tracing it is there for, and it pushed to
-   a receiver that does not exist - a stack trace a minute, forever. Prometheus
-   collects ours by scraping, so the second copy is off:
-   `management.otlp.metrics.export.enabled: false`.
-
-Verified afterwards, end to end: Prometheus scrapes all eight meters and
-returns the same numbers the app reports; Loki holds our JSON logs with
-`traceId` and `spanId` promoted to labels; Tempo answers searches for
-`service.name=individuals-api` with traces carrying the security filter chain's
-spans.
-
-### Next up, in this order
-
-**Every acceptance criterion is met, every line of the student's checklist is
-ticked, and every artifact the handout asks for exists.** What is left is not
-required by it:
-
-- [ ] Open questions for the teacher: path prefix `/api/v1` vs `/v1`, role
-      name `USER` vs `individual.user`
-
-### Working agreements
-
-- No commit or push without explicit approval, every time.
-- Commit author is always `Sergey Zatulsky <web7tudio@gmail.com>`.
-- Commit messages in English, `type: short description`.
-- Communication in Russian, code and comments in English.
-- `CONTEXT.md` and `CONTEXT.ru.md` are edited together; English is the source
-  of truth if the two ever disagree.
----
-
-## 8a. Progress — module 2 (person-service)
-
-The module 2 practice handout is the script, followed step by step in the order
-of its "implementation steps".
-
-### Agreed deviations from the module 2 handout
-
-| Handout | Here | Agreed |
-|---|---|---|
-| `/api/v1/users`, the user is the root and holds the individual | `/api/v1/individuals`, the **individual** is the root and holds its user, the user holds the address; DTOs `CreateIndividualRequest`, `UpdateIndividualRequest`, `IndividualResponse` | with the teacher at the review, 2026-10-11: the individual is the root (a user is the account an individual - and later a legal entity - holds), the API and DTOs are built around it |
-| `DELETE /api/v1/users/{id}` deletes the whole aggregate | `DELETE /api/v1/individuals/{id}` is a soft delete: the individual becomes `ARCHIVED` with `archived_at`, its rows stay, reads no longer find it, the email stays taken | with the teacher, 2026-10-11 |
-| the registration is compensated through that `DELETE` | a separate `DELETE /api/v1/individuals/compensate-registration/{id}`: a hard delete of individual, user and address, called only by individuals-api | the teacher, 2026-10-11: "Нужен и ты должен его добавить", "Через DELETE не стоит - нужна логика именно компенсации" |
-| DDL: `passport_number`, `phone_number`, the links nullable; `users.secret_key` | NOT NULL on every part of the aggregate, `secret_key` dropped, `status` limited to `NEW`, `VERIFIED`, `ARCHIVED` | ours, under the handout's own "fix the gaps you find": an aggregate is born whole |
-
-The handout's example requests, as this API takes them:
-
-| Handout | Here |
-|---|---|
-| `POST /api/v1/users` `{email, firstName, lastName, address, individual: {passportNumber, phoneNumber}}` | `POST /api/v1/individuals` `{passportNumber, phoneNumber, user: {email, firstName, lastName, address}}` |
-| `GET /api/v1/users/by-email?email=…` | `GET /api/v1/individuals/by-email?email=…` |
-| `PATCH /api/v1/users/{id}` `{firstName, lastName, address: {city}}` | `PATCH /api/v1/individuals/{id}` `{user: {firstName, lastName, address: {city}}}` |
-| `DELETE /api/v1/users/{id}` | `DELETE /api/v1/individuals/{id}` (archive) or `DELETE /api/v1/individuals/compensate-registration/{id}` (remove) |
-
-After a soft delete the email stays taken: registering it again answers `409`.
-The API never frees it - that is a deliberate support action.
-
-### Acceptance criteria - module 2, as agreed
-
-| # | Scenario | Expected |
-|---|---|---|
-| 1 | create with every required field | `201`; individual, user and address in one transaction; status `NEW` |
-| 2 | create with an email already taken, in any letter case | `409 EMAIL_ALREADY_EXISTS`, nothing stored |
-| 3 | create with a missing or empty field (`email: ""` included) or an unknown country | `400`, each field named in `details`, nothing stored |
-| 4 | read by id, by email in another letter case | `200`, the whole aggregate |
-| 5 | read an unknown id or an archived individual | `404 INDIVIDUAL_NOT_FOUND` |
-| 6 | PATCH with some fields of the individual, its user and address | `200`; only the fields sent change, in one transaction and one audit revision |
-| 7 | two PATCHes of one individual at the same time | one `200`, the other `409 CONCURRENT_MODIFICATION` |
-| 8 | `DELETE /{id}` | `204`; rows stay with `ARCHIVED` and `archived_at`; then GET, by-email, PATCH and DELETE answer `404` |
-| 9 | register the same email again after `DELETE /{id}` | `409` - the email stays taken |
-| 10 | `DELETE /compensate-registration/{id}` | `204`; no row of individual, user or address is left; the same email registers again with `201` |
-| 11 | registration through individuals-api when a Keycloak step fails | the individual is removed by compensation, the client gets the original error, the email is free |
-| 12 | `/me` after the last name changed in person-service | the new last name - the profile is read from person-service |
-| 13 | create, change, archive, compensate | each leaves an Envers revision, with `*_mod` flags on the changed fields |
-| 14 | any error | RFC 9457 body (`application/problem+json`) with `timestamp`, `error`, `traceId`, `details`; the headers Spring requires are kept (`Allow` on `405`) |
-
-### Decisions
-
-| Decision | Value |
-|---|---|
-| Web stack | Spring MVC over JPA - blocking, unlike individuals-api |
-| DTO ↔ entity mapping | written by hand, no MapStruct |
-| Aggregate root | **the individual**. A user is the account (email, name, address) that an individual - and later a legal entity - holds; never the other way round. `IndividualEntity` owns `user` (`individuals.user_id`, cascade ALL), `UserEntity` knows nothing of the individual. The handout's `/api/v1/users` with the user on top was reworked after the review |
-| DTO names | the generated Java classes carry a `Dto` suffix (`modelNameSuffix`): `IndividualResponseDto` next to `IndividualEntity`, so the code tells the two apart at a glance. Schemas: `CreateIndividualRequest`, `UpdateIndividualRequest`, `IndividualResponse`, `ProblemResponse`; user and address go inline inside them |
-| API | `/api/v1/individuals`: POST → 201, GET `/{id}`, GET `/by-email?email=`, PATCH `/{id}`, DELETE `/{id}` → 204 (soft), DELETE `/compensate-registration/{id}` → 204 (hard), served by `IndividualRestControllerV1`. Body: the individual on top (`passportNumber`, `phoneNumber`, `status`…), its `user` inside, the `address` inside the user |
-| Create | `passportNumber`, `phoneNumber`, `user`, its `address` and `countryAlpha3` are **required**: the aggregate is born whole (individual, user, address in one transaction) and PATCH only ever changes what exists. Unknown country code → 400 |
-| Identifier | `individuals.id` (UUID) is the domain identifier: the API returns it and takes it in `/{id}`; individuals-api stores it in Keycloak as `user_uid`. person-service knows nothing about Keycloak |
-| Email | unique regardless of case (`lower(email)` index); not changed by PATCH |
-| Errors | RFC 9457 (`type`, `title`, `status`, `detail`, `instance`, `application/problem+json`) plus the course-wide `timestamp`, `error`, `traceId`, `details` as extension members - one body satisfies both handouts. `type` = `https://example.org/problems/<code-in-kebab-case>` as in the handout's example, `title` = the HTTP reason phrase, `detail` = the `ErrorCode` text. One `GlobalExceptionHandler` extends `ResponseEntityExceptionHandler`, so Spring's own failures (bad JSON, 405, 415, `@Valid`) get the same body. Error texts are always English (`spring.web.locale: en`, fixed resolver) |
-| Migrations | one per step: schema → tables → indexes and constraints → countries; Envers audit tables as V005 |
-| Delete | two operations. `DELETE /{id}` is a soft delete: the individual becomes `ARCHIVED` with `archived_at`, user and address stay as they are, and every read (`/{id}`, `/by-email`, PATCH, DELETE) finds active individuals only. `DELETE /compensate-registration/{id}` is a hard delete of the whole aggregate, called only by individuals-api when the Keycloak part of a registration fails: data that never became a registration is not kept. An archived individual keeps its email taken |
-| Schema | the handout's DDL tightened to the aggregate: `individuals.user_id`, `passport_number`, `phone_number`, `users.address_id`, `addresses.country_id` are NOT NULL; individuals carry `created`/`updated` like the user and the address; `users.secret_key` is dropped (never used, and person-service holds no secrets of other systems). `status` is `NEW`, `VERIFIED` or `ARCHIVED` (enum `IndividualStatus`, a CHECK constraint, an enum in the contract); create sets `NEW`, the soft delete sets `ARCHIVED`; `VERIFIED` is the base for verification later |
-| Indexes | where a query or a foreign key needs one, and never twice: a UNIQUE constraint already is an index |
-| Audit | Hibernate Envers writes the history into its own schema `person_history` (`users_history`, `addresses_history`, `individuals_history`, `revinfo`), Spring Data Envers reads it (`RevisionRepository` on User and Individual). Modified flags on all three audited entities - the handout asks for User and Individual at least, and PATCH changes the address most. Countries are not audited: a migration fills them and the API never changes them. A deleted user keeps its data in the last revision (`store_data_at_delete`) |
-| Entities | `IndividualEntity` is the aggregate root: it owns the user, the user owns the address (`@OneToOne`, cascade ALL), so the whole aggregate is saved and deleted through the individual; all associations LAZY |
-| Time | entities hold `Instant` - a point in time, the same wherever the server runs; mapped to the DDL's plain `TIMESTAMP` columns (`preferred_instant_jdbc_type`) and stored as UTC (`hibernate.jdbc.time_zone`); the JSON carries a `Z`. `LocalDateTime` was dropped: `@CreationTimestamp` filled it with the server's local clock |
-| Local port | 8082 in compose; 8092 when started from the IDE (`SERVER_PORT=8092 ./gradlew bootRun`), since compose holds 8082 |
-| Flyway history | `person.flyway_schema_history`, next to the tables (`spring.flyway.default-schema: person`). Left to `search_path`, it moved: the database user is also called `person`, so `"$user"` pointed to `public` before V001 and to `person` after it, and the second start failed |
-| Repositories | four, one per entity, as in the teacher's project. Email is looked up with `lower(email) = lower(:email)`, not the derived `…IgnoreCase` (that one is `upper()` and cannot use `uk_users_email_lower`) |
-| Exceptions | one `PersonException` carrying an `ErrorCode` (status + message), the same pattern as module 1's `ApiException`. `VALIDATION_ERROR` / `MALFORMED_REQUEST` / `COUNTRY_NOT_FOUND` 400, `INDIVIDUAL_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` / `CONCURRENT_MODIFICATION` 409, framework `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR` 500. A second create racing past the email check is stopped by `uk_users_email_lower` and still answers 409 |
-| Transactions | `IndividualService` is `@Transactional(readOnly = true)`; create, update and delete open a writing transaction. The response is built inside the transaction, so LAZY associations load there and nothing lazy leaves the service |
-| Client | `person-service-client` replaces `person-client`; individuals-api moves to it and gains the registration compensation - `DELETE /compensate-registration/{id}` when the Keycloak part fails |
-| Contract evolution | module 2 publishes no Kafka events yet, but later modules will carry the same data as Avro events with schemas in Confluent Schema Registry, which refuses an incompatible schema. The OpenAPI contract follows the same rules now: fields are only added, and only as optional ones with a default; a published field is never renamed, removed or retyped; a breaking change is a new version (`/api/v2/...`), not an edit of v1. Events will reuse the REST names and formats: the individual's id as `user_uid`, times in UTC ISO-8601, `status` as a string (`NEW`, `VERIFIED`, `ARCHIVED`) |
-
-### Done
-
-- [x] Build: Spring MVC, JPA, Flyway, Envers, actuator, OTLP; plugin versions in
-      its own `build.gradle.kts`, no shared catalog
-- [x] Contract rewritten per the handout and validated
-- [x] Server interfaces generated into `build/generated/openapi`
-      (`interfaceOnly` + `delegatePattern` + `useSpringBoot4`, JSpecify `@Nullable`)
-- [x] C4 diagrams inside the module, `person-service/diagrams-c4/`: container, component and
-      sequence (create, archive, compensate), EN + RU, a PNG next to each
-- [x] `person-service-client` generated by its own task (`spring-http-interface`,
-      reactive for WebFlux individuals-api) into its own source set and jar;
-      `person-service.jar` carries none of it
-- [x] Migrations V001-V004 from the handout's DDL, with these changes:
-      `countries.name` is `VARCHAR(64)`, not 32 (seven ISO names are longer);
-      unique and foreign-key constraints live in V003 next to the indexes, not
-      in the tables; `addresses.country_id` got its index; `users.address_id`
-      is UNIQUE - two users may live at the same address, but each has an
-      address row of their own, so moving one never moves the other; the
-      handout's `idx_individuals_user_id` and `idx_users_address_id` were
-      dropped as duplicates of those UNIQUE constraints
-- [x] JPA entities `UserEntity`, `AddressEntity`, `IndividualEntity`,
-      `CountryEntity`, and a minimal `application.yml` (`ddl-auto: validate`,
-      UTC, `open-in-view: false`). Checked against the compose database:
-      Flyway applies V001-V004 and Hibernate accepts every entity
-- [x] Three mappers by hand, one per entity as in the teacher's project:
-      `AddressMapper`, `IndividualMapper`, and `UserMapper` for the aggregate,
-      which delegates to the other two. Entity ↔ generated DTO and nothing else -
-      no database calls, no business decisions. The country is looked up by the
-      service and handed in; on PATCH a null field means "leave as is". The UTC
-      conversion both mappers need lives in `util/DateTimeUtil`
-- [x] `IndividualService` with the six operations, four repositories, `PersonException`
-      + `ErrorCode`. Create checks the email, finds the country (alpha3 first,
-      then alpha2), sets status `NEW` and `filled`; update flushes so the response
-      carries the new version and time. Starts against the compose database:
-      Spring Data accepts every repository query
-- [x] Envers: V005 creates `person_history` with three history tables and
-      `revinfo` (own `RevisionInfoEntity`); `@Audited(withModifiedFlag = true)` on
-      User, Address, Individual; `*_mod` flags named after the columns. The schema
-      check at start-up passes against the compose database; through the API a
-      create, a PATCH and a delete leave revisions 0, 1 and 2
-- [x] `IndividualRestControllerV1` implements the generated `IndividualsApi`: five one-line methods,
-      201 / 200 / 204, no logic. Swagger UI at `/swagger-ui.html` shows the contract
-      file itself (springdoc, the same way as individuals-api)
-- [x] Error layer (step 7): `ProblemResponse` in the contract carries the course
-      fields, `GlobalExceptionHandler` answers every failure as RFC 9457. Checked live:
-      400 / 404 / 405 / 409 / 415, and 12 parallel PATCHes give 409
-      `CONCURRENT_MODIFICATION` to the ones that lost the optimistic lock
-- [x] Postman collection `postman/person-service.postman_collection.json`: 22
-      requests, 106 assertions - the five operations, every failure with its RFC 9457
-      body, the delete, and what they left in `/actuator/prometheus`; runs again on
-      the same database
-- [x] Observability, the service side: `health`, `info`, `prometheus`, `metrics`
-      exposed; ECS JSON logs carrying `traceId`, `spanId`, `service.name` and
-      `user_uid`; traces over OTLP to Tempo, every `IndividualService` method a span
-      (`individualService.create`...) under the HTTP span and a timer
-      `individual_operations_seconds{operation}`. Checked with a local Tempo: a log line's
-      `spanId` is the `individualService.create` span of the same trace. `user_uid` is also an
-      attribute of the `individualService.*` span, so Tempo finds an individual's requests
-      (`{span.user_uid="..."}`); never a metric label - one series per user would
-      sink Prometheus. Named `user_uid`, not OpenTelemetry's `user.id`, so the same
-      name finds the user in individuals-api, the Keycloak token and person-service
-
-- [x] Docker image and compose: `person-service/Dockerfile` builds the jar inside the
-      image (context: the `person-service` folder, own Gradle cache id so it can build
-      next to individuals-api); compose runs the real service on 8082, started only
-      once `person-postgres` is healthy, with a healthcheck on `/actuator/health`
-      (bash `/dev/tcp` - the JRE image has no curl). Prometheus scrapes
-      `person-service:8082`, Alloy keeps `user_uid` as structured metadata, Grafana
-      has a `person-service` dashboard. Checked on a clean stack: both Postman
-      collections green, a Loki line opens its Tempo trace
-- [x] Tests of person-service, given / when / then: 39 unit (IndividualService, the
-      mappers, GlobalExceptionHandler, DateTimeUtil, UserUidLogFilter) and 19
-      integration on a real PostgreSQL (Testcontainers): every scenario the handout
-      lists - create, a repeated email -> 409, read by id and by email, one PATCH of
-      individual, user and address, rollback of a partial change, delete leaving no row, Envers
-      revisions and modified flags, health and metrics. Coverage 97% of lines, the
-      build fails below 80% (`./gradlew check`)
-- [x] `person-service-client` published to Nexus by person-service itself
-      (`make publish`): the client jar and a pom listing its dependencies
-- [x] individuals-api on the new client, from Nexus by coordinates:
-      - registration takes address and individual and passes them to
-        `POST /api/v1/individuals`; an unknown country code answers 400
-        `VALIDATION_ERROR` naming the address
-      - compensation: when the Keycloak part fails, the individual is deleted
-        (`DELETE /api/v1/individuals/compensate-registration/{id}`) and the caller gets the original error;
-        `REGISTRATION_INCONSISTENT` only when that delete fails too. Checked live:
-        Keycloak stopped -> 503, no row left, Envers history shows the create and
-        the delete
-      - `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`
-      - waits for a healthy person-service and a healthy Keycloak, and has a
-        healthcheck of its own;
-        the WireMock stub and the old `person-client` module are gone
-- [x] Both services answer in English whatever the client's `Accept-Language` or
-      the server locale (`spring.web.locale: en`, fixed resolver): an API returns
-      stable texts and codes, the user interface translates
-- [x] Traces go through Alloy, the agent: both services push OTLP to
-      `alloy:4318`, Alloy batches them and passes them on to Tempo - as the handout
-      prefers over a direct export. One registration is one trace across both
-      services (`registration` -> `http post /api/v1/individuals` -> `individualService.create`)
-- [x] Checked on a clean stack: both Postman collections green (individuals-api
-      20 requests / 52 assertions, person-service 22 / 106), both builds green with
-      every test suite
-
-### Next
-
-- [ ] Your full manual test of the application
-- [ ] Decide the commits and the branches they go to, then push and open the PR
-      `module-2-person-service` -> `main`
+- `make` starts Nexus, builds the images and brings up the stack; `make help`
+  lists the rest (build order: section 6).
+- `make verify` checks everything from scratch; `make verify-down` stops the
+  stack first, because the integration tests need its memory.
+- Every service answers `/actuator/health` on its port (section 4).
+- `postman/` holds one collection per service; run it on a fresh stack
+  (`make reset-db`).
 
 ---
 
-## 8b. Progress — module 3 (transaction-service)
-
-Wallets and their transactions: deposit, transfer, withdrawal. Branch
-`module-3-transaction-service`, PR #2. The teacher approved the design
-(C4 diagrams in `transaction-service/diagrams-c4/`) on 2026-10-22; the code
-follows the sequence diagrams step by step, and a question that comes up
-while coding is decided before it is coded. The next push carries working code.
-
-### Agreed deviations from the module 3 handout
-
-| Handout | Here | Why |
-|---|---|---|
-| Wallets Service is a separate service with its own database (`WalletServiceClient`) | wallets live inside transaction-service, one database | the debit, the transaction row and the event commit in one database transaction |
-| withdrawal: debit, then a separate `PENDING` write | one database transaction: lock the wallet, debit, `PENDING`, event | a crash between two steps would leave money debited with no transaction |
-| confirm writes `PENDING`, then sends to Kafka | the event is written to the table `transaction_events` in the same transaction; `TransactionKafkaProducer` sends it to Kafka | the database and Kafka cannot be written atomically |
-| `DepositCompleted` has no sender | Fake Payment Provider stands in for the external provider: reads `*Requested`, answers `*Completed` or `*Failed` | without it no answer comes and the operation never ends |
-| no failure event for a deposit | `DepositFailed` → `FAILED`, the balance does not change | otherwise a failed deposit stays `PENDING` forever |
-| provider answers carry no `userId` | they carry `userId` from the request | the shard is chosen by `user_uid`: one query to one shard |
-| events in JSON, amounts as `100.0` | Avro + Schema Registry, amounts as `decimal` | the registry refuses an incompatible schema; floating point rounds money |
-| `init` and `confirm` are not linked | `init` returns a `requestId` (stores nothing), the client sends it in `confirm`, which stores it in `transactions.request_id`, unique per `user_uid` | links the two requests in traces and logs; a repeated `confirm` returns the existing transaction instead of a second debit |
-| `userUid` comes from the client (`/wallets/user/{userUid}`, `?userUid=`) | individuals-api fills it from the token; every other operation gets it in the header `X-User-Uid` | otherwise anyone could read others' wallets; the path already holds `walletUid` / `transactionId`, a GET has no body |
-| one path `/transactions/{type}/init` (and `/confirm`) with a `oneOf` body | six paths `/transactions/{deposit,withdrawal,transfer}/{init,confirm}`, each with its own body | the same URLs for the client; different operations are not mixed, each body has its own class and its own validation |
-| `/transactions/{transactionId}/confirm` in the list of functions | `/transactions/{type}/confirm`, as in the contract | `init` creates nothing, so there is no `transactionId` before `confirm` |
-| Feign client in individuals-api | the generated reactive `transaction-service-client`, as `person-service-client` | individuals-api is WebFlux, Feign would block the event loop |
-| ShardingSphere Spring Boot Starter | ShardingSphere-JDBC as the driver (`ShardingSphereDriver` + YAML rules) | the starter was removed in ShardingSphere 5.3 |
-| `client/KafkaProducer`, `client/KafkaConsumer` | `client/TransactionKafkaProducer`, `client/TransactionKafkaConsumer` | Kafka's own classes share those names |
-| port 8082 | 8084 | 8082 is person-service, 8083 is Nexus |
-| transfer between any wallets | transfer between wallets of one user (one shard, one ACID transaction) | the question of transfers between users is with the teacher (saga or XA) |
-
-### Decisions
-
-| Decision | Value |
-|---|---|
-| Web stack | Spring MVC, Spring Data JPA with Hibernate, over ShardingSphere-JDBC - blocking, like person-service. Only the generated `transaction-service-client` is reactive: it runs in individuals-api, never in transaction-service |
-| Sharding | 2 shards, key `user_uid` (`HASH_MOD`); `wallets`, `transactions`, `transaction_events` by `user_uid`, `wallet_types` copied to every shard. Every query carries `user_uid`, except the producer's scan of unsent events, which reads both shards on purpose |
-| Delivery | at-least-once. `TransactionKafkaProducer` (`@Scheduled`) reads `transaction_events WHERE sent_at IS NULL`, sets `sent_at` only after the broker acknowledges, leaves it `NULL` on a failure so the next run retries. The word "outbox" is not used in names |
-| Finalization | `TransactionKafkaConsumer` → `TransactionService.finalize(transactionId, userId)` in one transaction: `UPDATE transactions … WHERE status = 'PENDING'`; 1 row - first processing (deposit credits, failed withdrawal returns `amount + fee`); 0 rows - a repeat (log INFO, nothing changes) or an unknown transaction (exception). An exception → rollback, retry with a pause (`DefaultErrorHandler`), then the DLT |
-| Idempotency of confirm | the first statement of the confirm transaction claims the `requestId`: `INSERT … 'PENDING', :requestId ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid`. 1 row - this request owns it; 0 rows - a repeat: same parameters → `200` with the existing transaction and its status, other parameters → `409`. A concurrent second INSERT waits for the first transaction; a rollback frees the `requestId`. ShardingSphere 5.5.3 parses the statement; the concurrent case is still to be checked on the running shards |
-| Request validation | `@Valid` in the controller, before any database transaction: required fields, UUIDs, `amount > 0` with at most 2 decimals; for a transfer `walletUid ≠ targetWalletUid`. Failure → `400`, nothing written |
-| Fee and balance | the fee is computed after the wallet is read and before the check `balance < amount + fee` → `400`, in init and again in confirm (the init terms are not trusted). `fee` is `NULL` on insert and set by `UPDATE` in the same transaction |
-| Locks | confirm of a withdrawal and a transfer reads the wallet(s) `FOR UPDATE`; a transfer locks both in `ORDER BY uid`, so two opposite transfers never deadlock. `FOR UPDATE` guards different operations on one wallet, `requestId` guards repeats of the same one |
-| Balance | never negative: `amount > 0`, the check after the fee, the lock. A `CHECK (balance >= 0)` in the migration as the last guard |
-| Deposit | no balance check; the provider's refusal (not enough on the card, the bank refused) → `DepositFailed` |
-| Soft delete | every wallet read carries `archived_at IS NULL` |
-| Failures | a database error at any step → rollback, `500`, nothing written. A response lost after the commit → the client repeats confirm with the same `requestId` → `200` with the same transaction |
-| Errors | RFC 9457 body with `timestamp`, `error`, `traceId`, `details`, as person-service |
-
-### Contract
-
-`transaction-service/openapi/transaction-service.yaml`, generated with the same
-plugin and settings as person-service: server interfaces `WalletsApi`,
-`TransactionsApi` (implemented by `WalletRestControllerV1`,
-`TransactionRestControllerV1`) and the reactive `transaction-service-client`.
-Avro classes of the events come from `.avsc` files in a later step.
-
-| Item | Value |
-|---|---|
-| DTO names | schemas exactly the handout's: `CreateWalletRequest`, `WalletResponse`, `DepositInitRequest`, `WithdrawalInitRequest`, `TransferInitRequest`, `TransactionInitResponse`, `DepositConfirmRequest`, `WithdrawalConfirmRequest`, `TransferConfirmRequest`, `TransactionConfirmResponse`, `TransactionStatusResponse`, `ErrorResponse`. The generated Java classes carry a `Dto` suffix (`modelNameSuffix`), as in person-service: `WalletResponseDto` goes over HTTP, the entity stays inside |
-| `TransactionInitResponse` | `amount`, `fee`, `total`, `requestId` |
-| `TransactionConfirmResponse` | `transactionId`, `status` |
-| `TransactionStatusResponse` | the same in the status and in the search: `transactionId`, `type`, `status`, `walletUid`, `targetWalletUid`, `amount`, `fee`, `failureReason`, `createdAt` |
-| `amount` checks | `> 0` from `exclusiveMinimum`; at most 2 decimals - the standard `@Digits(fraction = 2)` put on the field through `x-field-extra-annotation` |
-| `walletUid ≠ targetWalletUid` | our own class-level `@DifferentWallets` with a `ConstraintValidator` in the `validation` package, put on `TransferInitRequest` and `TransferConfirmRequest` through `x-class-extra-annotation`. Without it the same wallet twice reads as one row and would answer `404` |
-| `TransferWallets` | interface with `getWalletUid()` and `getTargetWalletUid()`; both transfer DTOs implement it through `x-implements`, so the validator reads them without knowing the generated classes and works in the server and in the client jar alike |
-| Client | `openApiGenerateClient`: `spring-http-interface`, reactive; its own `client` source set and `transaction-service-client` jar holding the client API, its DTOs and the `validation` package |
-
-### Done
-
-- [x] Module skeleton: `com.dezxxx.transaction`, Spring MVC, port 8084, unit and
-      integration test tasks, `gradlew` executable
-- [x] C4 diagrams: container, component and eight sequence diagrams (deposit,
-      transfer, withdrawal, wallet create, wallet by id, a user's wallets,
-      transaction status, search). Every failure branch, transaction boundaries
-      and what is written to the database. English in the repository
-- [x] The design review: every comment of the teacher answered in the diagrams;
-      the design is approved
-- [x] Contract decisions above
-- [x] The contract `openapi/transaction-service.yaml`, server and client generation,
-      `@DifferentWallets` with its unit tests
-
-### Next
-
-- [ ] Publishing `transaction-service-client` to Nexus
-- [ ] Migrations, ShardingSphere-JDBC over two PostgreSQL shards; check
-      `INSERT … ON CONFLICT DO NOTHING RETURNING` with two concurrent inserts
-- [ ] Wallets, then init / confirm of each operation, following the diagrams
-- [ ] Kafka (KRaft) + Schema Registry, Avro events, producer, consumer, DLT;
-      Fake Payment Provider
-- [ ] Observability, tests, Postman collection; `transaction-service-client` in
-      individuals-api
-
----
-
-## 9. First build run — what it cost
-
-`./gradlew build` had never been executed before 2026-08-19. Versions had been
-checked against Maven Central by hand, but nothing had been resolved for real.
-Seven defects surfaced; all are fixed and the build is green from `clean`.
-
-| # | Symptom | Root cause | Fix |
-|---|---|---|---|
-| 1 | Wrapper could not download the distribution, `Connect timed out` after 10 s | `services.gradle.org` redirects to GitHub release assets; `networkTimeout=10000` with `retries=0` gave up on the first slow connect | `networkTimeout=120000`, `retries=3`, `retryBackOffMs=2000` |
-| 2 | `Could not resolve com.dezxxx:person-client` → `Username must not be null!` | the `credentials { }` block was declared unconditionally; Gradle treats null credentials as a hard error, not as an unreachable repository, and aborts the whole resolution | credentials attached only when `NEXUS_USERNAME` **and** `NEXUS_PASSWORD` are set — in `settings.gradle.kts` and in the `person-client` publish repo |
-| 3 | `Configuration cache state could not be cached` | downstream of #2 — an unresolvable classpath cannot be serialised | disappeared with #2 |
-| 4 | `sourcesJar` used the output of `openApiGenerate` without declaring a dependency | the generated directory was added to `sourceSets` as a bare path, so only the hand-wired `compileJava` knew about it | the srcDir is now wired to the task provider, so every consumer inherits the dependency |
-| 5 | `TemplateNotFoundException: pom-sb3.mustache` | the generator tried to emit a Maven `pom.xml` as a supporting file; the `spring-http-interface` library ships no such template | `globalProperties = { apis, models }` — APIs and models only, no supporting files |
-| 6 | `package org.springframework.format.annotation does not exist` | generated models annotate date-time properties with `@DateTimeFormat`, which lives in `spring-context`, not `spring-web` | `spring-context` added to the catalog and to `person-client` |
-| 7 | `Could not find org.testcontainers:junit-jupiter:` (empty version) | Boot 4.1 imports **Testcontainers 2.0.5**, and 2.x renamed every module artifact | `testcontainers-junit-jupiter`, `testcontainers-postgresql` |
-
-Two more things the run settled:
-
-- `val integrationTest by tasks.registering(...)` is deprecated as of Gradle 9.6
-  and would not survive Gradle 10. Rewritten as
-  `tasks.register<Test>("integrationTest")`. The build now reports no
-  deprecations at all.
-- `bootJar` failed with *"Main class name has not been configured"* — expected,
-  since no application class existed yet. `IndividualsApiApplication` was added.
-
-### Verified, not assumed
-
-- Gradle 9.5.1 runs the whole build; 9.7.1 was verified to exist and work too,
-  but is held back by the IDE — see "Why Gradle 9.5.1" below.
-- Spring Boot 4.1.0, OpenAPI Generator 7.14.0, Lombok 1.18.46 all resolve.
-- `person-client` generates `PersonsApi` with `@HttpExchange` — Spring HTTP
-  Service Clients, no Feign, as rule 4 requires.
-- `individuals-api` generates `AuthApi` as an interface only.
-- All three specs pass `openApiValidate`.
-- `clean build` runs from clean and produces `individuals-api.jar`.
-
-### Known noise, not defects
-
-- ~100 deprecation warnings from generated sources: OpenAPI Generator 7.14.0
-  emits `org.springframework.lang.@Nullable`, deprecated in Spring 7. Harmless;
-  worth silencing on the generated source set rather than in the generator.
-- `Ignoring complex example on request body` — the generator does not carry
-  multi-example blocks into code. The examples stay in the contract, which is
-  where the handout wants them.
-
-### Contract alignment with the handout
-
-`ErrorResponse` now matches the model the handout fixes for the whole course:
-`required` is `[timestamp, path, status, error, message, traceId]`, and
-`details` is an **array of strings**. The earlier `ErrorDetail` object carried
-more structure, but five services will share this model — consistency wins.
-Field information survives as `"confirmPassword: must match password"`.
-
-`UserResponse` was renamed to `CurrentUserResponse` to match the handout's
-required schema list.
-
-### Why Gradle 9.5.1 and not the latest
-
-The wrapper was originally pinned to 9.7.1, which is the current Gradle
-release. The build works on it. IntelliJ IDEA 2025.2.6 does not: its Kotlin
-plugin loads the script *templates* from the Gradle distribution but never
-produces the per-script model, so every `build.gradle.kts` shows as fully
-unresolved in the editor — down to `mapOf` and `to` from the Kotlin standard
-library — while `./gradlew build` stays green.
-
-The build files are not at fault and were not changed: dropping the wrapper to
-9.5.1 and re-syncing cleared the editor on its own.
-
-Revisit when IDEA ships support for Gradle 9.7. Moving back is one line in
-`gradle/wrapper/gradle-wrapper.properties` — nothing in the build depends on
-the version.
-
----
-
-## 10. Configuration map
+## 8. Configuration map
 
 Each service keeps its C4 diagrams in its own `diagrams-c4/`: container, component
 and sequence, PlantUML in `uml/{en,ru}` and a rendered PNG in `png/{en,ru}`. The
@@ -1491,3 +476,43 @@ How this bites: change `server.port` to 8080 and forget `prometheus.yml`. The
 application starts, `/actuator/prometheus` answers, and Prometheus quietly
 scrapes a refused connection. No error in the application log - just an empty
 graph in Grafana.
+
+---
+
+## 9. Build notes
+
+### Known noise, not defects
+
+- ~100 deprecation warnings from generated sources: OpenAPI Generator 7.14.0
+  emits `org.springframework.lang.@Nullable`, deprecated in Spring 7. Harmless;
+  worth silencing on the generated source set rather than in the generator.
+- `Ignoring complex example on request body` — the generator does not carry
+  multi-example blocks into code. The examples stay in the contract, which is
+  where the handout wants them.
+
+### Why Gradle 9.5.1 and not the latest
+
+The wrapper was originally pinned to 9.7.1, which is the current Gradle
+release. The build works on it. IntelliJ IDEA 2025.2.6 does not: its Kotlin
+plugin loads the script *templates* from the Gradle distribution but never
+produces the per-script model, so every `build.gradle.kts` shows as fully
+unresolved in the editor — down to `mapOf` and `to` from the Kotlin standard
+library — while `./gradlew build` stays green.
+
+The build files are not at fault and were not changed: dropping the wrapper to
+9.5.1 and re-syncing cleared the editor on its own.
+
+Revisit when IDEA ships support for Gradle 9.7. Moving back is one line in
+`gradle/wrapper/gradle-wrapper.properties` — nothing in the build depends on
+the version.
+
+---
+
+## 10. Working agreements
+
+- No commit or push without explicit approval, every time.
+- Commit author is always `Sergey Zatulsky <web7tudio@gmail.com>`.
+- Commit messages in English, `type: short description`.
+- Communication in Russian, code and comments in English.
+- `CONTEXT.md` and `CONTEXT.ru.md` are edited together; English is the source
+  of truth if the two ever disagree.
