@@ -4,6 +4,7 @@ import com.dezxxx.transaction.api.model.CreateWalletRequestDto;
 import com.dezxxx.transaction.api.model.DepositConfirmRequestDto;
 import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.WalletResponseDto;
+import com.dezxxx.transaction.api.model.WithdrawalConfirmRequestDto;
 import java.math.BigDecimal;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -87,6 +88,39 @@ public abstract class IntegrationTest {
     protected RestTestClient.ResponseSpec confirm(UUID user, UUID requestId, UUID wallet, BigDecimal amount) {
         return post(user, "/api/v1/transactions/deposit/confirm",
                 new DepositConfirmRequestDto().requestId(requestId).walletUid(wallet).amount(amount));
+    }
+
+    protected TransactionConfirmResponseDto confirmedWithdrawal(UUID user, UUID requestId, UUID wallet,
+                                                                BigDecimal amount) {
+        return confirmWithdrawal(user, requestId, wallet, amount)
+                .expectStatus().isOk()
+                .expectBody(TransactionConfirmResponseDto.class)
+                .returnResult()
+                .getResponseBody();
+    }
+
+    protected RestTestClient.ResponseSpec confirmWithdrawal(UUID user, UUID requestId, UUID wallet,
+                                                            BigDecimal amount) {
+        return post(user, "/api/v1/transactions/withdrawal/confirm",
+                new WithdrawalConfirmRequestDto().requestId(requestId).walletUid(wallet).amount(amount));
+    }
+
+    // money on a wallet without a deposit through Kafka
+    protected void fund(UUID wallet, UUID user, BigDecimal balance) {
+        jdbc.update("UPDATE wallets SET balance = ? WHERE uid = ? AND user_uid = ?", balance, wallet, user);
+    }
+
+    protected int transactions(UUID user) {
+        return jdbc.queryForObject("SELECT count(*) FROM transactions WHERE user_uid = ?", Integer.class, user);
+    }
+
+    protected int events(UUID user) {
+        return jdbc.queryForObject("SELECT count(*) FROM transaction_events WHERE user_uid = ?", Integer.class, user);
+    }
+
+    protected BigDecimal balance(UUID wallet, UUID user) {
+        return jdbc.queryForObject("SELECT balance FROM wallets WHERE uid = ? AND user_uid = ?",
+                BigDecimal.class, wallet, user);
     }
 
     protected RestTestClient.ResponseSpec post(UUID user, String uri, Object body) {

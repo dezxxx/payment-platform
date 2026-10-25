@@ -60,7 +60,7 @@
 | Размер комиссии | доля суммы на операцию в `transaction.fee` (`FeeProperties`): deposit `0`, withdrawal `0.01`, transfer `0.005`; округление до копеек, от пяти вверх. Private-метод `TransactionService`, единственного, кто её считает; переменная окружения, например `TRANSACTION_FEE_WITHDRAWAL`, её переопределяет |
 | Неизвестный кошелёк в confirm | INSERT захвата идёт первым, а `transactions.wallet_uid` ссылается на `wallets`: кошелька нет в шарде пользователя — INSERT падает на `transactions_wallet_uid_fkey`. `GlobalExceptionHandler` отвечает на этот constraint `404 WALLET_NOT_FOUND` (как person-service на индекс email); транзакция откатывается, `requestId` остаётся свободным |
 | `payment_type` в SQL | тип — строкой в захвате `requestId` (`'DEPOSIT'`), свой запрос на операцию: ShardingSphere 5.5.3 переписывает `CAST(:type AS payment_type)` в сломанный SQL |
-| Блокировки | confirm вывода и перевода читает кошелёк(и) `FOR UPDATE`; перевод блокирует оба в порядке `ORDER BY uid`, поэтому два встречных перевода не попадают в deadlock. `FOR UPDATE` защищает разные операции над одним кошельком, `requestId` — повторы одной и той же |
+| Блокировки | confirm вывода и перевода читает кошелёк(и) `FOR NO KEY UPDATE`; перевод блокирует оба в порядке `ORDER BY uid`, поэтому два встречных перевода не попадают в deadlock. `NO KEY`, а не `FOR UPDATE`: INSERT claim-а через foreign key уже поставил на кошелёк `FOR KEY SHARE`, и `FOR UPDATE` ждал бы этот замок у параллельного claim — два confirm на один кошелёк попадали в deadlock. Блокировка защищает разные операции над одним кошельком, `requestId` — повторы одной и той же |
 | Баланс | никогда не отрицательный: `amount > 0`, проверка после fee, блокировка. `CHECK (balance >= 0)` в миграции — последняя защита |
 | Пополнение | без проверки баланса; отказ провайдера (на карте не хватает, банк отказал) → `DepositFailed` |
 | Мягкое удаление | каждое чтение кошелька идёт с `archived_at IS NULL` |
@@ -122,10 +122,15 @@ Avro-классы событий — из файлов `.avsc`, на следу�
 - [x] Fake Payment Provider: свой модуль, образ и цели `provider-*` в `Makefile`
 - [x] Метрики, алерты и дашборд Grafana выше; `TransactionMetricsIT` проверяет сумму по обоим
       шардам и пулы шардов; `postgres_exporter` на каждый шард
+- [x] Вывод init и confirm по диаграмме: init и confirm проверяют `balance >= amount + fee`
+      (`400 INSUFFICIENT_FUNDS`); confirm читает кошелёк `FOR NO KEY UPDATE`, списывает `amount + fee` (резерв),
+      пишет транзакцию `PENDING` и `WithdrawalRequested` в одной транзакции БД.
+      `WithdrawalFailed` возвращает резерв, `WithdrawalCompleted` его оставляет. `TransactionWithdrawalIT`
+      запускает два confirm на один кошелёк одновременно: один `200`, другой `400`, баланс не уходит в минус
 
 ### Дальше
 
-- [ ] init / confirm вывода и перевода, по диаграммам
+- [ ] init / confirm перевода, по диаграмме
 - [ ] Коллекция Postman; `transaction-service-client` в individuals-api
 - [ ] Время запросов по шардам: `pg_stat_statements` в шардах не загружен, дашборд показывает
       время со стороны сервиса; счётчику full route нужен Java agent ShardingSphere

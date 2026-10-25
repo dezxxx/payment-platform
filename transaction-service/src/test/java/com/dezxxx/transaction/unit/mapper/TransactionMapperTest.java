@@ -72,7 +72,7 @@ class TransactionMapperTest {
         wallet.setWalletType(type);
 
         // when
-        String payload = transactionMapper.toDepositRequestedPayload(TRANSACTION_UID, USER_UID, wallet,
+        String payload = transactionMapper.toRequestedPayload(TRANSACTION_UID, USER_UID, wallet,
                 new BigDecimal("100.00"));
 
         // then
@@ -114,7 +114,7 @@ class TransactionMapperTest {
         WalletTypeEntity type = new WalletTypeEntity();
         type.setCurrencyCode("EUR");
         wallet.setWalletType(type);
-        String payload = transactionMapper.toDepositRequestedPayload(TRANSACTION_UID, USER_UID, wallet,
+        String payload = transactionMapper.toRequestedPayload(TRANSACTION_UID, USER_UID, wallet,
                 new BigDecimal("0.10"));
 
         // when

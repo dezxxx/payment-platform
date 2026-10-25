@@ -40,7 +40,7 @@ public class TransactionMapper {
                 .status(TransactionStatusDto.fromValue(status.name()));
     }
 
-    public String toDepositRequestedPayload(UUID transactionId, UUID userUid, WalletEntity wallet, BigDecimal amount) {
+    public String toRequestedPayload(UUID transactionId, UUID userUid, WalletEntity wallet, BigDecimal amount) {
         return jsonMapper.writeValueAsString(new RequestedPayload(transactionId, userUid, wallet.getUid(), amount,
                 wallet.getWalletType().getCurrencyCode()));
     }

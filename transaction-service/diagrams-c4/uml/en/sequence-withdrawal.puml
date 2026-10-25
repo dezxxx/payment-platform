@@ -83,11 +83,14 @@ else valid token
                 end
             else 1 row — requestId claimed by this request
                 TS -> WS: debit amount + fee (reserve)
-                WS -> DB: SELECT w.uid, w.status, w.balance, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid = :walletUid AND w.user_uid = :userUid AND w.archived_at IS NULL\nFOR UPDATE OF w
+                WS -> DB: SELECT w.uid, w.status, w.balance, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid = :walletUid AND w.user_uid = :userUid AND w.archived_at IS NULL\nFOR NO KEY UPDATE OF w
                 note right of DB
-                  FOR UPDATE — another operation on this wallet
+                  FOR NO KEY UPDATE — another operation on this wallet
                   waits until this transaction ends: the balance
-                  checked below cannot change before the debit
+                  checked below cannot change before the debit.
+                  NO KEY: the claim's foreign key already holds
+                  FOR KEY SHARE on this row; FOR UPDATE would wait
+                  for that lock of a concurrent claim — deadlock
                 end note
                 alt 0 rows — wallet not found, not the user's or archived
                     TS -> DB: ROLLBACK — no transaction row, the requestId is free again

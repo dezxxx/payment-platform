@@ -140,7 +140,7 @@ class TransactionServiceTest {
         when(transactionRepository.claimDepositRequestId(any(), eq(USER_UID), eq(WALLET_UID), eq(AMOUNT), eq(REQUEST_ID)))
                 .thenAnswer(call -> Optional.of(call.getArgument(0)));
         when(walletService.getWalletForOperation(WALLET_UID, USER_UID)).thenReturn(wallet);
-        when(transactionMapper.toDepositRequestedPayload(any(), eq(USER_UID), eq(wallet), eq(AMOUNT))).thenReturn("{}");
+        when(transactionMapper.toRequestedPayload(any(), eq(USER_UID), eq(wallet), eq(AMOUNT))).thenReturn("{}");
         givenTraceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
         when(transactionMapper.toTransactionEvent(any(), eq(USER_UID), eq("DepositRequested"), eq("{}"),
                 eq("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"))).thenReturn(event);
@@ -164,7 +164,7 @@ class TransactionServiceTest {
         when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any()))
                 .thenAnswer(call -> Optional.of(call.getArgument(0)));
         when(walletService.getWalletForOperation(WALLET_UID, USER_UID)).thenReturn(new WalletEntity());
-        when(transactionMapper.toDepositRequestedPayload(any(), any(), any(), any())).thenReturn("{}");
+        when(transactionMapper.toRequestedPayload(any(), any(), any(), any())).thenReturn("{}");
 
         // when
         transactionService.confirmDeposit(USER_UID, confirmRequest(AMOUNT));

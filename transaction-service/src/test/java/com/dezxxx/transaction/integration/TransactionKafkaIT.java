@@ -8,6 +8,9 @@ import com.dezxxx.transaction.event.DepositCompleted;
 import com.dezxxx.transaction.event.DepositFailed;
 import com.dezxxx.transaction.event.DepositRequested;
 import com.dezxxx.transaction.event.EventTopics;
+import com.dezxxx.transaction.event.WithdrawalCompleted;
+import com.dezxxx.transaction.event.WithdrawalFailed;
+import com.dezxxx.transaction.event.WithdrawalRequested;
 import com.dezxxx.transaction.integration.support.IntegrationTest;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
@@ -32,6 +35,9 @@ import org.springframework.kafka.core.KafkaTemplate;
 class TransactionKafkaIT extends IntegrationTest {
 
     private static final BigDecimal AMOUNT = new BigDecimal("100.00");
+
+    // a withdrawal of 100.00 debits 101.00 with the 1 % fee, 49.00 stays
+    private static final BigDecimal FUNDS = new BigDecimal("150.00");
 
     private static final Duration WAIT = Duration.ofSeconds(30);
 
@@ -128,6 +134,65 @@ class TransactionKafkaIT extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("given a confirmed withdrawal, when the producer runs, then WithdrawalRequested in withdrawal-requested")
+    void sendsWithdrawalRequested() {
+        // given
+        UUID user = UUID.randomUUID();
+        UUID wallet = createWallet(user);
+        fund(wallet, user, FUNDS);
+        UUID transactionId = confirmedWithdrawal(user, UUID.randomUUID(), wallet, AMOUNT).getTransactionId();
+
+        // when
+        ConsumerRecord<String, Object> message = firstMessage(EventTopics.WITHDRAWAL_REQUESTED,
+                transactionId.toString());
+
+        // then
+        WithdrawalRequested event = (WithdrawalRequested) message.value();
+        assertThat(event.getTransactionId()).isEqualTo(transactionId);
+        assertThat(event.getUserId()).isEqualTo(user);
+        assertThat(event.getWalletUid()).isEqualTo(wallet);
+        assertThat(event.getAmount()).isEqualByComparingTo("100.00");
+        assertThat(event.getCurrency()).isEqualTo("USD");
+    }
+
+    @Test
+    @DisplayName("given a PENDING withdrawal, when WithdrawalCompleted arrives, then COMPLETED and the debit stays")
+    void completesWithdrawal() {
+        // given
+        UUID user = UUID.randomUUID();
+        UUID wallet = createWallet(user);
+        fund(wallet, user, FUNDS);
+        UUID transactionId = confirmedWithdrawal(user, UUID.randomUUID(), wallet, AMOUNT).getTransactionId();
+
+        // when
+        kafkaTemplate.send(EventTopics.WITHDRAWAL_COMPLETED, transactionId.toString(),
+                new WithdrawalCompleted(transactionId, user));
+
+        // then
+        await().atMost(WAIT).until(() -> "COMPLETED".equals(status(transactionId, user)));
+        assertThat(balance(wallet, user)).isEqualByComparingTo("49.00");
+    }
+
+    @Test
+    @DisplayName("given a PENDING withdrawal, when WithdrawalFailed arrives, then FAILED and amount + fee are back")
+    void failsWithdrawal() {
+        // given
+        UUID user = UUID.randomUUID();
+        UUID wallet = createWallet(user);
+        fund(wallet, user, FUNDS);
+        UUID transactionId = confirmedWithdrawal(user, UUID.randomUUID(), wallet, AMOUNT).getTransactionId();
+        assertThat(balance(wallet, user)).isEqualByComparingTo("49.00");
+
+        // when
+        kafkaTemplate.send(EventTopics.WITHDRAWAL_FAILED, transactionId.toString(),
+                new WithdrawalFailed(transactionId, user, "The bank refused the transfer"));
+
+        // then
+        await().atMost(WAIT).until(() -> "FAILED".equals(status(transactionId, user)));
+        assertThat(balance(wallet, user)).isEqualByComparingTo("150.00");
+    }
+
+    @Test
     @DisplayName("given an unknown transaction, when DepositCompleted arrives, then after the retries it is in deposit-completed-dlt and counted")
     void unknownTransactionGoesToDlt() {
         // given
@@ -179,10 +244,5 @@ class TransactionKafkaIT extends IntegrationTest {
     private String status(UUID transactionId, UUID user) {
         return jdbc.queryForObject("SELECT status FROM transactions WHERE uid = ? AND user_uid = ?",
                 String.class, transactionId, user);
-    }
-
-    private BigDecimal balance(UUID wallet, UUID user) {
-        return jdbc.queryForObject("SELECT balance FROM wallets WHERE uid = ? AND user_uid = ?",
-                BigDecimal.class, wallet, user);
     }
 }

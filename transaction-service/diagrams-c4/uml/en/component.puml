@@ -15,7 +15,7 @@ Container_Boundary(app, "transaction-service") {
     Component(transactionController, "TransactionRestControllerV1", "Spring MVC, implements the generated TransactionsApi", "/api/v1/transactions: init, confirm, status, search")
     Component(handler, "GlobalExceptionHandler", "@RestControllerAdvice", "Answers any error in RFC 9457 form")
     Component(transactionService, "TransactionService", "Spring service, @Transactional", "init computes the terms without writing and issues a requestId; confirm in one transaction: re-checks, transaction, event with traceparent; finalize in one transaction: status only from PENDING, then the balance")
-    Component(walletService, "WalletService", "Spring service", "Wallet checks, Debit / Credit under a FOR UPDATE lock")
+    Component(walletService, "WalletService", "Spring service", "Wallet checks, Debit / Credit under a FOR NO KEY UPDATE lock")
     Component(mappers, "WalletMapper, TransactionMapper", "manual mapping", "Generated DTOs <-> entities")
     Component(repositories, "WalletRepository, WalletTypeRepository, TransactionRepository, TransactionEventRepository", "Spring Data JPA", "Wallets, wallet types, transactions, outgoing events")
     Component(sharding, "ShardingSphere-JDBC", "JDBC driver", "Routes SQL to the shard by user_uid")

@@ -171,6 +171,34 @@ class WalletServiceTest {
     }
 
     @Test
+    @DisplayName("given the user's ACTIVE wallet, when taking it for a debit, then it is read FOR UPDATE and returned")
+    void givesWalletForDebit() {
+        // given
+        WalletEntity wallet = new WalletEntity();
+        wallet.setStatus(WalletStatus.ACTIVE);
+        when(walletRepository.findActiveForUpdate(WALLET_UID, USER_UID)).thenReturn(Optional.of(wallet));
+
+        // when
+        WalletEntity result = walletService.getWalletForDebit(WALLET_UID, USER_UID);
+
+        // then
+        assertThat(result).isSameAs(wallet);
+        verify(walletRepository, never()).findActive(any(), any());
+    }
+
+    @Test
+    @DisplayName("given no active wallet of this user, when taking it for a debit, then WALLET_NOT_FOUND")
+    void refusesMissingWalletForDebit() {
+        // given
+        when(walletRepository.findActiveForUpdate(WALLET_UID, USER_UID)).thenReturn(Optional.empty());
+
+        // when / then
+        assertThatThrownBy(() -> walletService.getWalletForDebit(WALLET_UID, USER_UID))
+                .isInstanceOf(TransactionServiceException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.WALLET_NOT_FOUND);
+    }
+
+    @Test
     @DisplayName("given a user with two wallets, when listing, then both are returned in order")
     void listsWallets() {
         // given
@@ -224,6 +252,32 @@ class WalletServiceTest {
 
         // when / then
         assertThatThrownBy(() -> walletService.credit(WALLET_UID, USER_UID, BigDecimal.TEN))
+                .isInstanceOfSatisfying(TransactionServiceException.class,
+                        ex -> assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.WALLET_NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("given the user's wallet, when debit, then the balance shrinks in the database")
+    void debits() {
+        // given
+        BigDecimal amount = new BigDecimal("101.00");
+        when(walletRepository.debit(eq(WALLET_UID), eq(USER_UID), eq(amount), any())).thenReturn(1);
+
+        // when
+        walletService.debit(WALLET_UID, USER_UID, amount);
+
+        // then
+        verify(walletRepository).debit(eq(WALLET_UID), eq(USER_UID), eq(amount), any());
+    }
+
+    @Test
+    @DisplayName("given no such wallet in the user's shard, when debit, then WALLET_NOT_FOUND and the caller rolls back")
+    void debitRefusesUnknownWallet() {
+        // given
+        when(walletRepository.debit(eq(WALLET_UID), eq(USER_UID), any(), any())).thenReturn(0);
+
+        // when / then
+        assertThatThrownBy(() -> walletService.debit(WALLET_UID, USER_UID, BigDecimal.TEN))
                 .isInstanceOfSatisfying(TransactionServiceException.class,
                         ex -> assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.WALLET_NOT_FOUND));
     }

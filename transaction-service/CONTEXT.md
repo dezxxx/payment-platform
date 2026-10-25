@@ -60,7 +60,7 @@ while coding is decided before it is coded. The next push carries working code.
 | Fee rate | a share of the amount per operation in `transaction.fee` (`FeeProperties`): deposit `0`, withdrawal `0.01`, transfer `0.005`; rounded half up to cents. A private method of `TransactionService`, its only user; an environment variable such as `TRANSACTION_FEE_WITHDRAWAL` overrides it |
 | Unknown wallet in confirm | the claim INSERT runs first and `transactions.wallet_uid` references `wallets`: a wallet missing from the user's shard fails it on `transactions_wallet_uid_fkey`. `GlobalExceptionHandler` answers `404 WALLET_NOT_FOUND` for that constraint (as person-service does for the email index); the transaction rolls back, the `requestId` stays free |
 | `payment_type` in SQL | the type is a literal in the `requestId` claim (`'DEPOSIT'`), one statement per operation: ShardingSphere 5.5.3 rewrites `CAST(:type AS payment_type)` into broken SQL |
-| Locks | confirm of a withdrawal and a transfer reads the wallet(s) `FOR UPDATE`; a transfer locks both in `ORDER BY uid`, so two opposite transfers never deadlock. `FOR UPDATE` guards different operations on one wallet, `requestId` guards repeats of the same one |
+| Locks | confirm of a withdrawal and a transfer reads the wallet(s) `FOR NO KEY UPDATE`; a transfer locks both in `ORDER BY uid`, so two opposite transfers never deadlock. `NO KEY`, not `FOR UPDATE`: the claim INSERT has already put `FOR KEY SHARE` on the wallet through its foreign key, and `FOR UPDATE` would wait for that lock of a concurrent claim - two confirms on one wallet deadlocked. The lock guards different operations on one wallet, `requestId` guards repeats of the same one |
 | Balance | never negative: `amount > 0`, the check after the fee, the lock. A `CHECK (balance >= 0)` in the migration as the last guard |
 | Deposit | no balance check; the provider's refusal (not enough on the card, the bank refused) → `DepositFailed` |
 | Soft delete | every wallet read carries `archived_at IS NULL` |
@@ -123,10 +123,15 @@ Avro classes of the events come from `.avsc` files in a later step.
 - [x] Fake Payment Provider: its own module, image and `provider-*` targets in the `Makefile`
 - [x] Metrics, alerts and the Grafana dashboard above; `TransactionMetricsIT` checks the sum over both
       shards and the shard pools; `postgres_exporter` per shard
+- [x] Withdrawal init and confirm by the diagram: init and confirm check `balance >= amount + fee`
+      (`400 INSUFFICIENT_FUNDS`); confirm reads the wallet `FOR NO KEY UPDATE`, debits `amount + fee` (a reserve),
+      writes the `PENDING` transaction and `WithdrawalRequested` in one database transaction.
+      `WithdrawalFailed` returns the reserve, `WithdrawalCompleted` keeps it. `TransactionWithdrawalIT`
+      races two confirms on one wallet: one `200`, one `400`, the balance never below zero
 
 ### Next
 
-- [ ] init / confirm of withdrawal and transfer, following the diagrams
+- [ ] init / confirm of transfer, following the diagram
 - [ ] Postman collection; `transaction-service-client` in individuals-api
 - [ ] Query time per shard: `pg_stat_statements` is not loaded in the shards, the dashboard shows
       the service-side time; a full route counter needs the ShardingSphere Java agent

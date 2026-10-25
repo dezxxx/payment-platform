@@ -14,11 +14,17 @@ import org.springframework.data.jpa.repository.Query;
 public interface TransactionRepository extends JpaRepository<TransactionEntity, UUID> {
 
     // empty when the requestId is already taken; a concurrent claim waits here until the first one ends.
-    // The type is a literal: ShardingSphere rewrites CAST(:type AS payment_type) into broken SQL
+    // The type is a literal: ShardingSphere rewrites CAST(:type AS payment_type) into broken SQL,
+    // so each type has its own statement
     @Query(value = "INSERT INTO transactions (uid, user_uid, wallet_uid, amount, type, status, request_id)"
             + " VALUES (:uid, :userUid, :walletUid, :amount, 'DEPOSIT', 'PENDING', :requestId)"
             + " ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid", nativeQuery = true)
     Optional<UUID> claimDepositRequestId(UUID uid, UUID userUid, UUID walletUid, BigDecimal amount, UUID requestId);
+
+    @Query(value = "INSERT INTO transactions (uid, user_uid, wallet_uid, amount, type, status, request_id)"
+            + " VALUES (:uid, :userUid, :walletUid, :amount, 'WITHDRAWAL', 'PENDING', :requestId)"
+            + " ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid", nativeQuery = true)
+    Optional<UUID> claimWithdrawalRequestId(UUID uid, UUID userUid, UUID walletUid, BigDecimal amount, UUID requestId);
 
     Optional<TransactionEntity> findByUserUidAndRequestId(UUID userUid, UUID requestId);
 

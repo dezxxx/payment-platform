@@ -4,6 +4,8 @@ import com.dezxxx.transaction.api.model.DepositConfirmRequestDto;
 import com.dezxxx.transaction.api.model.DepositInitRequestDto;
 import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
+import com.dezxxx.transaction.api.model.WithdrawalConfirmRequestDto;
+import com.dezxxx.transaction.api.model.WithdrawalInitRequestDto;
 import com.dezxxx.transaction.config.FeeProperties;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
@@ -79,9 +81,47 @@ public class TransactionService {
         BigDecimal fee = fee(TransactionPaymentType.DEPOSIT, request.getAmount());
         transactionRepository.updateFee(transactionId, userUid, fee);
         saveEvent(transactionId, userUid, TransactionEventType.DEPOSIT_REQUESTED,
-                transactionMapper.toDepositRequestedPayload(transactionId, userUid, wallet, request.getAmount()));
+                transactionMapper.toRequestedPayload(transactionId, userUid, wallet, request.getAmount()));
 
         log.info("Deposit {} of user {} is PENDING", transactionId, userUid);
+        return transactionMapper.toConfirmResponse(transactionId, TransactionStatus.PENDING);
+    }
+
+    @Observed(name = OPERATIONS, contextualName = "transactionService.initWithdrawal", lowCardinalityKeyValues = {"operation", "initWithdrawal"})
+    public TransactionInitResponseDto initWithdrawal(UUID userUid, WithdrawalInitRequestDto request) {
+        WalletEntity wallet = walletService.getWalletForOperation(request.getWalletUid(), userUid);
+        BigDecimal fee = fee(TransactionPaymentType.WITHDRAWAL, request.getAmount());
+        requireFunds(wallet, request.getAmount().add(fee));
+
+        // nothing is stored: confirm checks everything again
+        UUID requestId = UUID.randomUUID();
+        log.info("Withdrawal terms for wallet {} of user {}: requestId {}", request.getWalletUid(), userUid, requestId);
+        return transactionMapper.toInitResponse(request.getAmount(), fee, requestId);
+    }
+
+    // the debit is a reserve: the provider's answer completes it, or a failure returns it
+    @Transactional
+    @Observed(name = OPERATIONS, contextualName = "transactionService.confirmWithdrawal", lowCardinalityKeyValues = {"operation", "confirmWithdrawal"})
+    public TransactionConfirmResponseDto confirmWithdrawal(UUID userUid, WithdrawalConfirmRequestDto request) {
+        UUID transactionId = UUID.randomUUID();
+        boolean claimed = transactionRepository.claimWithdrawalRequestId(transactionId, userUid,
+                request.getWalletUid(), request.getAmount(), request.getRequestId()).isPresent();
+        if (!claimed) {
+            return repeatedConfirm(userUid, request.getRequestId(), TransactionPaymentType.WITHDRAWAL,
+                    request.getWalletUid(), request.getAmount());
+        }
+
+        // an exception from here on rolls back the claim and the debit: the requestId is free again
+        WalletEntity wallet = walletService.getWalletForDebit(request.getWalletUid(), userUid);
+        BigDecimal fee = fee(TransactionPaymentType.WITHDRAWAL, request.getAmount());
+        BigDecimal total = request.getAmount().add(fee);
+        requireFunds(wallet, total);
+        walletService.debit(request.getWalletUid(), userUid, total);
+        transactionRepository.updateFee(transactionId, userUid, fee);
+        saveEvent(transactionId, userUid, TransactionEventType.WITHDRAWAL_REQUESTED,
+                transactionMapper.toRequestedPayload(transactionId, userUid, wallet, request.getAmount()));
+
+        log.info("Withdrawal {} of user {} is PENDING, {} reserved", transactionId, userUid, total);
         return transactionMapper.toConfirmResponse(transactionId, TransactionStatus.PENDING);
     }
 
@@ -139,6 +179,13 @@ public class TransactionService {
             case TRANSFER -> feeProperties.transfer();
         };
         return amount.multiply(rate).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+    }
+
+    // amount + fee, the init terms and the confirm debit alike
+    private void requireFunds(WalletEntity wallet, BigDecimal total) {
+        if (wallet.getBalance().compareTo(total) < 0) {
+            throw new TransactionServiceException(ErrorCode.INSUFFICIENT_FUNDS);
+        }
     }
 
     private void saveEvent(UUID transactionId, UUID userUid, String eventType, String payload) {

@@ -173,14 +173,6 @@ class TransactionRestControllerV1IT extends IntegrationTest {
         assertThat(confirmed(user, requestId, wallet, AMOUNT).getStatus()).isEqualTo(TransactionStatusDto.PENDING);
     }
 
-    private int transactions(UUID user) {
-        return jdbc.queryForObject("SELECT count(*) FROM transactions WHERE user_uid = ?", Integer.class, user);
-    }
-
-    private int events(UUID user) {
-        return jdbc.queryForObject("SELECT count(*) FROM transaction_events WHERE user_uid = ?", Integer.class, user);
-    }
-
     private static int rows(JdbcTemplate shard, UUID user) {
         Integer count = shard.queryForObject("SELECT count(*) FROM transactions WHERE user_uid = ?", Integer.class, user);
         return count == null ? 0 : count;

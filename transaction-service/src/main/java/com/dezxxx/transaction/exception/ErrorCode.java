@@ -16,6 +16,8 @@ public enum ErrorCode {
 
     WALLET_NOT_ACTIVE(HttpStatus.BAD_REQUEST, "The wallet is not active"),
 
+    INSUFFICIENT_FUNDS(HttpStatus.BAD_REQUEST, "Not enough funds including the fee"),
+
     WALLET_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet type not found"),
 
     WALLET_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet not found"),

@@ -13,6 +13,7 @@ import com.dezxxx.transaction.repository.WalletTypeRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
@@ -57,12 +58,13 @@ public class WalletService {
 
     // the wallet an operation works on: the user's, not archived, ACTIVE
     public WalletEntity getWalletForOperation(UUID walletUid, UUID userUid) {
-        WalletEntity wallet = walletRepository.findActive(walletUid, userUid)
-                .orElseThrow(() -> new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND));
-        if (wallet.getStatus() != WalletStatus.ACTIVE) {
-            throw new TransactionServiceException(ErrorCode.WALLET_NOT_ACTIVE);
-        }
-        return wallet;
+        return requireActive(walletRepository.findActive(walletUid, userUid));
+    }
+
+    // the same wallet locked until the caller's transaction ends: its balance cannot change before the debit
+    @Transactional
+    public WalletEntity getWalletForDebit(UUID walletUid, UUID userUid) {
+        return requireActive(walletRepository.findActiveForUpdate(walletUid, userUid));
     }
 
     // runs inside the caller's transaction: finalization credits together with the status change
@@ -73,6 +75,16 @@ public class WalletService {
             throw new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND);
         }
         log.info("Credited {} to wallet {} of user {}", amount, walletUid, userUid);
+    }
+
+    // runs inside the caller's transaction, after getWalletForDebit has locked the wallet and the funds were checked
+    @Transactional
+    public void debit(UUID walletUid, UUID userUid, BigDecimal amount) {
+        int updated = walletRepository.debit(walletUid, userUid, amount, Instant.now());
+        if (updated == 0) {
+            throw new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND);
+        }
+        log.info("Debited {} from wallet {} of user {}", amount, walletUid, userUid);
     }
 
     @Observed(name = OPERATIONS, contextualName = "walletService.getByUser", lowCardinalityKeyValues = {"operation", "getByUser"})
@@ -89,6 +101,15 @@ public class WalletService {
             throw new TransactionServiceException(ErrorCode.WALLET_TYPE_NOT_ACTIVE);
         }
         return walletType;
+    }
+
+    // 404 when not found, another user's or archived; 400 when not ACTIVE
+    private WalletEntity requireActive(Optional<WalletEntity> found) {
+        WalletEntity wallet = found.orElseThrow(() -> new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND));
+        if (wallet.getStatus() != WalletStatus.ACTIVE) {
+            throw new TransactionServiceException(ErrorCode.WALLET_NOT_ACTIVE);
+        }
+        return wallet;
     }
 
     private WalletEntity newWallet(CreateWalletRequestDto request, WalletTypeEntity walletType, UUID userUid) {
