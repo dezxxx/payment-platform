@@ -28,6 +28,7 @@ import com.dezxxx.transaction.repository.TransactionEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
+import com.dezxxx.transaction.validation.DateRangeValidator;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
@@ -72,6 +73,9 @@ class TransactionServiceTest {
 
     @Mock
     private TransactionMapper transactionMapper;
+
+    @Mock
+    private DateRangeValidator dateRangeValidator;
 
     @Mock
     private Tracer tracer;
@@ -241,7 +245,7 @@ class TransactionServiceTest {
 
     private TransactionService service(FeeProperties fees) {
         return new TransactionService(transactionRepository, transactionEventRepository, walletService, fees,
-                transactionMapper, tracer, propagator);
+                transactionMapper, dateRangeValidator, tracer, propagator);
     }
 
     @SuppressWarnings("unchecked")

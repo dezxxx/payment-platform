@@ -6,13 +6,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
 import com.dezxxx.transaction.api.model.TransactionStatusDto;
+import com.dezxxx.transaction.api.model.TransactionStatusResponseDto;
+import com.dezxxx.transaction.api.model.TransactionTypeDto;
+import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionEventEntity;
+import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.entity.wallet.WalletTypeEntity;
 import com.dezxxx.transaction.event.DepositRequested;
 import com.dezxxx.transaction.mapper.TransactionMapper;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import org.apache.avro.specific.SpecificRecord;
 import org.junit.jupiter.api.DisplayName;
@@ -153,5 +160,54 @@ class TransactionMapperTest {
         assertThat(event.getPayload()).isEqualTo("{}");
         assertThat(event.getTraceparent()).isEqualTo("00-trace-span-01");
         assertThat(event.getSentAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("given a failed withdrawal, when mapping its status, then the contract's lowercase type and createdAt in UTC")
+    void mapsStatus() {
+        // given
+        TransactionEntity transaction = new TransactionEntity();
+        transaction.setUid(TRANSACTION_UID);
+        transaction.setType(TransactionPaymentType.WITHDRAWAL);
+        transaction.setStatus(TransactionStatus.FAILED);
+        transaction.setWalletUid(WALLET_UID);
+        transaction.setAmount(new BigDecimal("100.00"));
+        transaction.setFee(new BigDecimal("1.00"));
+        transaction.setFailureReason("Declined by the provider");
+        transaction.setCreatedAt(Instant.parse("2026-10-25T12:00:00Z"));
+
+        // when
+        TransactionStatusResponseDto status = transactionMapper.toStatusResponse(transaction);
+
+        // then
+        assertThat(status.getTransactionId()).isEqualTo(TRANSACTION_UID);
+        assertThat(status.getType()).isEqualTo(TransactionTypeDto.WITHDRAWAL);
+        assertThat(status.getType().getValue()).isEqualTo("withdrawal");
+        assertThat(status.getStatus()).isEqualTo(TransactionStatusDto.FAILED);
+        assertThat(status.getWalletUid()).isEqualTo(WALLET_UID);
+        assertThat(status.getTargetWalletUid()).isNull();
+        assertThat(status.getAmount()).isEqualByComparingTo("100.00");
+        assertThat(status.getFee()).isEqualByComparingTo("1.00");
+        assertThat(status.getFailureReason()).isEqualTo("Declined by the provider");
+        assertThat(status.getCreatedAt()).isEqualTo(OffsetDateTime.of(2026, 10, 25, 12, 0, 0, 0, ZoneOffset.UTC));
+    }
+
+    @Test
+    @DisplayName("given the search filters, when mapping to the entity's terms, then each is converted")
+    void mapsFilters() {
+        // when / then
+        assertThat(transactionMapper.toPaymentType(TransactionTypeDto.TRANSFER)).isEqualTo(TransactionPaymentType.TRANSFER);
+        assertThat(transactionMapper.toTransactionStatus(TransactionStatusDto.PENDING)).isEqualTo(TransactionStatus.PENDING);
+        assertThat(transactionMapper.toInstant(OffsetDateTime.parse("2026-10-25T15:00:00+03:00")))
+                .isEqualTo(Instant.parse("2026-10-25T12:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("given filters not set, when mapping, then they stay null: no condition on them")
+    void keepsMissingFiltersNull() {
+        // when / then
+        assertThat(transactionMapper.toPaymentType(null)).isNull();
+        assertThat(transactionMapper.toTransactionStatus(null)).isNull();
+        assertThat(transactionMapper.toInstant(null)).isNull();
     }
 }

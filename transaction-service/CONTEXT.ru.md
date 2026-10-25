@@ -59,8 +59,10 @@
 | Комиссия и баланс | fee считается после чтения кошелька и до проверки `balance < amount + fee` → `400`, в init и заново в confirm (условиям из init не доверяем). `fee` при вставке `NULL`, заполняется `UPDATE` в той же транзакции |
 | Размер комиссии | доля суммы на операцию в `transaction.fee` (`FeeProperties`): deposit `0`, withdrawal `0.01`, transfer `0.005`; округление до копеек, от пяти вверх. Private-метод `TransactionService`, единственного, кто её считает; переменная окружения, например `TRANSACTION_FEE_WITHDRAWAL`, её переопределяет |
 | Неизвестный кошелёк в confirm | INSERT захвата идёт первым, а `transactions.wallet_uid` ссылается на `wallets`: кошелька нет в шарде пользователя — INSERT падает на `transactions_wallet_uid_fkey`. `GlobalExceptionHandler` отвечает на этот constraint `404 WALLET_NOT_FOUND` (как person-service на индекс email); транзакция откатывается, `requestId` остаётся свободным |
-| `payment_type` в SQL | тип — строкой в захвате `requestId` (`'DEPOSIT'`), свой запрос на операцию: ShardingSphere 5.5.3 переписывает `CAST(:type AS payment_type)` в сломанный SQL |
+| `payment_type` в SQL | тип — строкой в захвате `requestId` (`'DEPOSIT'`), свой запрос на операцию: ShardingSphere 5.5.3 переписывает `CAST(:type AS payment_type)` в сломанный SQL. Фильтр поиска сравнивает колонку как текст (`cast(type as varchar) = ?`): ShardingSphere передаёт параметр как `varchar`, а сравнения `payment_type = varchar` в PostgreSQL нет |
 | Блокировки | confirm вывода и перевода читает кошелёк(и) `FOR NO KEY UPDATE`; перевод блокирует оба в порядке `ORDER BY uid`, поэтому два встречных перевода не попадают в deadlock. `NO KEY`, а не `FOR UPDATE`: INSERT claim-а через foreign key уже поставил на кошелёк `FOR KEY SHARE`, и `FOR UPDATE` ждал бы этот замок у параллельного claim — два confirm на один кошелёк попадали в deadlock. Блокировка защищает разные операции над одним кошельком, `requestId` — повторы одной и той же |
+| Поиск | только строки пользователя (`user_uid` первым, поэтому один шард); каждый заданный фильтр добавляет одно условие (`TransactionSpecifications`); сначала новые, при равном времени решает `uid`, поэтому страницы не пересекаются. `Slice`, а не `Page`: контракт отдаёт просто массив без общего числа, `Page` зря гонял бы `count(*)` по всем подходящим строкам |
+| Диапазон дат | `dateFrom` включительно, `dateTo` нет; `dateFrom` позже `dateTo` → `400 VALIDATION_ERROR` из `DateRangeValidator`, его вызывает сервис. Не ограничение на контроллере: Bean Validation запрещает ограничения на параметры метода, который реализует метод интерфейса, а контроллер реализует сгенерированный `TransactionsApi` |
 | Баланс | никогда не отрицательный: `amount > 0`, проверка после fee, блокировка. `CHECK (balance >= 0)` в миграции — последняя защита |
 | Пополнение | без проверки баланса; отказ провайдера (на карте не хватает, банк отказал) → `DepositFailed` |
 | Мягкое удаление | каждое чтение кошелька идёт с `archived_at IS NULL` |
@@ -84,7 +86,8 @@ Avro-классы событий — из файлов `.avsc`, на следу�
 | Проверки `amount` | `> 0` из `exclusiveMinimum`; не больше 2 знаков — стандартная `@Digits(fraction = 2)`, ставится на поле через `x-field-extra-annotation` |
 | `walletUid ≠ targetWalletUid` | своя аннотация класса `@DifferentWallets` с `ConstraintValidator` в пакете `validation`, ставится на `TransferInitRequest` и `TransferConfirmRequest` через `x-class-extra-annotation`. Без неё один кошелёк дважды читается как одна строка и дал бы `404` |
 | `TransferWallets` | интерфейс с `getWalletUid()` и `getTargetWalletUid()`; оба DTO перевода реализуют его через `x-implements`, поэтому валидатор читает их, не зная сгенерированных классов, и одинаково работает в сервере и в jar клиента |
-| Клиент | `openApiGenerateClient`: `spring-http-interface`, реактивный; свой source set `client` и jar `transaction-service-client` с API клиента, его DTO и пакетом `validation` |
+| Enum в параметрах запроса | `?type=deposit` переводится по значению из контракта через сгенерированный `EnumConverterConfiguration` (`fromValue`); `Enum.valueOf` знает только `DEPOSIT`. Неизвестное значение → `400 VALIDATION_ERROR` |
+| Клиент | `openApiGenerateClient`: `spring-http-interface`, реактивный; свой source set `client` и jar `transaction-service-client` с API клиента, его DTO и `@DifferentWallets` с валидатором и `TransferWallets` (только эти файлы из `validation`: остальным нужны классы самого сервиса) |
 
 ### Сделано
 
@@ -131,10 +134,12 @@ Avro-классы событий — из файлов `.avsc`, на следу�
       (`400 CURRENCY_MISMATCH`); confirm блокирует оба `ORDER BY uid FOR NO KEY UPDATE`, списывает `amount + fee`,
       зачисляет `amount` и завершает транзакцию `COMPLETED` в одной транзакции БД, без Kafka.
       `TransactionTransferIT` запускает A→B и B→A одновременно: оба `200`, deadlock нет
+- [x] Статус и поиск транзакций по диаграммам: статус своей транзакции (чужая → `404 TRANSACTION_NOT_FOUND`);
+      поиск по кошельку, типу, статусу и датам, постранично, сначала новые. `TransactionStatusSearchIT`
+      проверяет каждый фильтр, страницы без пересечений, чужой кошелёк → пустой список и ответы `400`
 
 ### Дальше
 
-- [ ] Статус и поиск транзакций, по диаграммам
 - [ ] Коллекция Postman; `transaction-service-client` в individuals-api
 - [ ] Время запросов по шардам: `pg_stat_statements` в шардах не загружен, дашборд показывает
       время со стороны сервиса; счётчику full route нужен Java agent ShardingSphere

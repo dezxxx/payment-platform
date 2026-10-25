@@ -4,6 +4,9 @@ import com.dezxxx.transaction.api.model.DepositConfirmRequestDto;
 import com.dezxxx.transaction.api.model.DepositInitRequestDto;
 import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
+import com.dezxxx.transaction.api.model.TransactionStatusDto;
+import com.dezxxx.transaction.api.model.TransactionStatusResponseDto;
+import com.dezxxx.transaction.api.model.TransactionTypeDto;
 import com.dezxxx.transaction.api.model.TransferConfirmRequestDto;
 import com.dezxxx.transaction.api.model.TransferInitRequestDto;
 import com.dezxxx.transaction.api.model.WithdrawalConfirmRequestDto;
@@ -19,6 +22,8 @@ import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
 import com.dezxxx.transaction.repository.TransactionEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
+import com.dezxxx.transaction.repository.TransactionSpecifications;
+import com.dezxxx.transaction.validation.DateRangeValidator;
 import io.micrometer.observation.annotation.Observed;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
@@ -26,13 +31,18 @@ import io.micrometer.tracing.propagation.Propagator;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,11 +59,15 @@ public class TransactionService {
 
     private static final int MONEY_SCALE = 2;
 
+    // newest first; uid breaks the ties of one created_at, so pages never overlap
+    private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.asc("uid"));
+
     private final TransactionRepository transactionRepository;
     private final TransactionEventRepository transactionEventRepository;
     private final WalletService walletService;
     private final FeeProperties feeProperties;
     private final TransactionMapper transactionMapper;
+    private final DateRangeValidator dateRangeValidator;
     private final Tracer tracer;
     private final Propagator propagator;
 
@@ -167,6 +181,34 @@ public class TransactionService {
         log.info("Transfer {} of user {} is COMPLETED: {} from wallet {} to wallet {}, fee {}", transactionId,
                 userUid, request.getAmount(), request.getWalletUid(), request.getTargetWalletUid(), fee);
         return transactionMapper.toConfirmResponse(transactionId, TransactionStatus.COMPLETED);
+    }
+
+    // user_uid in the condition: one shard, and another user's transaction is simply not found
+    @Observed(name = OPERATIONS, contextualName = "transactionService.getStatus", lowCardinalityKeyValues = {"operation", "getStatus"})
+    public TransactionStatusResponseDto getTransactionStatus(UUID userUid, UUID transactionId) {
+        TransactionEntity transaction = transactionRepository.findByUidAndUserUid(transactionId, userUid)
+                .orElseThrow(() -> new TransactionServiceException(ErrorCode.TRANSACTION_NOT_FOUND));
+        log.info("Transaction {} of user {} is {}", transactionId, userUid, transaction.getStatus());
+        return transactionMapper.toStatusResponse(transaction);
+    }
+
+    // only the filters given become conditions; a slice reads one page without counting all the rows
+    @Observed(name = OPERATIONS, contextualName = "transactionService.search", lowCardinalityKeyValues = {"operation", "search"})
+    public List<TransactionStatusResponseDto> searchTransactions(UUID userUid, UUID walletUid, TransactionTypeDto type,
+                                                                 TransactionStatusDto status, OffsetDateTime dateFrom,
+                                                                 OffsetDateTime dateTo, int page, int size) {
+        dateRangeValidator.requireOrdered(dateFrom, dateTo);
+        Specification<TransactionEntity> filters = TransactionSpecifications.ofUser(userUid)
+                .and(TransactionSpecifications.ofWallet(walletUid))
+                .and(TransactionSpecifications.ofType(transactionMapper.toPaymentType(type)))
+                .and(TransactionSpecifications.ofStatus(transactionMapper.toTransactionStatus(status)))
+                .and(TransactionSpecifications.createdFrom(transactionMapper.toInstant(dateFrom)))
+                .and(TransactionSpecifications.createdBefore(transactionMapper.toInstant(dateTo)));
+        List<TransactionEntity> found = transactionRepository
+                .findBy(filters, query -> query.slice(PageRequest.of(page, size, NEWEST_FIRST)))
+                .getContent();
+        log.info("Found {} transactions of user {} on page {}", found.size(), userUid, page);
+        return found.stream().map(transactionMapper::toStatusResponse).toList();
     }
 
     // the provider's answer: the status changes only from PENDING, so a repeated message moves no money twice.

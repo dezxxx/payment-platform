@@ -5,11 +5,16 @@ import com.dezxxx.transaction.api.model.DepositConfirmRequestDto;
 import com.dezxxx.transaction.api.model.DepositInitRequestDto;
 import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
+import com.dezxxx.transaction.api.model.TransactionStatusDto;
+import com.dezxxx.transaction.api.model.TransactionStatusResponseDto;
+import com.dezxxx.transaction.api.model.TransactionTypeDto;
 import com.dezxxx.transaction.api.model.TransferConfirmRequestDto;
 import com.dezxxx.transaction.api.model.TransferInitRequestDto;
 import com.dezxxx.transaction.api.model.WithdrawalConfirmRequestDto;
 import com.dezxxx.transaction.api.model.WithdrawalInitRequestDto;
 import com.dezxxx.transaction.service.TransactionService;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -54,5 +59,21 @@ public class TransactionRestControllerV1 implements TransactionsApi {
     public ResponseEntity<TransactionConfirmResponseDto> confirmTransfer(UUID xUserUid,
                                                                          TransferConfirmRequestDto transferConfirmRequestDto) {
         return ResponseEntity.ok(transactionService.confirmTransfer(xUserUid, transferConfirmRequestDto));
+    }
+
+    @Override
+    public ResponseEntity<TransactionStatusResponseDto> getTransactionStatus(UUID xUserUid, UUID transactionId) {
+        return ResponseEntity.ok(transactionService.getTransactionStatus(xUserUid, transactionId));
+    }
+
+    @Override
+    public ResponseEntity<List<TransactionStatusResponseDto>> searchTransactions(UUID userUid, UUID walletUid,
+                                                                                 TransactionTypeDto type,
+                                                                                 TransactionStatusDto status,
+                                                                                 OffsetDateTime dateFrom,
+                                                                                 OffsetDateTime dateTo,
+                                                                                 Integer page, Integer size) {
+        return ResponseEntity.ok(transactionService.searchTransactions(userUid, walletUid, type, status, dateFrom,
+                dateTo, page, size));
     }
 }

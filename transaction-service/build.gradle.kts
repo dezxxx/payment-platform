@@ -129,11 +129,14 @@ openApiGenerate {
     modelNameSuffix.set("Dto")
     invokerPackage.set("com.dezxxx.transaction.api")
 
-    globalProperties.set(mapOf("apis" to "", "models" to "", "supportingFiles" to "ApiUtil.java"))
+    // EnumConverterConfiguration: ?type=deposit becomes TransactionTypeDto by the contract value,
+    // not by Enum.valueOf, which knows only DEPOSIT. configPackage puts it under the component scan
+    globalProperties.set(mapOf("apis" to "", "models" to "", "supportingFiles" to "ApiUtil.java,EnumConverterConfiguration.java"))
 
     configOptions.set(
         mapOf(
             "interfaceOnly" to "true",
+            "configPackage" to "com.dezxxx.transaction.api.configuration",
             "delegatePattern" to "true",
             "useSpringBoot4" to "true",
             "useJspecify" to "true",
@@ -207,11 +210,14 @@ sourceSets {
     }
     create("client") {
         java.srcDir(openApiGenerateClient.map { generatedClientDir.get().dir("src/main/java") })
-        // the client models carry @DifferentWallets, so the validation package travels with them
+        // the client models carry @DifferentWallets, so it travels with them
         java.srcDir("src/main/java")
-        // client/api and client/model only: the service's own Kafka classes live in client too
+        // client/api and client/model only: the service's own Kafka classes live in client too.
+        // Only the files of @DifferentWallets: the rest of validation needs the service's own classes
         java.include("com/dezxxx/transaction/client/api/**", "com/dezxxx/transaction/client/model/**",
-            "com/dezxxx/transaction/validation/**")
+            "com/dezxxx/transaction/validation/DifferentWallets.java",
+            "com/dezxxx/transaction/validation/DifferentWalletsValidator.java",
+            "com/dezxxx/transaction/validation/TransferWallets.java")
     }
     // the event classes and the topic names, for the other side of the Kafka contract
     create("events") {

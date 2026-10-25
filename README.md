@@ -182,6 +182,6 @@ Module 1 is not finished. What is honest as of today:
 | 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, 20 requests, tokens captured automatically, 52 assertions |
 | 📦 Nexus | In the compose file. person-service publishes `person-service-client` into it, and individuals-api resolves the client from it by coordinates |
 | ✅ Module 2 | **`person-service`**: the contract (`/api/v1/individuals`, six operations, RFC 9457 errors), Flyway migrations, JPA, transactions, the Envers audit, Swagger UI, metrics, JSON logs and traces with a Grafana dashboard, a Docker image in compose, tests, and `person-service-client` in Nexus. individuals-api registers through it, with address and personal data, and compensates a failed Keycloak part by deleting the individual. Done, merged into `main` |
-| 🚧 Module 3 | **`transaction-service`**: wallets, deposit, transfer and withdrawal over two PostgreSQL shards (ShardingSphere-JDBC), deposit and withdrawal finished through Kafka. The design - C4 diagrams with every failure branch - is approved; the code is in progress on `module-3-transaction-service` |
+| 🚧 Module 3 | **`transaction-service`**: wallets, deposit, transfer, withdrawal, transaction status and search over two PostgreSQL shards (ShardingSphere-JDBC), deposit and withdrawal finished through Kafka. The design - C4 diagrams with every failure branch - is approved; the code is in progress on `module-3-transaction-service` |
 
 The ordered to-do lists live in the "Progress" section of each module's `CONTEXT.md` and are kept current.

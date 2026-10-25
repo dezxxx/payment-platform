@@ -7,11 +7,13 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 // every query carries user_uid: ShardingSphere goes to one shard. The PENDING metrics are the exception
-public interface TransactionRepository extends JpaRepository<TransactionEntity, UUID> {
+public interface TransactionRepository extends JpaRepository<TransactionEntity, UUID>,
+        JpaSpecificationExecutor<TransactionEntity> {
 
     // empty when the requestId is already taken; a concurrent claim waits here until the first one ends.
     // The type is a literal: ShardingSphere rewrites CAST(:type AS payment_type) into broken SQL,

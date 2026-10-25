@@ -20,6 +20,7 @@ import com.dezxxx.transaction.repository.TransactionEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
+import com.dezxxx.transaction.validation.DateRangeValidator;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import java.math.BigDecimal;
@@ -57,6 +58,9 @@ class TransactionServiceFinalizeTest {
     private TransactionMapper transactionMapper;
 
     @Mock
+    private DateRangeValidator dateRangeValidator;
+
+    @Mock
     private Tracer tracer;
 
     @Mock
@@ -68,7 +72,7 @@ class TransactionServiceFinalizeTest {
     void setUp() {
         transactionService = new TransactionService(transactionRepository, transactionEventRepository, walletService,
                 new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.01"), new BigDecimal("0.005")),
-                transactionMapper, tracer, propagator);
+                transactionMapper, dateRangeValidator, tracer, propagator);
     }
 
     @Test

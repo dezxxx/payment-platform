@@ -59,8 +59,10 @@ while coding is decided before it is coded. The next push carries working code.
 | Fee and balance | the fee is computed after the wallet is read and before the check `balance < amount + fee` → `400`, in init and again in confirm (the init terms are not trusted). `fee` is `NULL` on insert and set by `UPDATE` in the same transaction |
 | Fee rate | a share of the amount per operation in `transaction.fee` (`FeeProperties`): deposit `0`, withdrawal `0.01`, transfer `0.005`; rounded half up to cents. A private method of `TransactionService`, its only user; an environment variable such as `TRANSACTION_FEE_WITHDRAWAL` overrides it |
 | Unknown wallet in confirm | the claim INSERT runs first and `transactions.wallet_uid` references `wallets`: a wallet missing from the user's shard fails it on `transactions_wallet_uid_fkey`. `GlobalExceptionHandler` answers `404 WALLET_NOT_FOUND` for that constraint (as person-service does for the email index); the transaction rolls back, the `requestId` stays free |
-| `payment_type` in SQL | the type is a literal in the `requestId` claim (`'DEPOSIT'`), one statement per operation: ShardingSphere 5.5.3 rewrites `CAST(:type AS payment_type)` into broken SQL |
+| `payment_type` in SQL | the type is a literal in the `requestId` claim (`'DEPOSIT'`), one statement per operation: ShardingSphere 5.5.3 rewrites `CAST(:type AS payment_type)` into broken SQL. The search filter compares the column as text (`cast(type as varchar) = ?`): ShardingSphere binds the parameter as `varchar`, and PostgreSQL has no `payment_type = varchar` |
 | Locks | confirm of a withdrawal and a transfer reads the wallet(s) `FOR NO KEY UPDATE`; a transfer locks both in `ORDER BY uid`, so two opposite transfers never deadlock. `NO KEY`, not `FOR UPDATE`: the claim INSERT has already put `FOR KEY SHARE` on the wallet through its foreign key, and `FOR UPDATE` would wait for that lock of a concurrent claim - two confirms on one wallet deadlocked. The lock guards different operations on one wallet, `requestId` guards repeats of the same one |
+| Search | only the user's rows (`user_uid` first, so one shard); each filter given adds one condition (`TransactionSpecifications`); newest first, `uid` breaks a tie, so pages never overlap. A `Slice`, not a `Page`: the contract returns a plain array without a total, a `Page` would run a `count(*)` over all matching rows for nothing |
+| Date range | `dateFrom` included, `dateTo` not; `dateFrom` after `dateTo` → `400 VALIDATION_ERROR` from `DateRangeValidator`, called by the service. Not a constraint on the controller: Bean Validation forbids parameter constraints on a method that implements an interface method, and the controller implements the generated `TransactionsApi` |
 | Balance | never negative: `amount > 0`, the check after the fee, the lock. A `CHECK (balance >= 0)` in the migration as the last guard |
 | Deposit | no balance check; the provider's refusal (not enough on the card, the bank refused) → `DepositFailed` |
 | Soft delete | every wallet read carries `archived_at IS NULL` |
@@ -84,7 +86,8 @@ Avro classes of the events come from `.avsc` files in a later step.
 | `amount` checks | `> 0` from `exclusiveMinimum`; at most 2 decimals - the standard `@Digits(fraction = 2)` put on the field through `x-field-extra-annotation` |
 | `walletUid ≠ targetWalletUid` | our own class-level `@DifferentWallets` with a `ConstraintValidator` in the `validation` package, put on `TransferInitRequest` and `TransferConfirmRequest` through `x-class-extra-annotation`. Without it the same wallet twice reads as one row and would answer `404` |
 | `TransferWallets` | interface with `getWalletUid()` and `getTargetWalletUid()`; both transfer DTOs implement it through `x-implements`, so the validator reads them without knowing the generated classes and works in the server and in the client jar alike |
-| Client | `openApiGenerateClient`: `spring-http-interface`, reactive; its own `client` source set and `transaction-service-client` jar holding the client API, its DTOs and the `validation` package |
+| Enum query parameters | `?type=deposit` is converted by the contract value through the generated `EnumConverterConfiguration` (`fromValue`); `Enum.valueOf` knows only `DEPOSIT`. An unknown value → `400 VALIDATION_ERROR` |
+| Client | `openApiGenerateClient`: `spring-http-interface`, reactive; its own `client` source set and `transaction-service-client` jar holding the client API, its DTOs and `@DifferentWallets` with its validator and `TransferWallets` (only these files of `validation`: the rest needs the service's own classes) |
 
 ### Done
 
@@ -132,10 +135,13 @@ Avro classes of the events come from `.avsc` files in a later step.
       (`400 CURRENCY_MISMATCH`); confirm locks both `ORDER BY uid FOR NO KEY UPDATE`, debits `amount + fee`,
       credits `amount` and finishes the transaction `COMPLETED` in one database transaction, without Kafka.
       `TransactionTransferIT` races A→B against B→A: both `200`, no deadlock
+- [x] Transaction status and search by the diagrams: the status of the user's own transaction (another
+      user's → `404 TRANSACTION_NOT_FOUND`); the search by wallet, type, status and dates, page by page,
+      newest first. `TransactionStatusSearchIT` checks every filter, pages without overlap, another
+      user's wallet → an empty list and the `400` answers
 
 ### Next
 
-- [ ] Transaction status and search, following the diagrams
 - [ ] Postman collection; `transaction-service-client` in individuals-api
 - [ ] Query time per shard: `pg_stat_statements` is not loaded in the shards, the dashboard shows
       the service-side time; a full route counter needs the ShardingSphere Java agent

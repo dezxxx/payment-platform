@@ -3,14 +3,21 @@ package com.dezxxx.transaction.mapper;
 import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
 import com.dezxxx.transaction.api.model.TransactionStatusDto;
+import com.dezxxx.transaction.api.model.TransactionStatusResponseDto;
+import com.dezxxx.transaction.api.model.TransactionTypeDto;
+import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionEventEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionEventType;
+import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.event.DepositRequested;
 import com.dezxxx.transaction.event.WithdrawalRequested;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.apache.avro.specific.SpecificRecord;
@@ -38,6 +45,32 @@ public class TransactionMapper {
         return new TransactionConfirmResponseDto()
                 .transactionId(transactionId)
                 .status(TransactionStatusDto.fromValue(status.name()));
+    }
+
+    public TransactionStatusResponseDto toStatusResponse(TransactionEntity transaction) {
+        return new TransactionStatusResponseDto()
+                .transactionId(transaction.getUid())
+                .type(TransactionTypeDto.valueOf(transaction.getType().name()))
+                .status(TransactionStatusDto.fromValue(transaction.getStatus().name()))
+                .walletUid(transaction.getWalletUid())
+                .targetWalletUid(transaction.getTargetWalletUid())
+                .amount(transaction.getAmount())
+                .fee(transaction.getFee())
+                .failureReason(transaction.getFailureReason())
+                .createdAt(transaction.getCreatedAt().atOffset(ZoneOffset.UTC));
+    }
+
+    // the search filters in the entity's terms; a filter not given stays null
+    public TransactionPaymentType toPaymentType(TransactionTypeDto type) {
+        return type == null ? null : TransactionPaymentType.valueOf(type.name());
+    }
+
+    public TransactionStatus toTransactionStatus(TransactionStatusDto status) {
+        return status == null ? null : TransactionStatus.valueOf(status.name());
+    }
+
+    public Instant toInstant(OffsetDateTime dateTime) {
+        return dateTime == null ? null : dateTime.toInstant();
     }
 
     public String toRequestedPayload(UUID transactionId, UUID userUid, WalletEntity wallet, BigDecimal amount) {
