@@ -128,10 +128,14 @@ Avro classes of the events come from `.avsc` files in a later step.
       writes the `PENDING` transaction and `WithdrawalRequested` in one database transaction.
       `WithdrawalFailed` returns the reserve, `WithdrawalCompleted` keeps it. `TransactionWithdrawalIT`
       races two confirms on one wallet: one `200`, one `400`, the balance never below zero
+- [x] Transfer init and confirm by the diagram: both wallets are the user's, `ACTIVE` and of one currency
+      (`400 CURRENCY_MISMATCH`); confirm locks both `ORDER BY uid FOR NO KEY UPDATE`, debits `amount + fee`,
+      credits `amount` and finishes the transaction `COMPLETED` in one database transaction, without Kafka.
+      `TransactionTransferIT` races A→B against B→A: both `200`, no deadlock
 
 ### Next
 
-- [ ] init / confirm of transfer, following the diagram
+- [ ] Transaction status and search, following the diagrams
 - [ ] Postman collection; `transaction-service-client` in individuals-api
 - [ ] Query time per shard: `pg_stat_statements` is not loaded in the shards, the dashboard shows
       the service-side time; a full route counter needs the ShardingSphere Java agent

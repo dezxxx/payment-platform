@@ -18,6 +18,8 @@ public enum ErrorCode {
 
     INSUFFICIENT_FUNDS(HttpStatus.BAD_REQUEST, "Not enough funds including the fee"),
 
+    CURRENCY_MISMATCH(HttpStatus.BAD_REQUEST, "The wallets have different currencies"),
+
     WALLET_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet type not found"),
 
     WALLET_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet not found"),

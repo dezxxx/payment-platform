@@ -3,6 +3,7 @@ package com.dezxxx.transaction.repository;
 import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,6 +29,17 @@ public interface WalletRepository extends JpaRepository<WalletEntity, UUID> {
     @Query(value = "SELECT * FROM wallets WHERE uid = :walletUid AND user_uid = :userUid AND archived_at IS NULL"
             + " FOR NO KEY UPDATE", nativeQuery = true)
     Optional<WalletEntity> findActiveForUpdate(UUID walletUid, UUID userUid);
+
+    // both wallets of a transfer, without a lock: init only computes the terms
+    @Query("select w from WalletEntity w join fetch w.walletType"
+            + " where w.uid in :walletUids and w.userUid = :userUid and w.archivedAt is null")
+    List<WalletEntity> findAllActiveByUids(Collection<UUID> walletUids, UUID userUid);
+
+    // both wallets of a transfer, locked as findActiveForUpdate. ORDER BY uid: two opposite transfers lock
+    // the two wallets in the same order, so neither holds one wallet while waiting for the other
+    @Query(value = "SELECT * FROM wallets WHERE uid IN (:walletUids) AND user_uid = :userUid AND archived_at IS NULL"
+            + " ORDER BY uid FOR NO KEY UPDATE", nativeQuery = true)
+    List<WalletEntity> findAllActiveForUpdate(Collection<UUID> walletUids, UUID userUid);
 
     // in the database, not read-modify-write: two credits at once both count
     @Modifying

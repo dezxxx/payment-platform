@@ -4,6 +4,8 @@ import com.dezxxx.transaction.api.model.DepositConfirmRequestDto;
 import com.dezxxx.transaction.api.model.DepositInitRequestDto;
 import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
+import com.dezxxx.transaction.api.model.TransferConfirmRequestDto;
+import com.dezxxx.transaction.api.model.TransferInitRequestDto;
 import com.dezxxx.transaction.api.model.WithdrawalConfirmRequestDto;
 import com.dezxxx.transaction.api.model.WithdrawalInitRequestDto;
 import com.dezxxx.transaction.config.FeeProperties;
@@ -26,6 +28,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -125,6 +128,47 @@ public class TransactionService {
         return transactionMapper.toConfirmResponse(transactionId, TransactionStatus.PENDING);
     }
 
+    @Observed(name = OPERATIONS, contextualName = "transactionService.initTransfer", lowCardinalityKeyValues = {"operation", "initTransfer"})
+    public TransactionInitResponseDto initTransfer(UUID userUid, TransferInitRequestDto request) {
+        WalletEntity source = walletService.getTransferSource(request.getWalletUid(), request.getTargetWalletUid(),
+                userUid);
+        BigDecimal fee = fee(TransactionPaymentType.TRANSFER, request.getAmount());
+        requireFunds(source, request.getAmount().add(fee));
+
+        // nothing is stored: confirm checks everything again
+        UUID requestId = UUID.randomUUID();
+        log.info("Transfer terms from wallet {} to wallet {} of user {}: requestId {}", request.getWalletUid(),
+                request.getTargetWalletUid(), userUid, requestId);
+        return transactionMapper.toInitResponse(request.getAmount(), fee, requestId);
+    }
+
+    // no provider and no Kafka: both wallets are in the user's shard, the whole transfer is one database transaction
+    @Transactional
+    @Observed(name = OPERATIONS, contextualName = "transactionService.confirmTransfer", lowCardinalityKeyValues = {"operation", "confirmTransfer"})
+    public TransactionConfirmResponseDto confirmTransfer(UUID userUid, TransferConfirmRequestDto request) {
+        UUID transactionId = UUID.randomUUID();
+        boolean claimed = transactionRepository.claimTransferRequestId(transactionId, userUid, request.getWalletUid(),
+                request.getTargetWalletUid(), request.getAmount(), request.getRequestId()).isPresent();
+        if (!claimed) {
+            return repeatedConfirm(userUid, request.getRequestId(), TransactionPaymentType.TRANSFER,
+                    request.getWalletUid(), request.getTargetWalletUid(), request.getAmount());
+        }
+
+        // an exception from here on rolls back the claim, the debit and the credit: the requestId is free again
+        WalletEntity source = walletService.getTransferSourceForDebit(request.getWalletUid(),
+                request.getTargetWalletUid(), userUid);
+        BigDecimal fee = fee(TransactionPaymentType.TRANSFER, request.getAmount());
+        BigDecimal total = request.getAmount().add(fee);
+        requireFunds(source, total);
+        walletService.debit(request.getWalletUid(), userUid, total);
+        walletService.credit(request.getTargetWalletUid(), userUid, request.getAmount());
+        transactionRepository.completeTransfer(transactionId, userUid, fee, Instant.now());
+
+        log.info("Transfer {} of user {} is COMPLETED: {} from wallet {} to wallet {}, fee {}", transactionId,
+                userUid, request.getAmount(), request.getWalletUid(), request.getTargetWalletUid(), fee);
+        return transactionMapper.toConfirmResponse(transactionId, TransactionStatus.COMPLETED);
+    }
+
     // the provider's answer: the status changes only from PENDING, so a repeated message moves no money twice.
     // An exception rolls everything back and the consumer retries, then sends the message to the DLT
     @Transactional
@@ -159,10 +203,18 @@ public class TransactionService {
     private TransactionConfirmResponseDto repeatedConfirm(UUID userUid, UUID requestId,
                                                           TransactionPaymentType type, UUID walletUid,
                                                           BigDecimal amount) {
+        return repeatedConfirm(userUid, requestId, type, walletUid, null, amount);
+    }
+
+    // targetWalletUid is null for a deposit and a withdrawal
+    private TransactionConfirmResponseDto repeatedConfirm(UUID userUid, UUID requestId,
+                                                          TransactionPaymentType type, UUID walletUid,
+                                                          UUID targetWalletUid, BigDecimal amount) {
         TransactionEntity existing = transactionRepository.findByUserUidAndRequestId(userUid, requestId)
                 .orElseThrow(() -> new IllegalStateException("requestId " + requestId + " is taken but not found"));
         boolean sameRequest = existing.getType() == type
                 && existing.getWalletUid().equals(walletUid)
+                && Objects.equals(existing.getTargetWalletUid(), targetWalletUid)
                 && existing.getAmount().compareTo(amount) == 0;
         if (!sameRequest) {
             throw new TransactionServiceException(ErrorCode.REQUEST_ID_CONFLICT);

@@ -26,11 +26,25 @@ public interface TransactionRepository extends JpaRepository<TransactionEntity, 
             + " ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid", nativeQuery = true)
     Optional<UUID> claimWithdrawalRequestId(UUID uid, UUID userUid, UUID walletUid, BigDecimal amount, UUID requestId);
 
+    @Query(value = "INSERT INTO transactions"
+            + " (uid, user_uid, wallet_uid, target_wallet_uid, amount, type, status, request_id)"
+            + " VALUES (:uid, :userUid, :walletUid, :targetWalletUid, :amount, 'TRANSFER', 'PENDING', :requestId)"
+            + " ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid", nativeQuery = true)
+    Optional<UUID> claimTransferRequestId(UUID uid, UUID userUid, UUID walletUid, UUID targetWalletUid,
+                                          BigDecimal amount, UUID requestId);
+
     Optional<TransactionEntity> findByUserUidAndRequestId(UUID userUid, UUID requestId);
 
     @Modifying
     @Query("update TransactionEntity t set t.fee = :fee where t.uid = :uid and t.userUid = :userUid")
     int updateFee(UUID uid, UUID userUid, BigDecimal fee);
+
+    // a transfer has no provider: its confirm sets the fee and finishes it in one statement
+    @Modifying
+    @Query("update TransactionEntity t set t.fee = :fee,"
+            + " t.status = com.dezxxx.transaction.entity.transaction.TransactionStatus.COMPLETED,"
+            + " t.modifiedAt = :modifiedAt where t.uid = :uid and t.userUid = :userUid")
+    int completeTransfer(UUID uid, UUID userUid, BigDecimal fee, Instant modifiedAt);
 
     Optional<TransactionEntity> findByUidAndUserUid(UUID uid, UUID userUid);
 

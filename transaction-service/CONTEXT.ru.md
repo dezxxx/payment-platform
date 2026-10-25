@@ -127,10 +127,14 @@ Avro-классы событий — из файлов `.avsc`, на следу�
       пишет транзакцию `PENDING` и `WithdrawalRequested` в одной транзакции БД.
       `WithdrawalFailed` возвращает резерв, `WithdrawalCompleted` его оставляет. `TransactionWithdrawalIT`
       запускает два confirm на один кошелёк одновременно: один `200`, другой `400`, баланс не уходит в минус
+- [x] Перевод init и confirm по диаграмме: оба кошелька пользователя, `ACTIVE` и в одной валюте
+      (`400 CURRENCY_MISMATCH`); confirm блокирует оба `ORDER BY uid FOR NO KEY UPDATE`, списывает `amount + fee`,
+      зачисляет `amount` и завершает транзакцию `COMPLETED` в одной транзакции БД, без Kafka.
+      `TransactionTransferIT` запускает A→B и B→A одновременно: оба `200`, deadlock нет
 
 ### Дальше
 
-- [ ] init / confirm перевода, по диаграмме
+- [ ] Статус и поиск транзакций, по диаграммам
 - [ ] Коллекция Postman; `transaction-service-client` в individuals-api
 - [ ] Время запросов по шардам: `pg_stat_statements` в шардах не загружен, дашборд показывает
       время со стороны сервиса; счётчику full route нужен Java agent ShardingSphere

@@ -39,6 +39,8 @@ class WalletServiceTest {
 
     private static final UUID WALLET_UID = UUID.fromString("3b2f9c1a-5d4e-4f6a-8b7c-9d0e1f2a3b4c");
 
+    private static final UUID TARGET_UID = UUID.fromString("7e6d5c4b-3a29-4180-9f8e-7d6c5b4a3928");
+
     private static final UUID TYPE_UID = UUID.fromString("00000000-0000-0000-0000-000000000840");
 
     @Mock
@@ -199,6 +201,48 @@ class WalletServiceTest {
     }
 
     @Test
+    @DisplayName("given two ACTIVE USD wallets of the user, when taking them for a transfer, then the source is returned")
+    void givesTransferSource() {
+        // given
+        WalletEntity source = wallet(WALLET_UID, "USD");
+        WalletEntity target = wallet(TARGET_UID, "USD");
+        when(walletRepository.findAllActiveByUids(List.of(WALLET_UID, TARGET_UID), USER_UID))
+                .thenReturn(List.of(target, source));
+
+        // when
+        WalletEntity result = walletService.getTransferSource(WALLET_UID, TARGET_UID, USER_UID);
+
+        // then
+        assertThat(result).isSameAs(source);
+    }
+
+    @Test
+    @DisplayName("given the target not found, when taking the wallets for a transfer debit, then WALLET_NOT_FOUND")
+    void refusesTransferWithoutTarget() {
+        // given
+        when(walletRepository.findAllActiveForUpdate(List.of(WALLET_UID, TARGET_UID), USER_UID))
+                .thenReturn(List.of(wallet(WALLET_UID, "USD")));
+
+        // when / then
+        assertThatThrownBy(() -> walletService.getTransferSourceForDebit(WALLET_UID, TARGET_UID, USER_UID))
+                .isInstanceOf(TransactionServiceException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.WALLET_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("given a USD and an EUR wallet, when taking them for a transfer debit, then CURRENCY_MISMATCH")
+    void refusesTransferBetweenCurrencies() {
+        // given
+        when(walletRepository.findAllActiveForUpdate(List.of(WALLET_UID, TARGET_UID), USER_UID))
+                .thenReturn(List.of(wallet(WALLET_UID, "USD"), wallet(TARGET_UID, "EUR")));
+
+        // when / then
+        assertThatThrownBy(() -> walletService.getTransferSourceForDebit(WALLET_UID, TARGET_UID, USER_UID))
+                .isInstanceOf(TransactionServiceException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.CURRENCY_MISMATCH);
+    }
+
+    @Test
     @DisplayName("given a user with two wallets, when listing, then both are returned in order")
     void listsWallets() {
         // given
@@ -284,6 +328,16 @@ class WalletServiceTest {
 
     private static CreateWalletRequestDto createRequest() {
         return new CreateWalletRequestDto().name("Main USD").walletTypeUid(TYPE_UID);
+    }
+
+    private static WalletEntity wallet(UUID uid, String currencyCode) {
+        WalletTypeEntity type = walletType("ACTIVE", null);
+        type.setCurrencyCode(currencyCode);
+        WalletEntity wallet = new WalletEntity();
+        wallet.setUid(uid);
+        wallet.setStatus(WalletStatus.ACTIVE);
+        wallet.setWalletType(type);
+        return wallet;
     }
 
     private static WalletTypeEntity walletType(String status, Instant archivedAt) {

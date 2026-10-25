@@ -5,6 +5,8 @@ import com.dezxxx.transaction.api.model.DepositConfirmRequestDto;
 import com.dezxxx.transaction.api.model.DepositInitRequestDto;
 import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
+import com.dezxxx.transaction.api.model.TransferConfirmRequestDto;
+import com.dezxxx.transaction.api.model.TransferInitRequestDto;
 import com.dezxxx.transaction.api.model.WithdrawalConfirmRequestDto;
 import com.dezxxx.transaction.api.model.WithdrawalInitRequestDto;
 import com.dezxxx.transaction.service.TransactionService;
@@ -40,5 +42,17 @@ public class TransactionRestControllerV1 implements TransactionsApi {
     public ResponseEntity<TransactionConfirmResponseDto> confirmWithdrawal(UUID xUserUid,
                                                                            WithdrawalConfirmRequestDto withdrawalConfirmRequestDto) {
         return ResponseEntity.ok(transactionService.confirmWithdrawal(xUserUid, withdrawalConfirmRequestDto));
+    }
+
+    @Override
+    public ResponseEntity<TransactionInitResponseDto> initTransfer(UUID xUserUid,
+                                                                   TransferInitRequestDto transferInitRequestDto) {
+        return ResponseEntity.ok(transactionService.initTransfer(xUserUid, transferInitRequestDto));
+    }
+
+    @Override
+    public ResponseEntity<TransactionConfirmResponseDto> confirmTransfer(UUID xUserUid,
+                                                                         TransferConfirmRequestDto transferConfirmRequestDto) {
+        return ResponseEntity.ok(transactionService.confirmTransfer(xUserUid, transferConfirmRequestDto));
     }
 }

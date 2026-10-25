@@ -67,6 +67,19 @@ public class WalletService {
         return requireActive(walletRepository.findActiveForUpdate(walletUid, userUid));
     }
 
+    // the source of a transfer, checked together with its target; the source's balance is checked by the caller
+    public WalletEntity getTransferSource(UUID walletUid, UUID targetWalletUid, UUID userUid) {
+        return requireTransferPair(
+                walletRepository.findAllActiveByUids(List.of(walletUid, targetWalletUid), userUid), walletUid);
+    }
+
+    // the same, with both wallets locked until the caller's transaction ends
+    @Transactional
+    public WalletEntity getTransferSourceForDebit(UUID walletUid, UUID targetWalletUid, UUID userUid) {
+        return requireTransferPair(
+                walletRepository.findAllActiveForUpdate(List.of(walletUid, targetWalletUid), userUid), walletUid);
+    }
+
     // runs inside the caller's transaction: finalization credits together with the status change
     @Transactional
     public void credit(UUID walletUid, UUID userUid, BigDecimal amount) {
@@ -105,11 +118,30 @@ public class WalletService {
 
     // 404 when not found, another user's or archived; 400 when not ACTIVE
     private WalletEntity requireActive(Optional<WalletEntity> found) {
-        WalletEntity wallet = found.orElseThrow(() -> new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND));
+        return requireActive(found.orElseThrow(() -> new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND)));
+    }
+
+    private static WalletEntity requireActive(WalletEntity wallet) {
         if (wallet.getStatus() != WalletStatus.ACTIVE) {
             throw new TransactionServiceException(ErrorCode.WALLET_NOT_ACTIVE);
         }
         return wallet;
+    }
+
+    // 404 unless both are found; 400 when one is not ACTIVE or the currencies differ
+    private static WalletEntity requireTransferPair(List<WalletEntity> wallets, UUID sourceUid) {
+        if (wallets.size() < 2) {
+            throw new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND);
+        }
+        wallets.forEach(WalletService::requireActive);
+        String currency = wallets.getFirst().getWalletType().getCurrencyCode();
+        if (!currency.equals(wallets.getLast().getWalletType().getCurrencyCode())) {
+            throw new TransactionServiceException(ErrorCode.CURRENCY_MISMATCH);
+        }
+        return wallets.stream()
+                .filter(wallet -> wallet.getUid().equals(sourceUid))
+                .findFirst()
+                .orElseThrow();
     }
 
     private WalletEntity newWallet(CreateWalletRequestDto request, WalletTypeEntity walletType, UUID userUid) {
