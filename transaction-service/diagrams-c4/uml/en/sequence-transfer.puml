@@ -64,7 +64,11 @@ else valid token
               its transaction yet, this INSERT waits for it.
               The PENDING row is not visible outside until COMMIT.
             end note
-            alt 0 rows — requestId already taken (a repeat, incl. a concurrent one)
+            alt foreign key: the wallet is not in the user's shard
+                TS -> DB: ROLLBACK — nothing written, the requestId stays free
+                TS --> IA: 404 ErrorResponse (WALLET_NOT_FOUND)
+                IA --> Client: 404
+            else 0 rows — requestId already taken (a repeat, incl. a concurrent one)
                 TS -> DB: SELECT uid, status, type, wallet_uid, target_wallet_uid, amount\nFROM transactions\nWHERE user_uid = :userUid AND request_id = :requestId
                 alt type, wallets or amount differ from the request
                     TS --> IA: 409 ErrorResponse — requestId already used for another operation

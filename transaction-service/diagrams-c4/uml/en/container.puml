@@ -37,7 +37,7 @@ Rel(kafka, app, "DepositCompleted / Failed, WithdrawalCompleted / Failed (with u
 Rel(kafka, provider, "*Requested", "Avro")
 Rel(provider, kafka, "*Completed / *Failed", "Avro")
 Rel(app, schemaRegistry, "registers and reads schemas", "HTTP")
-Rel(provider, schemaRegistry, "reads schemas", "HTTP")
+Rel(provider, schemaRegistry, "registers and reads schemas", "HTTP")
 Rel(nexus, individualsApi, "client import", "Maven")
 Rel(prometheus, app, "scrapes metrics", "HTTP")
 Rel(app, alloy, "traces", "OTLP")

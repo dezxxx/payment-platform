@@ -2,8 +2,8 @@ package com.dezxxx.transaction.mapper;
 
 import com.dezxxx.transaction.api.model.CreateWalletRequestDto;
 import com.dezxxx.transaction.api.model.WalletResponseDto;
-import com.dezxxx.transaction.entity.WalletEntity;
-import com.dezxxx.transaction.entity.WalletTypeEntity;
+import com.dezxxx.transaction.entity.wallet.WalletEntity;
+import com.dezxxx.transaction.entity.wallet.WalletTypeEntity;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 

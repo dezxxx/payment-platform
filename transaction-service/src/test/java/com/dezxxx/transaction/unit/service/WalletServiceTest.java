@@ -3,15 +3,16 @@ package com.dezxxx.transaction.unit.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dezxxx.transaction.api.model.CreateWalletRequestDto;
 import com.dezxxx.transaction.api.model.WalletResponseDto;
-import com.dezxxx.transaction.entity.WalletEntity;
-import com.dezxxx.transaction.entity.WalletStatus;
-import com.dezxxx.transaction.entity.WalletTypeEntity;
+import com.dezxxx.transaction.entity.wallet.WalletEntity;
+import com.dezxxx.transaction.entity.wallet.WalletStatus;
+import com.dezxxx.transaction.entity.wallet.WalletTypeEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.WalletMapper;
@@ -143,6 +144,33 @@ class WalletServiceTest {
     }
 
     @Test
+    @DisplayName("given the user's ACTIVE wallet, when taking it for an operation, then the entity is returned")
+    void givesWalletForOperation() {
+        // given
+        WalletEntity wallet = new WalletEntity();
+        wallet.setStatus(WalletStatus.ACTIVE);
+        when(walletRepository.findActive(WALLET_UID, USER_UID)).thenReturn(Optional.of(wallet));
+
+        // when
+        WalletEntity result = walletService.getWalletForOperation(WALLET_UID, USER_UID);
+
+        // then
+        assertThat(result).isSameAs(wallet);
+    }
+
+    @Test
+    @DisplayName("given no active wallet of this user, when taking it for an operation, then WALLET_NOT_FOUND")
+    void refusesMissingWalletForOperation() {
+        // given
+        when(walletRepository.findActive(WALLET_UID, USER_UID)).thenReturn(Optional.empty());
+
+        // when / then
+        assertThatThrownBy(() -> walletService.getWalletForOperation(WALLET_UID, USER_UID))
+                .isInstanceOf(TransactionServiceException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.WALLET_NOT_FOUND);
+    }
+
+    @Test
     @DisplayName("given a user with two wallets, when listing, then both are returned in order")
     void listsWallets() {
         // given
@@ -172,6 +200,32 @@ class WalletServiceTest {
 
         // then
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("given the user's wallet, when credit, then the balance grows in the database")
+    void credits() {
+        // given
+        BigDecimal amount = new BigDecimal("100.00");
+        when(walletRepository.credit(eq(WALLET_UID), eq(USER_UID), eq(amount), any())).thenReturn(1);
+
+        // when
+        walletService.credit(WALLET_UID, USER_UID, amount);
+
+        // then
+        verify(walletRepository).credit(eq(WALLET_UID), eq(USER_UID), eq(amount), any());
+    }
+
+    @Test
+    @DisplayName("given no such wallet in the user's shard, when credit, then WALLET_NOT_FOUND and the caller rolls back")
+    void creditRefusesUnknownWallet() {
+        // given
+        when(walletRepository.credit(eq(WALLET_UID), eq(USER_UID), any(), any())).thenReturn(0);
+
+        // when / then
+        assertThatThrownBy(() -> walletService.credit(WALLET_UID, USER_UID, BigDecimal.TEN))
+                .isInstanceOfSatisfying(TransactionServiceException.class,
+                        ex -> assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.WALLET_NOT_FOUND));
     }
 
     private static CreateWalletRequestDto createRequest() {

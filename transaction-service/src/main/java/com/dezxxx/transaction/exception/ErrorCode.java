@@ -14,11 +14,17 @@ public enum ErrorCode {
 
     WALLET_TYPE_NOT_ACTIVE(HttpStatus.BAD_REQUEST, "The wallet type is archived or not active"),
 
+    WALLET_NOT_ACTIVE(HttpStatus.BAD_REQUEST, "The wallet is not active"),
+
     WALLET_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet type not found"),
 
     WALLET_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet not found"),
 
+    TRANSACTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Transaction not found"),
+
     NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found"),
+
+    REQUEST_ID_CONFLICT(HttpStatus.CONFLICT, "requestId already used for another operation"),
 
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "HTTP method is not supported for this path"),
 

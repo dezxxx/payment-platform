@@ -1,0 +1,62 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: fake-payment-provider
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    properties:
+      schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8085}
+      # uuid and decimal fields as UUID and BigDecimal, the types the generated classes hold
+      avro.use.logical.type.converters: true
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
+      # a Kafka transaction per request: the listener container runs in it and commits the offset in it
+      transaction-id-prefix: fake-payment-provider-
+    consumer:
+      group-id: fake-payment-provider
+      auto-offset-reset: earliest
+      # never an answer of an aborted transaction
+      isolation-level: read_committed
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: io.confluent.kafka.serializers.KafkaAvroDeserializer
+        # the generated classes, not GenericRecord
+        specific.avro.reader: true
+    # the trace of the confirm request goes on through the traceparent header
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
+
+provider:
+  approval-limit: 10000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,prometheus,metrics"
+  tracing:
+    sampling:
+      # every request is traced - fine locally, not for production
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        # off: Prometheus scrapes the metrics; an OTLP push would only log failures
+        enabled: false
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+
+# JSON lines, as person-service: Alloy reads log.level and traceId from them
+logging:
+  structured:
+    format:
+      console: ecs

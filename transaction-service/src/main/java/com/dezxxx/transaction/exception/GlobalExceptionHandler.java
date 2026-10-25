@@ -11,6 +11,7 @@ import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.TypeMismatchException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -39,11 +40,23 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final String NO_TRACE = "unavailable";
 
+    // the confirm claim names a wallet that is not in the user's shard
+    private static final String TRANSACTION_WALLET_FK = "transactions_wallet_uid_fkey";
+
     private final Tracer tracer;
 
     @ExceptionHandler(TransactionServiceException.class)
     public ResponseEntity<ProblemDetail> handleService(TransactionServiceException ex, WebRequest request) {
         return respond(ex, ex.getErrorCode(), ex.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ProblemDetail> handleDataIntegrity(DataIntegrityViolationException ex, WebRequest request) {
+        if (violates(ex, TRANSACTION_WALLET_FK)) {
+            ErrorCode code = ErrorCode.WALLET_NOT_FOUND;
+            return respond(ex, code, code.getDefaultMessage(), List.of(), request);
+        }
+        return handleUnexpected(ex, request);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
@@ -138,6 +151,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             case MissingRequestHeaderException e -> List.of(e.getHeaderName() + ": is required");
             default -> List.of();
         };
+    }
+
+    private boolean violates(DataIntegrityViolationException ex, String constraint) {
+        String message = ex.getMostSpecificCause().getMessage();
+        return message != null && message.contains(constraint);
     }
 
     private String lastNode(String propertyPath) {

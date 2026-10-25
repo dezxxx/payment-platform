@@ -68,7 +68,11 @@ else valid token
               its transaction yet, this INSERT waits for it.
               The PENDING row is not visible outside until COMMIT.
             end note
-            alt 0 rows — requestId already taken (a repeat, incl. a concurrent one)
+            alt foreign key: the wallet is not in the user's shard
+                TS -> DB: ROLLBACK — nothing written, the requestId stays free
+                TS --> IA: 404 ErrorResponse (WALLET_NOT_FOUND)
+                IA --> Client: 404
+            else 0 rows — requestId already taken (a repeat, incl. a concurrent one)
                 TS -> DB: SELECT uid, status, type, wallet_uid, amount FROM transactions\nWHERE user_uid = :userUid AND request_id = :requestId
                 alt type, wallet or amount differ from the request
                     TS --> IA: 409 ErrorResponse — requestId already used for another operation
@@ -148,9 +152,9 @@ loop on a schedule (@Scheduled)
 end
 Kafka -> PP: WithdrawalRequested
 alt the money was sent to the card
-    PP -> Kafka: WithdrawalCompleted (transactionId, userId, traceparent)
+    PP -> Kafka: WithdrawalCompleted (transactionId, userId)\ntraceparent header from the request
 else declined: the bank refused
-    PP -> Kafka: WithdrawalFailed (transactionId, userId, failureReason, traceparent)
+    PP -> Kafka: WithdrawalFailed (transactionId, userId, failureReason)\ntraceparent header from the request
 end
 note over PP
   No answer — the transaction stays PENDING, the funds stay reserved.

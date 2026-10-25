@@ -1,0 +1,9 @@
+{
+  "type": "record",
+  "name": "WithdrawalCompleted",
+  "namespace": "com.dezxxx.transaction.event",
+  "fields": [
+    {"name": "transactionId", "type": {"type": "string", "logicalType": "uuid"}},
+    {"name": "userId", "type": {"type": "string", "logicalType": "uuid"}}
+  ]
+}

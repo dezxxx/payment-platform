@@ -16,6 +16,7 @@ Project context for humans and LLMs. Read this first before touching anything.
 | 1 - individuals-api | [`individuals-api/CONTEXT.md`](individuals-api/CONTEXT.md) |
 | 2 - person-service | [`person-service/CONTEXT.md`](person-service/CONTEXT.md) |
 | 3 - transaction-service | [`transaction-service/CONTEXT.md`](transaction-service/CONTEXT.md) |
+| 3 - fake-payment-provider | [`fake-payment-provider/CONTEXT.md`](fake-payment-provider/CONTEXT.md) |
 
 ---
 
@@ -255,6 +256,11 @@ Host ports, as fixed by the course handout. Values live in `.env`, never in
 | transaction-service | 8084 | 8084 |
 | transaction-postgres-0 | 5435 | 5432 |
 | transaction-postgres-1 | 5436 | 5432 |
+| kafka | 9092 | 9092 (19092 inside the network) |
+| schema-registry | 8085 | 8081 |
+| fake-payment-provider | 8086 | 8086 |
+| kafka-ui | 8087 | 8080 |
+| transaction-postgres-0-exporter, -1-exporter | - | 9187 |
 | prometheus | 9090 | 9090 |
 | tempo | 3200, 4318 | 3200, 4318 |
 | loki | 3100 | 3100 |
@@ -264,7 +270,8 @@ Host ports, as fixed by the course handout. Values live in `.env`, never in
 `person-service` gets 8082 in module 2 - not from the handout, chosen because
 8081 is taken. The OpenAPI `servers` entries follow this table.
 `transaction-service` gets 8084 in module 3: the handout's 8082 belongs to
-person-service and 8083 to Nexus.
+person-service and 8083 to Nexus. `schema-registry` keeps its own 8081 inside
+the network and gets 8085 on the host, where 8081 is individuals-api.
 
 **Nexus runs on 8083, not on its own default 8081.** The handout fixes 8081 for
 individuals-api, so Nexus is the one that has to move; the URLs live in
@@ -287,7 +294,9 @@ payment-platform/              a Git root, NOT a Gradle project
 ├── individuals-api/           the orchestrator; its C4 diagrams in diagrams-c4/
 ├── person-service/            the individual aggregate; also publishes person-service-client -> Nexus
 │                              its C4 diagrams in diagrams-c4/
-└── transaction-service/       wallets and transactions (module 3); its C4 diagrams in diagrams-c4/
+├── transaction-service/       wallets and transactions (module 3); also publishes transaction-service-client
+│                              and transaction-service-events -> Nexus; its C4 diagrams in diagrams-c4/
+└── fake-payment-provider/     the payment provider stub (module 3): answers the Kafka requests of transaction-service
 ```
 
 Each module is an independent Gradle build: its own `settings.gradle.kts`,
@@ -307,14 +316,15 @@ outside its folder: plugin versions are in its own `build.gradle.kts`.
 the stack, and `make help` lists the rest. The `Makefile` exists because there
 is no root build to hang the order on. `make verify` runs the whole order from
 scratch (person-service and transaction-service `clean check`, their clients
-into Nexus, individuals-api `clean build`, images `--no-cache`, stack up);
+and the events into Nexus, individuals-api and fake-payment-provider
+`clean build`, images `--no-cache`, stack up);
 `make verify-down` stops the stack first, because the integration tests need
 its memory.
 
 The `Makefile` is one file in blocks: the platform (stack, `verify`), all
 modules (`build`, `test`, `it`, `check`, `publish`, `clean`), then one block per
 module with the same commands under its prefix - `person-`, `individuals-`,
-`transaction-` - so one module is checked on its own, e.g.
+`transaction-`, `provider-` - so one module is checked on its own, e.g.
 `make transaction-publish-local`.
 
 What it runs, for when it is not installed:

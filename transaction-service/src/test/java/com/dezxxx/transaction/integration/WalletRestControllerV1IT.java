@@ -17,10 +17,6 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 @DisplayName("WalletRestControllerV1 against two real shards")
 class WalletRestControllerV1IT extends IntegrationTest {
 
-    private static final String USER_UID_HEADER = "X-User-Uid";
-
-    private static final UUID USD_TYPE = UUID.fromString("00000000-0000-0000-0000-000000000840");
-
     @Test
     @DisplayName("given an active wallet type, when creating, then 201, an ACTIVE wallet with balance 0 in the user's shard")
     void createsWallet() {

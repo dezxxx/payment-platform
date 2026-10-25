@@ -1,6 +1,11 @@
 global:
   scrape_interval: 15s
   scrape_timeout: 10s
+  evaluation_interval: 15s
+
+# no Alertmanager in the stack: a firing alert shows on /alerts and as the ALERTS series in Grafana
+rule_files:
+  - "/etc/prometheus/alerts.yml"
 
 scrape_configs:
   - job_name: "individuals-api"
@@ -17,3 +22,18 @@ scrape_configs:
     metrics_path: "/actuator/prometheus"
     static_configs:
       - targets: ["transaction-service:8084"]
+
+  - job_name: "fake-payment-provider"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["fake-payment-provider:8086"]
+
+  # one target per shard; the shard label lets one Grafana panel draw both
+  - job_name: "transaction-shards"
+    static_configs:
+      - targets: ["transaction-postgres-0-exporter:9187"]
+        labels:
+          shard: "ds_0"
+      - targets: ["transaction-postgres-1-exporter:9187"]
+        labels:
+          shard: "ds_1"

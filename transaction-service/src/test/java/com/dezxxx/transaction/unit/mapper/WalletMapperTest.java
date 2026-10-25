@@ -4,9 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.dezxxx.transaction.api.model.CreateWalletRequestDto;
 import com.dezxxx.transaction.api.model.WalletResponseDto;
-import com.dezxxx.transaction.entity.WalletEntity;
-import com.dezxxx.transaction.entity.WalletStatus;
-import com.dezxxx.transaction.entity.WalletTypeEntity;
+import com.dezxxx.transaction.entity.wallet.WalletEntity;
+import com.dezxxx.transaction.entity.wallet.WalletStatus;
+import com.dezxxx.transaction.entity.wallet.WalletTypeEntity;
 import com.dezxxx.transaction.mapper.WalletMapper;
 import java.math.BigDecimal;
 import java.util.UUID;

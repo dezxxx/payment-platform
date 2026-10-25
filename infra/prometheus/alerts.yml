@@ -1,0 +1,41 @@
+groups:
+  - name: transaction-service
+    rules:
+      # the provider never answered: the money is neither credited nor returned
+      - alert: TransactionPendingTooLong
+        expr: transaction_pending_oldest_seconds{job="transaction-service"} > 300
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A transaction has been PENDING for more than 5 minutes"
+          description: "The oldest PENDING transaction is {{ $value | humanizeDuration }} old: the provider did not answer."
+
+      # Kafka does not acknowledge: events pile up in transaction_events
+      - alert: TransactionEventsNotSent
+        expr: transaction_events_unsent_oldest_seconds{job="transaction-service"} > 60
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Events have been waiting in transaction_events for more than a minute"
+          description: "The oldest unsent event is {{ $value | humanizeDuration }} old: Kafka does not acknowledge."
+
+      # every message in a DLT is an answer nobody applied: it needs a person
+      - alert: TransactionDeadLetters
+        expr: sum by (topic) (increase(transaction_events_dead_letter_total{job="transaction-service"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Messages from {{ $labels.topic }} went to {{ $labels.topic }}-dlt"
+          description: "{{ $value | humanize }} messages in the last 5 minutes: the consumer gave up on them after the retries."
+
+      # the consumer falls behind the provider's answers
+      - alert: TransactionConsumerLag
+        expr: max(kafka_consumer_fetch_manager_records_lag_max{job="transaction-service"}) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "transaction-service lags behind the provider's answers"
+          description: "Up to {{ $value | humanize }} answers are waiting in one partition."

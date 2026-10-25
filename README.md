@@ -78,7 +78,7 @@ make
 ```
 
 `make help` lists the rest — `make test`, `make it`, `make down`, `make logs`,
-`make reset-db` (empties Keycloak, the person database and both transaction shards, e.g. before running
+`make reset-db` (empties Keycloak, the person database, both transaction shards and Kafka, e.g. before running
 the Postman collection again).
 `make verify` checks everything from scratch in order: person-service and
 transaction-service tests, their clients into Nexus, individuals-api tests,
@@ -126,9 +126,12 @@ on a second registration, because person-service already holds their email.
 | Swagger UI (our contract) | http://localhost:8081/swagger-ui.html |
 | person-service | http://localhost:8082 |
 | Swagger UI of person-service | http://localhost:8082/swagger-ui.html |
+| transaction-service | http://localhost:8084 |
+| Swagger UI of transaction-service | http://localhost:8084/swagger-ui.html |
 | Keycloak | http://localhost:8080 |
-| Grafana (dashboards individuals-api and person-service) | http://localhost:3000 |
-| Prometheus | http://localhost:9090 |
+| Grafana (dashboards individuals-api, person-service and transaction-service) | http://localhost:3000 |
+| Prometheus (alerts on /alerts) | http://localhost:9090 |
+| Kafka UI (topics, consumer groups, messages) | http://localhost:8087 |
 
 The full port map, including why Nexus runs on 8083 instead of its own default,
 is in §4 of `CONTEXT.md`.
@@ -139,7 +142,8 @@ is in §4 of `CONTEXT.md`.
 payment-platform/
 ├── individuals-api/      the orchestrator — module 1's deliverable
 ├── person-service/       the individual aggregate (module 2); publishes person-service-client to Nexus
-├── transaction-service/  wallets and transactions (module 3), port 8084; design approved, code in progress
+├── transaction-service/  wallets and transactions (module 3), port 8084; publishes its client and events to Nexus
+├── fake-payment-provider/ the payment provider stub (module 3), port 8086; answers over Kafka
 ├── infra/                prometheus, tempo, loki, alloy, grafana provisioning
 ├── postman/
 └── docker-compose.yml
@@ -173,7 +177,7 @@ Module 1 is not finished. What is honest as of today:
 | | |
 |---|---|
 | ✅ Working | Contract, Gradle build, Keycloak realm, `KeycloakClient` and `PersonClient`, `UserService` with compensation, `TokenService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — all eight meters, and JSON logs carrying every field the module requires |
-| 🐳 Compose | `make up` brings up fourteen services and builds the app inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
+| 🐳 Compose | `make up` brings up twenty services and builds the app inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
 | 🧪 Tests | **individuals-api: 67 tests, green — 50 unit and 17 integration**; every test case the module 1 handout lists carries its code (`UT-REG-001`, `IT-KC-001`) in its display name, against a real Keycloak and PostgreSQL in containers; coverage on the key services 100%. **person-service: 57 tests, green — 38 unit and 19 integration** on a real PostgreSQL, every scenario of the module 2 handout; **97% of lines**. Both builds fail below 80% |
 | 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, 20 requests, tokens captured automatically, 52 assertions |
 | 📦 Nexus | In the compose file. person-service publishes `person-service-client` into it, and individuals-api resolves the client from it by coordinates |

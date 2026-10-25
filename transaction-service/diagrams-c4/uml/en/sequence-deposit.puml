@@ -60,7 +60,11 @@ else valid token
               The requestId is claimed first, in one statement.
               A second concurrent request waits here until the first one ends.
             end note
-            alt 0 rows — requestId already taken (a repeat, incl. a concurrent one)
+            alt foreign key: the wallet is not in the user's shard
+                TS -> DB: ROLLBACK — nothing written, the requestId stays free
+                TS --> IA: 404 ErrorResponse (WALLET_NOT_FOUND)
+                IA --> Client: 404
+            else 0 rows — requestId already taken (a repeat, incl. a concurrent one)
                 TS -> DB: SELECT uid, status, type, wallet_uid, amount FROM transactions\nWHERE user_uid = :userUid AND request_id = :requestId
                 alt type, wallet or amount differ from the request
                     TS --> IA: 409 ErrorResponse — requestId already used for another operation
@@ -122,9 +126,9 @@ loop on a schedule (@Scheduled)
 end
 Kafka -> PP: DepositRequested
 alt the card was charged
-    PP -> Kafka: DepositCompleted (transactionId, userId, traceparent)
+    PP -> Kafka: DepositCompleted (transactionId, userId)\ntraceparent header from the request
 else declined: not enough funds on the card or the bank refused
-    PP -> Kafka: DepositFailed (transactionId, userId, failureReason, traceparent)
+    PP -> Kafka: DepositFailed (transactionId, userId, failureReason)\ntraceparent header from the request
 end
 note over PP
   No answer — the transaction stays PENDING.

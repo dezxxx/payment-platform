@@ -19,6 +19,7 @@
 | 1 - individuals-api | [`individuals-api/CONTEXT.ru.md`](individuals-api/CONTEXT.ru.md) |
 | 2 - person-service | [`person-service/CONTEXT.ru.md`](person-service/CONTEXT.ru.md) |
 | 3 - transaction-service | [`transaction-service/CONTEXT.ru.md`](transaction-service/CONTEXT.ru.md) |
+| 3 - fake-payment-provider | [`fake-payment-provider/CONTEXT.ru.md`](fake-payment-provider/CONTEXT.ru.md) |
 
 ---
 
@@ -254,6 +255,11 @@ management:
 | transaction-service | 8084 | 8084 |
 | transaction-postgres-0 | 5435 | 5432 |
 | transaction-postgres-1 | 5436 | 5432 |
+| kafka | 9092 | 9092 (19092 внутри сети) |
+| schema-registry | 8085 | 8081 |
+| fake-payment-provider | 8086 | 8086 |
+| kafka-ui | 8087 | 8080 |
+| transaction-postgres-0-exporter, -1-exporter | — | 9187 |
 | prometheus | 9090 | 9090 |
 | tempo | 3200, 4318 | 3200, 4318 |
 | loki | 3100 | 3100 |
@@ -263,7 +269,8 @@ management:
 `person-service` получает 8082 в модуле 2 — не из задания, выбрано потому, что
 8081 занят. Записи `servers` в OpenAPI следуют этой таблице.
 `transaction-service` получает 8084 в модуле 3: 8082 из задания занят
-person-service, 8083 — Nexus.
+person-service, 8083 — Nexus. `schema-registry` внутри сети на своём 8081, а на хосте
+на 8085: 8081 на хосте у individuals-api.
 
 **Nexus работает на 8083, а не на своём дефолтном 8081.** Задание закрепляет
 8081 за individuals-api, так что двигаться приходится Nexus; URL живут в
@@ -286,7 +293,9 @@ payment-platform/              Git root, а НЕ проект Gradle
 ├── individuals-api/           оркестратор; его C4-диаграммы в diagrams-c4/
 ├── person-service/            агрегат физлица; ещё публикует person-service-client -> Nexus
 │                              его C4-диаграммы в diagrams-c4/
-└── transaction-service/       кошельки и транзакции (модуль 3); его C4-диаграммы в diagrams-c4/
+├── transaction-service/       кошельки и транзакции (модуль 3); ещё публикует transaction-service-client
+│                              и transaction-service-events -> Nexus; его C4-диаграммы в diagrams-c4/
+└── fake-payment-provider/     заглушка платёжного провайдера (модуль 3): отвечает на Kafka-запросы transaction-service
 ```
 
 Каждый модуль — самостоятельная сборка Gradle: свой `settings.gradle.kts`,
@@ -306,14 +315,14 @@ individuals-api пока подключает `gradle/libs.versions.toml` как
 Всё это делает `make`: одна команда `make` поднимает Nexus, собирает образ и
 поднимает стенд, `make help` показывает остальные цели. `Makefile` существует
 потому, что корневой сборки нет. `make verify` прогоняет весь порядок с нуля
-(person-service и transaction-service `clean check`, их клиенты в Nexus,
-individuals-api `clean build`, образы `--no-cache`, стенд); `make verify-down`
+(person-service и transaction-service `clean check`, их клиенты и события в Nexus,
+individuals-api и fake-payment-provider `clean build`, образы `--no-cache`, стенд); `make verify-down`
 сначала останавливает стенд, потому что интеграционным тестам нужна его память.
 
 `Makefile` — один файл, разбитый на блоки: платформа (стенд, `verify`), все
 модули (`build`, `test`, `it`, `check`, `publish`, `clean`), затем по блоку на
 модуль с теми же командами под его префиксом — `person-`, `individuals-`,
-`transaction-`, — чтобы проверять модуль отдельно, например
+`transaction-`, `provider-`, — чтобы проверять модуль отдельно, например
 `make transaction-publish-local`.
 
 Что он запускает, на случай, если make не установлен:
