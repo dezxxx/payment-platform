@@ -83,7 +83,7 @@ else valid token
                 end
             else 1 row — requestId claimed by this request
                 TS -> WS: debit amount + fee (reserve)
-                WS -> DB: SELECT w.uid, w.status, w.balance, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid = :walletUid AND w.user_uid = :userUid AND w.archived_at IS NULL\nFOR NO KEY UPDATE OF w
+                WS -> DB: SELECT * FROM wallets\nWHERE uid = :walletUid AND user_uid = :userUid AND archived_at IS NULL\nFOR NO KEY UPDATE\nthen SELECT * FROM wallet_types WHERE uid = :walletTypeUid (currency, no lock)
                 note right of DB
                   FOR NO KEY UPDATE — another operation on this wallet
                   waits until this transaction ends: the balance

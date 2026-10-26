@@ -456,7 +456,18 @@ flowchart LR
     PROM["prometheus"] -->|scrape 8081| API
     GRAF["grafana"] --> PROM
     GRAF --> TEMPO
+    TS["transaction-service"] -->|5432| TSDB[("transaction-postgres-0 / -1")]
+    TS -->|19092| KAFKA["kafka"]
+    FPP["fake-payment-provider"] -->|19092| KAFKA
+    TS -->|8081| SR["schema-registry"]
+    FPP -->|8081| SR
+    PROM -->|scrape 8084| TS
+    PROM -->|scrape 8086| FPP
 ```
+
+transaction-service (module 3) has no client of its own yet: individuals-api
+will call it on 8084 with the user from the token, as its container diagram
+shows. It talks to the payment provider only through Kafka.
 
 Two opposite mechanics, and they are easy to confuse. **Prometheus pulls** -
 it walks to the application on a schedule, so the application's address lives
@@ -478,6 +489,9 @@ error anywhere.
 | client id | `.env` `KEYCLOAK_CLIENT_ID` | `realm-export.json` `clientId` | the value |
 | client secret | `.env` `KEYCLOAK_CLIENT_SECRET` | `realm-export.json` `secret` | the value |
 | app port | `application.yml` `server.port` | compose `8081:8081` | the right-hand side |
+| transaction-service scrape | `prometheus.yml` targets `transaction-service:8084`, `fake-payment-provider:8086` | compose service names plus `server.port` | name and port |
+| Kafka inside compose | compose `KAFKA_BOOTSTRAP_SERVERS: kafka:19092` of both services | `KAFKA_ADVERTISED_LISTENERS` `PLAINTEXT://kafka:19092` | host and port |
+| Schema Registry | compose `SCHEMA_REGISTRY_URL: http://schema-registry:8081` of both services | `SCHEMA_REGISTRY_LISTENERS` | the port |
 
 How this bites: change `server.port` to 8080 and forget `prometheus.yml`. The
 application starts, `/actuator/prometheus` answers, and Prometheus quietly

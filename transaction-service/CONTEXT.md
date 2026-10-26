@@ -139,10 +139,18 @@ Avro classes of the events come from `.avsc` files in a later step.
       user's → `404 TRANSACTION_NOT_FOUND`); the search by wallet, type, status and dates, page by page,
       newest first. `TransactionStatusSearchIT` checks every filter, pages without overlap, another
       user's wallet → an empty list and the `400` answers
+- [x] `postman/transaction-service.postman_collection.json`: Ivan's wallets, a deposit (completed and one
+      above the provider limit, declined), a withdrawal, a transfer, the status and every search filter,
+      then every error answer; the deposit and withdrawal statuses repeat themselves while `PENDING`.
+      Each run makes fresh users. Swagger UI shows the contract file itself
+- [x] The diagrams match the code: the search compares `type` as text and reads `size + 1` rows
+      (a `Slice`), the confirm locks read `wallets` alone and the currency after the lock
+- [x] transaction-service in the configuration map of the root `CONTEXT.md`
 
 ### Next
 
-- [ ] Postman collection; `transaction-service-client` in individuals-api
+- [ ] `transaction-service-client` in individuals-api, by the container diagram: the client beans,
+      `/api/v1/wallets` and `/api/v1/transactions` with the user from the token
 - [ ] Query time per shard: `pg_stat_statements` is not loaded in the shards, the dashboard shows
       the service-side time; a full route counter needs the ShardingSphere Java agent
-- [ ] Add transaction-service to the configuration map of the root `CONTEXT.md`
+- [ ] Grafana legends read like Java names (`@Observed` operation tags in camelCase)

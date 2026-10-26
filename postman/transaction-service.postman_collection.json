@@ -1,0 +1,2092 @@
+{
+  "info": {
+    "name": "transaction-service",
+    "description": "Every endpoint of transaction-service and every error it answers with, for one user, Ivan, and a second one, Anna, who must not see his data.\n\nNothing is copied by hand: each request stores the ids the next ones use. Run the whole collection with Postman's Runner, top to bottom. Every run makes fresh users, so it can be run again on the same databases.\n\nDeposit and withdrawal are finished by the fake payment provider through Kafka: their status requests repeat themselves while the transaction is PENDING.\n\nbaseUrl is http://localhost:8084 - transaction-service in docker compose (make up), together with Kafka and fake-payment-provider.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Infrastructure",
+      "item": [
+        {
+          "name": "Health",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// a fresh user per run: the collection can be run again on the same database",
+                  "pm.collectionVariables.set('ivanUserUid', pm.variables.replaceIn('{{$guid}}'));",
+                  "pm.collectionVariables.set('annaUserUid', pm.variables.replaceIn('{{$guid}}'));",
+                  "pm.collectionVariables.set('tries', 0);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/health"
+          }
+        },
+        {
+          "name": "Swagger UI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/swagger-ui.html"
+          }
+        },
+        {
+          "name": "Contract file",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('our contract', () => pm.expect(pm.response.text()).to.include('operationId: searchTransactions'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/openapi/transaction-service.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Wallets",
+      "item": [
+        {
+          "name": "Create Main USD",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const w = pm.response.json();",
+                  "pm.collectionVariables.set('mainWallet', w.uid);",
+                  "pm.test('USD, ACTIVE, balance 0', () => { pm.expect(w.currencyCode).to.eql('USD'); pm.expect(w.status).to.eql('ACTIVE'); pm.expect(w.balance).to.eql(0); });",
+                  "pm.test('name and type as sent', () => { pm.expect(w.name).to.eql('Main USD'); pm.expect(w.walletTypeUid).to.eql(pm.collectionVariables.get('usdType')); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Main USD\",\n  \"walletTypeUid\": \"{{usdType}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Savings USD",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('savingsWallet', pm.response.json().uid);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Savings USD\",\n  \"walletTypeUid\": \"{{usdType}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Travel EUR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const w = pm.response.json();",
+                  "pm.collectionVariables.set('eurWallet', w.uid);",
+                  "pm.test('EUR', () => pm.expect(w.currencyCode).to.eql('EUR'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Travel EUR\",\n  \"walletTypeUid\": \"{{eurType}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Wallet by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('the Main USD wallet', () => { pm.expect(pm.response.json().uid).to.eql(pm.collectionVariables.get('mainWallet')); pm.expect(pm.response.json().name).to.eql('Main USD'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        },
+        {
+          "name": "Ivan's wallets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('three wallets', () => pm.expect(pm.response.json().map(w => w.name)).to.have.members(['Main USD', 'Savings USD', 'Travel EUR']));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/wallets/user/{{ivanUserUid}}"
+          }
+        },
+        {
+          "name": "Anna's wallets - none yet, an empty list",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('empty list', () => pm.expect(pm.response.json()).to.eql([]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/wallets/user/{{annaUserUid}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Deposit",
+      "description": "Deposit goes through Kafka: confirm answers PENDING, the fake payment provider answers DepositCompleted or DepositFailed, the status request repeats itself until the answer is in. An amount above the provider limit (10000) is declined on purpose.",
+      "item": [
+        {
+          "name": "Deposit init - 1000.00 to Main USD",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.collectionVariables.set('depositRequestId', t.requestId);",
+                  "pm.test('fee 0, total = amount', () => { pm.expect(t.amount).to.eql(1000); pm.expect(t.fee).to.eql(0); pm.expect(t.total).to.eql(1000); });",
+                  "pm.test('a requestId for confirm', () => pm.expect(t.requestId).to.match(/^[0-9a-f-]{36}$/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 1000\n}"
+            }
+          }
+        },
+        {
+          "name": "Deposit confirm - PENDING until the provider answers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.collectionVariables.set('depositId', t.transactionId);",
+                  "pm.test('PENDING', () => pm.expect(t.status).to.eql('PENDING'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{depositRequestId}}\",\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 1000\n}"
+            }
+          }
+        },
+        {
+          "name": "Deposit confirm again, the same requestId - the same transaction, no second deposit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('the same transaction', () => pm.expect(pm.response.json().transactionId).to.eql(pm.collectionVariables.get('depositId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{depositRequestId}}\",\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 1000\n}"
+            }
+          }
+        },
+        {
+          "name": "Deposit status - wait for COMPLETED",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (Number(pm.collectionVariables.get('tries') || 0) > 0) { setTimeout(() => {}, 500); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const tries = Number(pm.collectionVariables.get('tries') || 0);",
+                  "if (t.status === 'PENDING' && tries < 20) {",
+                  "  pm.collectionVariables.set('tries', tries + 1);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set('tries', 0);",
+                  "  pm.test('the provider answered: COMPLETED', () => pm.expect(t.status).to.eql('COMPLETED'));",
+                  "  pm.test('the same transaction', () => pm.expect(t.transactionId).to.eql(pm.collectionVariables.get('depositId')));",
+                  "  pm.test('type deposit, fee 0', () => { pm.expect(t.type).to.eql('deposit'); pm.expect(t.fee).to.eql(0); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/{{depositId}}/status"
+          }
+        },
+        {
+          "name": "Balance of mainWallet is 1000",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 1000', () => pm.expect(pm.response.json().balance).to.eql(1000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        },
+        {
+          "name": "Deposit init - 20000.00, above the provider limit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('declinedRequestId', pm.response.json().requestId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{savingsWallet}}\",\n  \"amount\": 20000\n}"
+            }
+          }
+        },
+        {
+          "name": "Deposit confirm - 20000.00",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('declinedId', pm.response.json().transactionId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{declinedRequestId}}\",\n  \"walletUid\": \"{{savingsWallet}}\",\n  \"amount\": 20000\n}"
+            }
+          }
+        },
+        {
+          "name": "Declined deposit status - wait for FAILED with the reason",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (Number(pm.collectionVariables.get('tries') || 0) > 0) { setTimeout(() => {}, 500); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const tries = Number(pm.collectionVariables.get('tries') || 0);",
+                  "if (t.status === 'PENDING' && tries < 20) {",
+                  "  pm.collectionVariables.set('tries', tries + 1);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set('tries', 0);",
+                  "  pm.test('the provider answered: FAILED', () => pm.expect(t.status).to.eql('FAILED'));",
+                  "  pm.test('the same transaction', () => pm.expect(t.transactionId).to.eql(pm.collectionVariables.get('declinedId')));",
+                  "  pm.test('the reason of the provider', () => pm.expect(t.failureReason).to.be.a('string').and.not.empty);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/{{declinedId}}/status"
+          }
+        },
+        {
+          "name": "Balance of savingsWallet is 0",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 0', () => pm.expect(pm.response.json().balance).to.eql(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{savingsWallet}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Withdrawal",
+      "item": [
+        {
+          "name": "Withdrawal init - 100.00, fee 1 %",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.collectionVariables.set('withdrawalRequestId', t.requestId);",
+                  "pm.test('fee 1.00, total 101.00', () => { pm.expect(t.fee).to.eql(1); pm.expect(t.total).to.eql(101); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/withdrawal/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 100\n}"
+            }
+          }
+        },
+        {
+          "name": "Withdrawal confirm - PENDING, the reserve is taken at once",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.collectionVariables.set('withdrawalId', t.transactionId);",
+                  "pm.test('PENDING', () => pm.expect(t.status).to.eql('PENDING'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/withdrawal/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{withdrawalRequestId}}\",\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 100\n}"
+            }
+          }
+        },
+        {
+          "name": "Balance of mainWallet is 899",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 899', () => pm.expect(pm.response.json().balance).to.eql(899));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        },
+        {
+          "name": "Withdrawal status - wait for COMPLETED",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (Number(pm.collectionVariables.get('tries') || 0) > 0) { setTimeout(() => {}, 500); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const tries = Number(pm.collectionVariables.get('tries') || 0);",
+                  "if (t.status === 'PENDING' && tries < 20) {",
+                  "  pm.collectionVariables.set('tries', tries + 1);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set('tries', 0);",
+                  "  pm.test('the provider answered: COMPLETED', () => pm.expect(t.status).to.eql('COMPLETED'));",
+                  "  pm.test('the same transaction', () => pm.expect(t.transactionId).to.eql(pm.collectionVariables.get('withdrawalId')));",
+                  "  pm.test('type withdrawal, fee 1.00', () => { pm.expect(t.type).to.eql('withdrawal'); pm.expect(t.fee).to.eql(1); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/{{withdrawalId}}/status"
+          }
+        },
+        {
+          "name": "Balance of mainWallet is 899",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 899', () => pm.expect(pm.response.json().balance).to.eql(899));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Transfer",
+      "item": [
+        {
+          "name": "Transfer init - 200.00 Main → Savings, fee 0.5 %",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.collectionVariables.set('transferRequestId', t.requestId);",
+                  "pm.test('fee 1.00, total 201.00', () => { pm.expect(t.fee).to.eql(1); pm.expect(t.total).to.eql(201); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/transfer/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{mainWallet}}\",\n  \"targetWalletUid\": \"{{savingsWallet}}\",\n  \"amount\": 200\n}"
+            }
+          }
+        },
+        {
+          "name": "Transfer confirm - COMPLETED at once, no Kafka",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.collectionVariables.set('transferId', t.transactionId);",
+                  "pm.test('COMPLETED', () => pm.expect(t.status).to.eql('COMPLETED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/transfer/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{transferRequestId}}\",\n  \"walletUid\": \"{{mainWallet}}\",\n  \"targetWalletUid\": \"{{savingsWallet}}\",\n  \"amount\": 200\n}"
+            }
+          }
+        },
+        {
+          "name": "Balance of mainWallet is 698",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 698', () => pm.expect(pm.response.json().balance).to.eql(698));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        },
+        {
+          "name": "Balance of savingsWallet is 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 200', () => pm.expect(pm.response.json().balance).to.eql(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{savingsWallet}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Status and search",
+      "item": [
+        {
+          "name": "Transfer status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('type transfer, COMPLETED', () => { pm.expect(t.type).to.eql('transfer'); pm.expect(t.status).to.eql('COMPLETED'); });",
+                  "pm.test('both wallets, amount, fee', () => { pm.expect(t.walletUid).to.eql(pm.collectionVariables.get('mainWallet')); pm.expect(t.targetWalletUid).to.eql(pm.collectionVariables.get('savingsWallet')); pm.expect(t.amount).to.eql(200); pm.expect(t.fee).to.eql(1); });",
+                  "pm.test('createdAt in UTC', () => pm.expect(t.createdAt).to.match(/Z$/));",
+                  "pm.collectionVariables.set('transferCreatedAt', t.createdAt);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/{{transferId}}/status"
+          }
+        },
+        {
+          "name": "Withdrawal status - for the date range below",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('withdrawalCreatedAt', pm.response.json().createdAt);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/{{withdrawalId}}/status"
+          }
+        },
+        {
+          "name": "Search without filters - all four, newest first",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const ids = pm.response.json().map(t => t.transactionId);",
+                  "pm.test('transfer, withdrawal, declined deposit, deposit', () => pm.expect(ids).to.eql([pm.collectionVariables.get('transferId'), pm.collectionVariables.get('withdrawalId'), pm.collectionVariables.get('declinedId'), pm.collectionVariables.get('depositId')]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}"
+          }
+        },
+        {
+          "name": "Search by type=deposit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const ids = pm.response.json().map(t => t.transactionId);",
+                  "pm.test('both deposits', () => pm.expect(ids).to.eql([pm.collectionVariables.get('declinedId'), pm.collectionVariables.get('depositId')]));",
+                  "pm.test('every one a deposit', () => pm.response.json().forEach(t => pm.expect(t.type).to.eql('deposit')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}&type=deposit"
+          }
+        },
+        {
+          "name": "Search by status=FAILED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const ids = pm.response.json().map(t => t.transactionId);",
+                  "pm.test('the declined deposit only', () => pm.expect(ids).to.eql([pm.collectionVariables.get('declinedId')]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}&status=FAILED"
+          }
+        },
+        {
+          "name": "Search by wallet - Main USD",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const ids = pm.response.json().map(t => t.transactionId);",
+                  "pm.test('made from Main USD: transfer, withdrawal, deposit', () => pm.expect(ids).to.eql([pm.collectionVariables.get('transferId'), pm.collectionVariables.get('withdrawalId'), pm.collectionVariables.get('depositId')]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}&walletUid={{mainWallet}}"
+          }
+        },
+        {
+          "name": "Search by dates - dateFrom included, dateTo not",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const ids = pm.response.json().map(t => t.transactionId);",
+                  "pm.test('the withdrawal only', () => pm.expect(ids).to.eql([pm.collectionVariables.get('withdrawalId')]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}&dateFrom={{withdrawalCreatedAt}}&dateTo={{transferCreatedAt}}"
+          }
+        },
+        {
+          "name": "Search page 0, size 2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const ids = pm.response.json().map(t => t.transactionId);",
+                  "pm.test('the two newest', () => pm.expect(ids).to.eql([pm.collectionVariables.get('transferId'), pm.collectionVariables.get('withdrawalId')]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}&page=0&size=2"
+          }
+        },
+        {
+          "name": "Search page 1, size 2 - no overlap with page 0",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const ids = pm.response.json().map(t => t.transactionId);",
+                  "pm.test('the two oldest', () => pm.expect(ids).to.eql([pm.collectionVariables.get('declinedId'), pm.collectionVariables.get('depositId')]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}&page=1&size=2"
+          }
+        },
+        {
+          "name": "Search page 2, size 2 - past the end, an empty list",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('empty list', () => pm.expect(pm.response.json()).to.eql([]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}&page=2&size=2"
+          }
+        },
+        {
+          "name": "Search as Anna by Ivan's wallet - an empty list",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('empty list', () => pm.expect(pm.response.json()).to.eql([]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{annaUserUid}}&walletUid={{mainWallet}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Failures - RFC 9457",
+      "description": "Every error answer of the service. None of them changes a balance: the last two requests check that.",
+      "item": [
+        {
+          "name": "400 - amount 0",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});",
+                  "pm.test('names the field', () => pm.expect(p.details.join()).to.include('amount'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 0\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - amount with three decimals",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});",
+                  "pm.test('names the field', () => pm.expect(p.details.join()).to.include('amount'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 1.234\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - amount missing",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});",
+                  "pm.test('names the field', () => pm.expect(p.details.join()).to.include('amount'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/withdrawal/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{mainWallet}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - wallet name empty",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});",
+                  "pm.test('names the field', () => pm.expect(p.details.join()).to.include('name'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"walletTypeUid\": \"{{usdType}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - the same wallet twice in a transfer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/transfer/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{mainWallet}}\",\n  \"targetWalletUid\": \"{{mainWallet}}\",\n  \"amount\": 10\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - no X-User-Uid header",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 10\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - X-User-Uid is not a UUID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "ivan"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        },
+        {
+          "name": "400 - wallet id is not a UUID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/not-a-uuid"
+          }
+        },
+        {
+          "name": "400 - not JSON at all",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error MALFORMED_REQUEST', () => pm.expect(p.error).to.eql('MALFORMED_REQUEST'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/init",
+            "body": {
+              "mode": "raw",
+              "raw": "not json"
+            }
+          }
+        },
+        {
+          "name": "400 - not enough for the fee: Savings has 200.00, withdrawal 200.00 needs 202.00",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error INSUFFICIENT_FUNDS', () => pm.expect(p.error).to.eql('INSUFFICIENT_FUNDS'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/withdrawal/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{savingsWallet}}\",\n  \"amount\": 200\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - transfer USD → EUR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error CURRENCY_MISMATCH', () => pm.expect(p.error).to.eql('CURRENCY_MISMATCH'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/transfer/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{mainWallet}}\",\n  \"targetWalletUid\": \"{{eurWallet}}\",\n  \"amount\": 10\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - search dateFrom after dateTo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});",
+                  "pm.test('says why', () => pm.expect(p.detail).to.eql('dateFrom must not be after dateTo'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}&dateFrom={{transferCreatedAt}}&dateTo={{withdrawalCreatedAt}}"
+          }
+        },
+        {
+          "name": "400 - search size 101, the limit is 100",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}&size=101"
+          }
+        },
+        {
+          "name": "400 - search page -1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}&page=-1"
+          }
+        },
+        {
+          "name": "400 - search type the contract does not know",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions?userUid={{ivanUserUid}}&type=refund"
+          }
+        },
+        {
+          "name": "400 - search without userUid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(p.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/transactions"
+          }
+        },
+        {
+          "name": "404 - Ivan's wallet asked by Anna",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "const p = pm.response.json();",
+                  "pm.test('error WALLET_NOT_FOUND', () => pm.expect(p.error).to.eql('WALLET_NOT_FOUND'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{annaUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        },
+        {
+          "name": "404 - deposit init to Ivan's wallet as Anna",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "const p = pm.response.json();",
+                  "pm.test('error WALLET_NOT_FOUND', () => pm.expect(p.error).to.eql('WALLET_NOT_FOUND'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{annaUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/init",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 10\n}"
+            }
+          }
+        },
+        {
+          "name": "404 - deposit confirm to a wallet that does not exist, nothing written",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "const p = pm.response.json();",
+                  "pm.test('error WALLET_NOT_FOUND', () => pm.expect(p.error).to.eql('WALLET_NOT_FOUND'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{$guid}}\",\n  \"walletUid\": \"00000000-0000-0000-0000-000000000000\",\n  \"amount\": 10\n}"
+            }
+          }
+        },
+        {
+          "name": "404 - wallet type that does not exist",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "const p = pm.response.json();",
+                  "pm.test('error WALLET_TYPE_NOT_FOUND', () => pm.expect(p.error).to.eql('WALLET_TYPE_NOT_FOUND'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nowhere\",\n  \"walletTypeUid\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            }
+          }
+        },
+        {
+          "name": "404 - Ivan's transaction asked by Anna",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "const p = pm.response.json();",
+                  "pm.test('error TRANSACTION_NOT_FOUND', () => pm.expect(p.error).to.eql('TRANSACTION_NOT_FOUND'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{annaUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/{{transferId}}/status"
+          }
+        },
+        {
+          "name": "409 - the deposit requestId again with another amount",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409', () => pm.response.to.have.status(409));",
+                  "const p = pm.response.json();",
+                  "pm.test('error REQUEST_ID_CONFLICT', () => pm.expect(p.error).to.eql('REQUEST_ID_CONFLICT'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(409);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{depositRequestId}}\",\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 5\n}"
+            }
+          }
+        },
+        {
+          "name": "405 - method not supported",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('405', () => pm.response.to.have.status(405));",
+                  "const p = pm.response.json();",
+                  "pm.test('error METHOD_NOT_ALLOWED', () => pm.expect(p.error).to.eql('METHOD_NOT_ALLOWED'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(405);",
+                  "});",
+                  "pm.test('Allow header names POST', () => pm.expect(pm.response.headers.get('Allow')).to.include('POST'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Main USD\",\n  \"walletTypeUid\": \"{{usdType}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "415 - not a JSON content type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('415', () => pm.response.to.have.status(415));",
+                  "const p = pm.response.json();",
+                  "pm.test('error UNSUPPORTED_MEDIA_TYPE', () => pm.expect(p.error).to.eql('UNSUPPORTED_MEDIA_TYPE'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(415);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets",
+            "body": {
+              "mode": "raw",
+              "raw": "Main USD"
+            }
+          }
+        },
+        {
+          "name": "Balance of mainWallet is 698",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 698', () => pm.expect(pm.response.json().balance).to.eql(698));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        },
+        {
+          "name": "Balance of savingsWallet is 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 200', () => pm.expect(pm.response.json().balance).to.eql(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{savingsWallet}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Observability - what the requests above left behind",
+      "item": [
+        {
+          "name": "Prometheus scrape",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const m = pm.response.text();",
+                  "pm.test('operations timed', () => pm.expect(m).to.include('transaction_operations'));",
+                  "pm.test('outbox gauges', () => { pm.expect(m).to.include('transaction_events_unsent'); pm.expect(m).to.include('transaction_pending'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/prometheus"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8084"
+    },
+    {
+      "key": "usdType",
+      "value": "00000000-0000-0000-0000-000000000840"
+    },
+    {
+      "key": "eurType",
+      "value": "00000000-0000-0000-0000-000000000978"
+    },
+    {
+      "key": "ivanUserUid",
+      "value": ""
+    },
+    {
+      "key": "annaUserUid",
+      "value": ""
+    },
+    {
+      "key": "tries",
+      "value": ""
+    },
+    {
+      "key": "mainWallet",
+      "value": ""
+    },
+    {
+      "key": "savingsWallet",
+      "value": ""
+    },
+    {
+      "key": "eurWallet",
+      "value": ""
+    },
+    {
+      "key": "depositRequestId",
+      "value": ""
+    },
+    {
+      "key": "depositId",
+      "value": ""
+    },
+    {
+      "key": "declinedRequestId",
+      "value": ""
+    },
+    {
+      "key": "declinedId",
+      "value": ""
+    },
+    {
+      "key": "withdrawalRequestId",
+      "value": ""
+    },
+    {
+      "key": "withdrawalId",
+      "value": ""
+    },
+    {
+      "key": "transferRequestId",
+      "value": ""
+    },
+    {
+      "key": "transferId",
+      "value": ""
+    },
+    {
+      "key": "withdrawalCreatedAt",
+      "value": ""
+    },
+    {
+      "key": "transferCreatedAt",
+      "value": ""
+    }
+  ]
+}

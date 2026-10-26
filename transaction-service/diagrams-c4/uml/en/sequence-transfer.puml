@@ -79,7 +79,7 @@ else valid token
                 end
             else 1 row — requestId claimed by this request
                 TS -> WS: Debit + Credit
-                WS -> DB: SELECT w.uid, w.status, w.balance, t.currency_code FROM wallets w\nJOIN wallet_types t ON t.uid = w.wallet_type_uid\nWHERE w.uid IN (:walletUid, :targetWalletUid)\n  AND w.user_uid = :userUid AND w.archived_at IS NULL\nORDER BY w.uid\nFOR NO KEY UPDATE OF w
+                WS -> DB: SELECT * FROM wallets\nWHERE uid IN (:walletUid, :targetWalletUid)\n  AND user_uid = :userUid AND archived_at IS NULL\nORDER BY uid\nFOR NO KEY UPDATE\nthen SELECT * FROM wallet_types WHERE uid = :walletTypeUid (currency, no lock)
                 note right of DB
                   ORDER BY uid — both wallets are always locked
                   in the same order: two opposite transfers

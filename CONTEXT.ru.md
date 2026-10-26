@@ -452,7 +452,18 @@ flowchart LR
     PROM["prometheus"] -->|scrape 8081| API
     GRAF["grafana"] --> PROM
     GRAF --> TEMPO
+    TS["transaction-service"] -->|5432| TSDB[("transaction-postgres-0 / -1")]
+    TS -->|19092| KAFKA["kafka"]
+    FPP["fake-payment-provider"] -->|19092| KAFKA
+    TS -->|8081| SR["schema-registry"]
+    FPP -->|8081| SR
+    PROM -->|scrape 8084| TS
+    PROM -->|scrape 8086| FPP
 ```
+
+У transaction-service (модуль 3) пока нет своего клиента: individuals-api будет
+вызывать его на 8084 с пользователем из токена, как показывает его диаграмма
+контейнеров. С платёжным провайдером он говорит только через Kafka.
 
 Две противоположные механики, и их легко перепутать. **Prometheus тянет** — он
 сам ходит к приложению по расписанию, поэтому адрес приложения живёт в
@@ -473,6 +484,9 @@ flowchart LR
 | client id | `KEYCLOAK_CLIENT_ID` в `.env` | `clientId` в `realm-export.json` | значение |
 | client secret | `KEYCLOAK_CLIENT_SECRET` в `.env` | `secret` в `realm-export.json` | значение |
 | порт приложения | `server.port` в `application.yml` | `8081:8081` в compose | правая часть |
+| сбор метрик transaction-service | цели `transaction-service:8084`, `fake-payment-provider:8086` в `prometheus.yml` | имена compose-сервисов плюс `server.port` | имя и порт |
+| Kafka внутри compose | `KAFKA_BOOTSTRAP_SERVERS: kafka:19092` у обоих сервисов в compose | `PLAINTEXT://kafka:19092` в `KAFKA_ADVERTISED_LISTENERS` | хост и порт |
+| Schema Registry | `SCHEMA_REGISTRY_URL: http://schema-registry:8081` у обоих сервисов в compose | `SCHEMA_REGISTRY_LISTENERS` | порт |
 
 Как это кусается: меняешь `server.port` на 8080 и забываешь `prometheus.yml`.
 Приложение стартует, `/actuator/prometheus` отвечает, а Prometheus тихо скрейпит
