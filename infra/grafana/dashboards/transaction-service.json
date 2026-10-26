@@ -1,0 +1,992 @@
+{
+  "uid": "transaction-service",
+  "title": "transaction-service",
+  "description": "Wallets and transactions: HTTP traffic, service operations, the transaction_events backlog, PENDING transactions, Kafka lag and dead letters, the provider's answers and the logs.",
+  "tags": [
+    "payment-platform"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Requests per second, by status",
+      "description": "Anything other than 2xx climbing is the first signal that something is wrong.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{job=\"transaction-service\"}[1m]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Latency, 95th percentile by endpoint",
+      "description": "95 requests out of 100 answer faster than this.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, method, uri) (rate(http_server_requests_seconds_bucket{job=\"transaction-service\"}[5m])))",
+          "legendFormat": "{{method}} {{uri}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Service operations per second",
+      "description": "TransactionService and WalletService: error=\"none\" succeeded, anything else names the exception. finalize is the provider's answer applied.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (operation, error) (rate(transaction_operations_seconds_count{job=\"transaction-service\"}[1m]))",
+          "legendFormat": "transaction {{operation}} ({{error}})"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (operation, error) (rate(wallet_operations_seconds_count{job=\"transaction-service\"}[1m]))",
+          "legendFormat": "wallet {{operation}} ({{error}})"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Service operation time, average",
+      "description": "Time inside the service method, the database transaction included.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (operation) (rate(transaction_operations_seconds_sum{job=\"transaction-service\"}[5m])) / sum by (operation) (rate(transaction_operations_seconds_count{job=\"transaction-service\"}[5m]))",
+          "legendFormat": "transaction {{operation}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (operation) (rate(wallet_operations_seconds_sum{job=\"transaction-service\"}[5m])) / sum by (operation) (rate(wallet_operations_seconds_count{job=\"transaction-service\"}[5m]))",
+          "legendFormat": "wallet {{operation}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Events waiting in transaction_events",
+      "description": "Rows Kafka has not acknowledged yet, both shards together. TransactionKafkaProducer sends every second, so it stays near 0 while Kafka is up.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "transaction_events_unsent{job=\"transaction-service\"}",
+          "legendFormat": "unsent"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Oldest unsent event, age",
+      "description": "How long the oldest unsent event has been waiting. Alert TransactionEventsNotSent above 60 s for a minute.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "transaction_events_unsent_oldest_seconds{job=\"transaction-service\"}",
+          "legendFormat": "oldest unsent"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "PENDING transactions",
+      "description": "Transactions waiting for the provider's answer, both shards together.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "transaction_pending{job=\"transaction-service\"}",
+          "legendFormat": "PENDING"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Oldest PENDING transaction, age",
+      "description": "How long the provider has not answered. Alert TransactionPendingTooLong above 5 minutes for a minute.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "transaction_pending_oldest_seconds{job=\"transaction-service\"}",
+          "legendFormat": "oldest PENDING"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Consumer lag, by service",
+      "description": "Messages a consumer has not read yet, the worst partition: transaction-service reads the answers, the provider reads the requests.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (job) (kafka_consumer_fetch_manager_records_lag_max{job=~\"transaction-service|fake-payment-provider\"})",
+          "legendFormat": "{{job}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Dead letters and failed sends, per 5 minutes",
+      "description": "A dead letter is an answer the consumer gave up on after the retries, it is in <topic>-dlt. A failed send is one Kafka did not acknowledge, the event is sent again.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (topic) (increase(transaction_events_dead_letter_total{job=\"transaction-service\"}[5m]))",
+          "legendFormat": "DLT {{topic}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(transaction_events_send_failures_total{job=\"transaction-service\"}[5m]))",
+          "legendFormat": "failed sends"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Provider answers per minute",
+      "description": "What Fake Payment Provider answered: completed is approved by the bank, failed is declined.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (operation, outcome) (increase(provider_payments_total{job=\"fake-payment-provider\"}[1m]))",
+          "legendFormat": "{{operation}} {{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "JVM heap",
+      "description": "Used heap against the most it may grow to.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(jvm_memory_used_bytes{job=\"transaction-service\", area=\"heap\"})",
+          "legendFormat": "transaction-service used"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(jvm_memory_max_bytes{job=\"transaction-service\", area=\"heap\"})",
+          "legendFormat": "transaction-service max"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(jvm_memory_used_bytes{job=\"fake-payment-provider\", area=\"heap\"})",
+          "legendFormat": "provider used"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Deposits confirmed",
+      "description": "confirm calls that created a PENDING transaction or repeated one, since the start.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(transaction_operations_seconds_count{job=\"transaction-service\", operation=\"confirmDeposit\", error=\"none\"}) or vector(0)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Answers applied",
+      "description": "Provider answers that finished a transaction or were a repeat, since the start.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(transaction_operations_seconds_count{job=\"transaction-service\", operation=\"finalize\", error=\"none\"}) or vector(0)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Dead letters",
+      "description": "Messages in the DLT since the start: each needs a person.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(transaction_events_dead_letter_total{job=\"transaction-service\"}) or vector(0)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Firing alerts",
+      "description": "Alerts of transaction-service firing now; their names are on the Prometheus /alerts page.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(ALERTS{alertstate=\"firing\", alertname=~\"Transaction.*\"}) or vector(0)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "Shards",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 52
+      },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Transactions per second, by shard",
+      "description": "Committed and rolled back database transactions: the load each shard takes. Users are split by hash(user_uid), so the lines should stay close.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 53
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (shard) (rate(pg_stat_database_xact_commit{job=\"transaction-shards\", datname=\"transaction\"}[1m]))",
+          "legendFormat": "{{shard}} commit"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (shard) (rate(pg_stat_database_xact_rollback{job=\"transaction-shards\", datname=\"transaction\"}[1m]))",
+          "legendFormat": "{{shard}} rollback"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Rows read and written per second, by shard",
+      "description": "Rows the queries returned, and rows inserted plus updated.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 53
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (shard) (rate(pg_stat_database_tup_fetched{job=\"transaction-shards\", datname=\"transaction\"}[1m]))",
+          "legendFormat": "{{shard}} read"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (shard) (rate(pg_stat_database_tup_inserted{job=\"transaction-shards\", datname=\"transaction\"}[1m]) + rate(pg_stat_database_tup_updated{job=\"transaction-shards\", datname=\"transaction\"}[1m]))",
+          "legendFormat": "{{shard}} written"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Rows per table, by shard",
+      "description": "Live rows of wallets, transactions and transaction_events in each shard: how evenly the users are split.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 61
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (shard, relname) (pg_stat_user_tables_n_live_tup{job=\"transaction-shards\", relname=~\"wallets|transactions|transaction_events\"})",
+          "legendFormat": "{{shard}} {{relname}}"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Database size, by shard",
+      "description": "Disk the transaction database takes on each shard.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 61
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pg_database_size_bytes{job=\"transaction-shards\", datname=\"transaction\"}",
+          "legendFormat": "{{shard}}"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Connections on the shard, by state",
+      "description": "What the shard sees: active runs a query, idle waits in a pool, idle in transaction holds locks.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 69
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (shard, state) (pg_stat_activity_count{job=\"transaction-shards\", datname=\"transaction\"})",
+          "legendFormat": "{{shard}} {{state}}"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "ShardingSphere pools, by shard",
+      "description": "What transaction-service sees: the pool ShardingSphere keeps to each shard, active against its maximum.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 69
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jdbc_connections_active{job=\"transaction-service\", name=~\"ds_.*\"}",
+          "legendFormat": "{{name}} active"
+        },
+        {
+          "refId": "B",
+          "expr": "jdbc_connections_max{job=\"transaction-service\", name=~\"ds_.*\"}",
+          "legendFormat": "{{name}} max"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Locks, by shard and mode",
+      "description": "Row locks are normal while confirm and finalize run; a growing ExclusiveLock line means transactions wait for each other.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 77
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (shard, mode) (pg_locks_count{job=\"transaction-shards\", datname=\"transaction\"})",
+          "legendFormat": "{{shard}} {{mode}}"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "Deadlocks, by shard",
+      "description": "Deadlocks Postgres resolved by aborting one transaction: should stay at 0.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 77
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (shard) (increase(pg_stat_database_deadlocks{job=\"transaction-shards\", datname=\"transaction\"}[5m]))",
+          "legendFormat": "{{shard}} deadlocks"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "logs",
+      "title": "Errors and warnings",
+      "description": "transaction-service and Fake Payment Provider; a line opens its trace in Tempo.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 85
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=~\"transaction-service|fake-payment-provider\", level=~\"ERROR|WARN\"}"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "logs",
+      "title": "All logs of the services",
+      "description": "One deposit is one traceId from confirm through the provider to finalize.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 94
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=~\"transaction-service|fake-payment-provider\"}"
+        }
+      ]
+    }
+  ]
+}

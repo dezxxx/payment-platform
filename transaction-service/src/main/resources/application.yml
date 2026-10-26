@@ -1,0 +1,109 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: transaction-service
+  web:
+    # validation messages follow the client's Accept-Language or the server locale unless fixed
+    locale: en
+    locale-resolver: fixed
+  datasource:
+    driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
+    # the shard addresses in sharding.yaml come from the same environment variables as transaction.shards
+    url: jdbc:shardingsphere:classpath:sharding.yaml?placeholder-type=environment
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      # TIMESTAMP columns have no zone: Instant is stored as UTC, not as the server clock
+      hibernate.jdbc.time_zone: UTC
+      hibernate.type.preferred_instant_jdbc_type: TIMESTAMP
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    properties:
+      schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8085}
+      # uuid and decimal fields as UUID and BigDecimal, the types the generated classes hold
+      avro.use.logical.type.converters: true
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
+    consumer:
+      group-id: transaction-service
+      auto-offset-reset: earliest
+      # the provider answers in Kafka transactions: never an answer of an aborted one
+      isolation-level: read_committed
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # a message that cannot be read does not stop the partition: the error handler sends it to the DLT
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: io.confluent.kafka.serializers.KafkaAvroDeserializer
+        # the generated classes, not GenericRecord
+        specific.avro.reader: true
+    # the trace goes on through Kafka in the traceparent header
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
+
+springdoc:
+  swagger-ui:
+    url: /openapi/transaction-service.yaml
+
+transaction:
+  shards:
+    - url: ${TRANSACTION_SHARD_0_URL:jdbc:postgresql://localhost:5435/transaction}
+      username: ${TRANSACTION_DB_USER:transaction}
+      password: ${TRANSACTION_DB_PASSWORD:transaction}
+    - url: ${TRANSACTION_SHARD_1_URL:jdbc:postgresql://localhost:5436/transaction}
+      username: ${TRANSACTION_DB_USER:transaction}
+      password: ${TRANSACTION_DB_PASSWORD:transaction}
+  fee:
+    deposit: 0
+    withdrawal: 0.01
+    transfer: 0.005
+  kafka:
+    # as many as the largest consumer group may have copies
+    partitions: 4
+    send-interval: 1s
+    batch-size: 100
+    retry-interval: 1s
+    retry-attempts: 3
+  metrics:
+    # how often the backlog and PENDING gauges read the shards; a scrape itself never queries the database
+    refresh-interval: 15s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,prometheus,metrics"
+  metrics:
+    distribution:
+      # buckets let Grafana draw the 95th percentile; only this meter, they cost scrape size
+      percentiles-histogram:
+        http.server.requests: true
+  observations:
+    annotations:
+      enabled: true
+  tracing:
+    sampling:
+      # every request is traced - fine locally, not for production
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        # off: Prometheus scrapes the metrics; an OTLP push would only log failures
+        enabled: false
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+
+# JSON lines, as person-service: Alloy reads log.level and traceId from them
+logging:
+  structured:
+    format:
+      console: ecs

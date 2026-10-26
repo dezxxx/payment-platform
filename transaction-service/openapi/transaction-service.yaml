@@ -1,0 +1,635 @@
+openapi: 3.0.3
+
+info:
+  title: transaction-service
+  description: Wallets and their transactions - deposit, transfer, withdrawal
+  version: 1.0.0
+  contact:
+    name: dezxxx
+    email: web7tudio@gmail.com
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8084
+    description: Local
+  - url: http://transaction-service:8084
+    description: Docker network
+
+tags:
+  - name: wallets
+    description: Wallets of a user
+  - name: transactions
+    description: Deposit, transfer, withdrawal
+
+paths:
+
+  /api/v1/wallets:
+    post:
+      tags: [wallets]
+      operationId: createWallet
+      summary: Create a wallet of the user, balance 0
+      parameters:
+        - $ref: "#/components/parameters/UserUidHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWalletRequest"
+      responses:
+        "201":
+          description: Wallet created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/wallets/{walletUid}:
+    get:
+      tags: [wallets]
+      operationId: getWalletById
+      summary: A wallet of the user; another user's or an archived wallet is not found
+      parameters:
+        - $ref: "#/components/parameters/UserUidHeader"
+        - name: walletUid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/wallets/user/{userUid}:
+    get:
+      tags: [wallets]
+      operationId: getWalletsByUserUid
+      summary: All wallets of the user that are not archived; an empty list if none
+      parameters:
+        - name: userUid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Wallets of the user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WalletResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/transactions/deposit/init:
+    post:
+      tags: [transactions]
+      operationId: initDeposit
+      summary: Compute the terms of a deposit; nothing is written
+      parameters:
+        - $ref: "#/components/parameters/UserUidHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepositInitRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/InitTerms"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/transactions/deposit/confirm:
+    post:
+      tags: [transactions]
+      operationId: confirmDeposit
+      summary: Create the deposit transaction (PENDING); the provider's answer finishes it
+      parameters:
+        - $ref: "#/components/parameters/UserUidHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepositConfirmRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Confirmed"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/transactions/withdrawal/init:
+    post:
+      tags: [transactions]
+      operationId: initWithdrawal
+      summary: Compute the terms of a withdrawal; nothing is written
+      parameters:
+        - $ref: "#/components/parameters/UserUidHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawalInitRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/InitTerms"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/transactions/withdrawal/confirm:
+    post:
+      tags: [transactions]
+      operationId: confirmWithdrawal
+      summary: Debit amount + fee and create the withdrawal transaction (PENDING)
+      parameters:
+        - $ref: "#/components/parameters/UserUidHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawalConfirmRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Confirmed"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/transactions/transfer/init:
+    post:
+      tags: [transactions]
+      operationId: initTransfer
+      summary: Compute the terms of a transfer between two wallets of the user; nothing is written
+      parameters:
+        - $ref: "#/components/parameters/UserUidHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferInitRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/InitTerms"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/transactions/transfer/confirm:
+    post:
+      tags: [transactions]
+      operationId: confirmTransfer
+      summary: The whole transfer in one transaction; answers COMPLETED
+      parameters:
+        - $ref: "#/components/parameters/UserUidHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferConfirmRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Confirmed"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/transactions/{transactionId}/status:
+    get:
+      tags: [transactions]
+      operationId: getTransactionStatus
+      summary: Status and details of a transaction of the user
+      parameters:
+        - $ref: "#/components/parameters/UserUidHeader"
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/transactions:
+    get:
+      tags: [transactions]
+      operationId: searchTransactions
+      summary: Transactions of the user by filters, newest first, page by page
+      parameters:
+        - name: userUid
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: walletUid
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/TransactionType"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/TransactionStatus"
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TransactionStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+
+  parameters:
+    UserUidHeader:
+      name: X-User-Uid
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: 7fd6212d-0f71-42a0-bf6e-7dbce6cf04fb
+
+  schemas:
+
+    CreateWalletRequest:
+      type: object
+      required: [name, walletTypeUid]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 32
+          example: Main USD
+        walletTypeUid:
+          type: string
+          format: uuid
+
+    WalletResponse:
+      type: object
+      required: [uid, name, walletTypeUid, currencyCode, status, balance]
+      properties:
+        uid:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Main USD
+        walletTypeUid:
+          type: string
+          format: uuid
+        currencyCode:
+          type: string
+          example: USD
+        status:
+          type: string
+          example: ACTIVE
+        balance:
+          type: number
+          example: 150.00
+
+    DepositInitRequest:
+      type: object
+      required: [walletUid, amount]
+      properties:
+        walletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          x-field-extra-annotation: "@jakarta.validation.constraints.Digits(integer = 17, fraction = 2)"
+          example: 100.00
+
+    WithdrawalInitRequest:
+      type: object
+      required: [walletUid, amount]
+      properties:
+        walletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          x-field-extra-annotation: "@jakarta.validation.constraints.Digits(integer = 17, fraction = 2)"
+          example: 50.00
+
+    TransferInitRequest:
+      type: object
+      x-class-extra-annotation: "@com.dezxxx.transaction.validation.DifferentWallets"
+      x-implements: [com.dezxxx.transaction.validation.TransferWallets]
+      required: [walletUid, targetWalletUid, amount]
+      properties:
+        walletUid:
+          type: string
+          format: uuid
+        targetWalletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          x-field-extra-annotation: "@jakarta.validation.constraints.Digits(integer = 17, fraction = 2)"
+          example: 25.00
+
+    TransactionInitResponse:
+      type: object
+      required: [amount, fee, total, requestId]
+      properties:
+        amount:
+          type: number
+          example: 100.00
+        fee:
+          type: number
+          example: 1.00
+        total:
+          type: number
+          example: 101.00
+        requestId:
+          type: string
+          format: uuid
+
+    DepositConfirmRequest:
+      type: object
+      required: [requestId, walletUid, amount]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        walletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          x-field-extra-annotation: "@jakarta.validation.constraints.Digits(integer = 17, fraction = 2)"
+          example: 100.00
+
+    WithdrawalConfirmRequest:
+      type: object
+      required: [requestId, walletUid, amount]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        walletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          x-field-extra-annotation: "@jakarta.validation.constraints.Digits(integer = 17, fraction = 2)"
+          example: 50.00
+
+    TransferConfirmRequest:
+      type: object
+      x-class-extra-annotation: "@com.dezxxx.transaction.validation.DifferentWallets"
+      x-implements: [com.dezxxx.transaction.validation.TransferWallets]
+      required: [requestId, walletUid, targetWalletUid, amount]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        walletUid:
+          type: string
+          format: uuid
+        targetWalletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          x-field-extra-annotation: "@jakarta.validation.constraints.Digits(integer = 17, fraction = 2)"
+          example: 25.00
+
+    TransactionConfirmResponse:
+      type: object
+      required: [transactionId, status]
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/TransactionStatus"
+
+    TransactionStatusResponse:
+      type: object
+      required: [transactionId, type, status, walletUid, amount, createdAt]
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/TransactionType"
+        status:
+          $ref: "#/components/schemas/TransactionStatus"
+        walletUid:
+          type: string
+          format: uuid
+        targetWalletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          example: 100.00
+        fee:
+          type: number
+          example: 1.00
+        failureReason:
+          type: string
+          example: INSUFFICIENT_FUNDS_EXTERNAL
+        createdAt:
+          type: string
+          format: date-time
+
+    TransactionType:
+      type: string
+      enum: [deposit, withdrawal, transfer]
+
+    TransactionStatus:
+      type: string
+      enum: [PENDING, COMPLETED, FAILED]
+
+    ErrorResponse:
+      type: object
+      description: RFC 9457 problem details
+      required: [type, title, status, detail, instance, timestamp, error, traceId, details]
+      properties:
+        type:
+          type: string
+          format: uri
+          example: https://example.org/problems/insufficient-funds
+        title:
+          type: string
+          example: Bad Request
+        status:
+          type: integer
+          format: int32
+          example: 400
+        detail:
+          type: string
+          example: Not enough funds including the fee
+        instance:
+          type: string
+          example: /api/v1/transactions/withdrawal/confirm
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-10-22T10:15:30Z"
+        error:
+          type: string
+          example: INSUFFICIENT_FUNDS
+        traceId:
+          type: string
+          example: 4bf92f3577b34da6a3ce929d0e0e4736
+        details:
+          type: array
+          items:
+            type: string
+          example: []
+
+  responses:
+    InitTerms:
+      description: Terms of the operation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TransactionInitResponse"
+    Confirmed:
+      description: Transaction confirmed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TransactionConfirmResponse"
+    BadRequest:
+      description: Bad request
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: requestId already used for another operation
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalServerError:
+      description: Unexpected error
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

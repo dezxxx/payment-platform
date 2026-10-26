@@ -1,0 +1,43 @@
+@startuml sequence-wallet-get
+title Wallet by id (GET /wallets/{walletUid})
+
+actor "Client" as Client
+participant "individuals-api" as IA
+box "transaction-service" #F5F9FF
+    participant "WalletService" as WS
+    database "DB (shard by user_uid)" as DB
+end box
+
+Client -> IA: GET /api/v1/wallets/{walletUid}
+alt invalid token
+    IA --> Client: 401
+else valid token
+    IA -> IA: user_uid from the token
+    IA -> WS: get wallet (walletUid, user_uid)
+    alt walletUid is not a UUID
+        WS --> IA: 400 ErrorResponse
+        IA --> Client: 400
+    else valid walletUid
+        WS -> DB: SELECT * FROM wallets\nWHERE uid = :walletUid AND user_uid = :userUid AND archived_at IS NULL
+        note right of DB
+          user_uid in the condition:
+          1) ShardingSphere goes to one shard;
+          2) another user's wallet is not found — this is the access check
+        end note
+        alt DB error
+            WS --> IA: 500 ErrorResponse
+            IA --> Client: 500
+        else 0 rows — not found, not the user's or archived
+            WS --> IA: 404 ErrorResponse
+            IA --> Client: 404
+            note right of Client
+              404, not 403: we do not reveal
+              that a wallet with this id exists
+            end note
+        else 1 row
+            WS --> IA: 200 WalletResponse (balance, currency, status)
+            IA --> Client: 200 WalletResponse
+        end
+    end
+end
+@enduml

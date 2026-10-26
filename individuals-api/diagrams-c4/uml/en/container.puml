@@ -3,27 +3,29 @@
 
 title individuals-api - container diagram (C4, level 2)
 
-Person(client, "Client", "Registers, logs in, asks who it is")
+Person(client, "Client", "Registers, logs in, asks who it is; opens wallets, moves money")
 
 System_Boundary(ia, "individuals-api") {
-    Container(app, "individuals-api", "Spring Boot WebFlux, Java 25", "Orchestrator: registration, login, token refresh, current user")
+    Container(app, "individuals-api", "Spring Boot WebFlux, Java 25", "Orchestrator: registration, login, token refresh, current user; wallets and transactions with user_uid from the token")
 }
 
 Container_Ext(keycloak, "Keycloak", "identity provider", "Accounts, passwords, roles, tokens; signing keys via JWKS")
 ContainerDb_Ext(keycloakDb, "PostgreSQL", "Keycloak database", "Keycloak's own data")
 Container_Ext(personService, "person-service", "Spring Boot MVC", "Stores individuals: individual + user + address")
-Container_Ext(nexus, "Nexus", "Maven repository", "Holds person-service-client")
+Container_Ext(transactionService, "transaction-service", "Spring Boot MVC", "Wallets, deposit, withdrawal, transfer; checks no token, trusts X-User-Uid, so reachable from the Docker network only")
+Container_Ext(nexus, "Nexus", "Maven repository", "Holds person-service-client and transaction-service-client")
 Container_Ext(prometheus, "Prometheus", "metrics", "Scrapes /actuator/prometheus")
 Container_Ext(alloy, "Alloy", "telemetry agent", "Receives traces, reads logs")
 Container_Ext(tempo, "Tempo", "traces", "Stores traces")
 Container_Ext(loki, "Loki", "logs", "Stores logs")
 Container_Ext(grafana, "Grafana", "dashboards", "Metrics, traces, logs")
 
-Rel(client, app, "REST /api/v1/auth", "HTTP, JSON, Bearer token")
+Rel(client, app, "REST /api/v1/auth, /api/v1/wallets, /api/v1/transactions", "HTTP, JSON, Bearer token")
 Rel(app, keycloak, "admin API, token endpoint, JWKS", "HTTP, OIDC")
 Rel(keycloak, keycloakDb, "reads and writes", "JDBC")
 Rel(app, personService, "REST /api/v1/individuals", "person-service-client")
-Rel(nexus, app, "imports the client", "Maven")
+Rel(app, transactionService, "REST /api/v1/wallets, /api/v1/transactions, X-User-Uid = user_uid from the token", "transaction-service-client")
+Rel(nexus, app, "imports the clients", "Maven")
 Rel(prometheus, app, "scrapes metrics", "HTTP")
 Rel(app, alloy, "traces and JSON logs", "OTLP, stdout")
 Rel(alloy, tempo, "traces", "OTLP")

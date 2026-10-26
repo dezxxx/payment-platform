@@ -17,7 +17,19 @@
     { "key": "annaEmail", "value": "anna.smirnova@example.com" },
     { "key": "annaAccessToken", "value": "" },
     { "key": "annaRefreshToken", "value": "" },
-    { "key": "annaUserUid", "value": "" }
+    { "key": "annaUserUid", "value": "" },
+
+    { "key": "usdType", "value": "00000000-0000-0000-0000-000000000840", "description": "Wallet types are seeded in transaction-service (V003__seed_wallet_types.sql); no endpoint lists them." },
+    { "key": "eurType", "value": "00000000-0000-0000-0000-000000000978" },
+    { "key": "tries", "value": "0", "description": "Counter of the status polling while a transaction is PENDING." },
+    { "key": "ivanMainWallet", "value": "" },
+    { "key": "ivanSavingsWallet", "value": "" },
+    { "key": "ivanDepositRequestId", "value": "" },
+    { "key": "ivanDepositId", "value": "" },
+    { "key": "ivanWithdrawalRequestId", "value": "" },
+    { "key": "ivanWithdrawalId", "value": "" },
+    { "key": "ivanTransferRequestId", "value": "" },
+    { "key": "ivanTransferId", "value": "" }
   ],
   "item": [
     {
@@ -609,7 +621,1415 @@
       ]
     },
     {
-      "name": "5. Metrics",
+      "name": "5. Wallets and money (Ivan)",
+      "description": "Everything goes through individuals-api with the token; individuals-api passes it to transaction-service with X-User-Uid taken from the token. Needs transaction-service, Kafka and the fake payment provider up.",
+      "item": [
+        {
+          "name": "Ivan - create Main USD",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const w = pm.response.json();",
+                  "pm.collectionVariables.set('ivanMainWallet', w.uid);",
+                  "pm.test('USD, ACTIVE, balance 0', () => { pm.expect(w.currencyCode).to.eql('USD'); pm.expect(w.status).to.eql('ACTIVE'); pm.expect(w.balance).to.eql(0); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Main USD\",\n  \"walletTypeUid\": \"{{usdType}}\"\n}"
+            },
+            "description": "No user in the request: the wallet belongs to whoever the token says."
+          }
+        },
+        {
+          "name": "Ivan - create Savings USD",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('ivanSavingsWallet', pm.response.json().uid);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Savings USD\",\n  \"walletTypeUid\": \"{{usdType}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - my wallets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('both new wallets are there', () => pm.expect(pm.response.json().map(w => w.uid)).to.include.members([pm.collectionVariables.get('ivanMainWallet'), pm.collectionVariables.get('ivanSavingsWallet')]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets"
+              ]
+            },
+            "description": "GET /api/v1/wallets - the user comes from the token, the client never names one."
+          }
+        },
+        {
+          "name": "Ivan - Main USD by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Main USD', () => pm.expect(pm.response.json().name).to.eql('Main USD'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets/{{ivanMainWallet}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets",
+                "{{ivanMainWallet}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ivan - deposit init, 1000.00 to Main USD",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('tries', 0);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('fee 0, total = amount', () => { pm.expect(t.amount).to.eql(1000); pm.expect(t.fee).to.eql(0); pm.expect(t.total).to.eql(1000); });",
+                  "pm.collectionVariables.set('ivanDepositRequestId', t.requestId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/deposit/init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "deposit",
+                "init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 1000\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - deposit confirm, PENDING until the provider answers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('PENDING', () => pm.expect(t.status).to.eql('PENDING'));",
+                  "pm.collectionVariables.set('ivanDepositId', t.transactionId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "deposit",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{ivanDepositRequestId}}\",\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 1000\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - deposit status, wait for COMPLETED",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (Number(pm.collectionVariables.get('tries') || 0) > 0) { setTimeout(() => {}, 500); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const tries = Number(pm.collectionVariables.get('tries') || 0);",
+                  "if (t.status === 'PENDING' && tries < 20) {",
+                  "  pm.collectionVariables.set('tries', tries + 1);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set('tries', 0);",
+                  "  pm.test('the provider answered: COMPLETED', () => pm.expect(t.status).to.eql('COMPLETED'));",
+                  "  pm.test('the same transaction', () => pm.expect(t.transactionId).to.eql(pm.collectionVariables.get('ivanDepositId')));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{ivanDepositId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{ivanDepositId}}",
+                "status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ivan - Main USD balance is 1000",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 1000', () => pm.expect(pm.response.json().balance).to.eql(1000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets/{{ivanMainWallet}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets",
+                "{{ivanMainWallet}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ivan - withdrawal init, 100.00, fee 1 %",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('fee 1.00, total 101.00', () => { pm.expect(t.fee).to.eql(1); pm.expect(t.total).to.eql(101); });",
+                  "pm.collectionVariables.set('ivanWithdrawalRequestId', t.requestId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/withdrawal/init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "withdrawal",
+                "init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 100\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - withdrawal confirm, PENDING",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('ivanWithdrawalId', pm.response.json().transactionId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/withdrawal/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "withdrawal",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{ivanWithdrawalRequestId}}\",\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 100\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - withdrawal status, wait for COMPLETED",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (Number(pm.collectionVariables.get('tries') || 0) > 0) { setTimeout(() => {}, 500); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "const tries = Number(pm.collectionVariables.get('tries') || 0);",
+                  "if (t.status === 'PENDING' && tries < 20) {",
+                  "  pm.collectionVariables.set('tries', tries + 1);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set('tries', 0);",
+                  "  pm.test('the provider answered: COMPLETED', () => pm.expect(t.status).to.eql('COMPLETED'));",
+                  "  pm.test('the same transaction', () => pm.expect(t.transactionId).to.eql(pm.collectionVariables.get('ivanWithdrawalId')));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{ivanWithdrawalId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{ivanWithdrawalId}}",
+                "status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ivan - Main USD balance is 899",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 899', () => pm.expect(pm.response.json().balance).to.eql(899));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets/{{ivanMainWallet}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets",
+                "{{ivanMainWallet}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ivan - transfer init, 200.00 Main to Savings, fee 0.5 %",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('fee 1.00, total 201.00', () => { pm.expect(t.fee).to.eql(1); pm.expect(t.total).to.eql(201); });",
+                  "pm.collectionVariables.set('ivanTransferRequestId', t.requestId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/transfer/init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "transfer",
+                "init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"targetWalletUid\": \"{{ivanSavingsWallet}}\",\n  \"amount\": 200\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - transfer confirm, COMPLETED at once",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('COMPLETED', () => pm.expect(t.status).to.eql('COMPLETED'));",
+                  "pm.collectionVariables.set('ivanTransferId', t.transactionId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/transfer/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "transfer",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{ivanTransferRequestId}}\",\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"targetWalletUid\": \"{{ivanSavingsWallet}}\",\n  \"amount\": 200\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - transfer confirm again, the same requestId: the same transaction, no second charge",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('the same transaction', () => pm.expect(pm.response.json().transactionId).to.eql(pm.collectionVariables.get('ivanTransferId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/transfer/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "transfer",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{ivanTransferRequestId}}\",\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"targetWalletUid\": \"{{ivanSavingsWallet}}\",\n  \"amount\": 200\n}"
+            },
+            "description": "What a client does when the confirm answer was lost (503): repeat with the same requestId."
+          }
+        },
+        {
+          "name": "Ivan - Main USD balance is 698",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 698', () => pm.expect(pm.response.json().balance).to.eql(698));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets/{{ivanMainWallet}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets",
+                "{{ivanMainWallet}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ivan - Savings USD balance is 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 200', () => pm.expect(pm.response.json().balance).to.eql(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets/{{ivanSavingsWallet}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets",
+                "{{ivanSavingsWallet}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ivan - transfer status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('transfer, COMPLETED, both wallets', () => { pm.expect(t.type).to.eql('transfer'); pm.expect(t.status).to.eql('COMPLETED'); pm.expect(t.targetWalletUid).to.eql(pm.collectionVariables.get('ivanSavingsWallet')); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{ivanTransferId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{ivanTransferId}}",
+                "status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ivan - search, deposits only",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const list = pm.response.json();",
+                  "pm.test('the deposit is found', () => pm.expect(list.map(t => t.transactionId)).to.include(pm.collectionVariables.get('ivanDepositId')));",
+                  "pm.test('deposits only', () => list.forEach(t => pm.expect(t.type).to.eql('deposit')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions?type=deposit&page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "deposit"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "?type=deposit is the contract value; no userUid - individuals-api adds it from the token."
+          }
+        },
+        {
+          "name": "Ivan - search, completed transfers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('the transfer is found', () => pm.expect(pm.response.json().map(t => t.transactionId)).to.include(pm.collectionVariables.get('ivanTransferId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions?type=transfer&status=COMPLETED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "transfer"
+                },
+                {
+                  "key": "status",
+                  "value": "COMPLETED"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Another user's wallets are not found",
+      "description": "Anna's token never reaches Ivan's data: transaction-service looks only among the wallets of the token's user, so Ivan's are 404, not 403 - their existence is not revealed.",
+      "item": [
+        {
+          "name": "Anna - my wallets, none of Ivan's",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test(\"no wallet of Ivan\", () => pm.expect(pm.response.json().map(w => w.uid)).to.not.include.members([pm.collectionVariables.get('ivanMainWallet')]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{annaAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Anna - Ivan's wallet by id (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
+                  "pm.test('WALLET_NOT_FOUND', () => pm.expect(body.error).to.eql('WALLET_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{annaAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets/{{ivanMainWallet}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets",
+                "{{ivanMainWallet}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Anna - status of Ivan's deposit (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
+                  "pm.test('TRANSACTION_NOT_FOUND', () => pm.expect(body.error).to.eql('TRANSACTION_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{annaAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{ivanDepositId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{ivanDepositId}}",
+                "status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Anna - deposit init to Ivan's wallet (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
+                  "pm.test('WALLET_NOT_FOUND', () => pm.expect(body.error).to.eql('WALLET_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{annaAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/deposit/init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "deposit",
+                "init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 10\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Wallet and money failures",
+      "item": [
+        {
+          "name": "My wallets - no token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
+                  "pm.test('AUTHENTICATION_REQUIRED', () => pm.expect(body.error).to.eql('AUTHENTICATION_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Deposit init - amount 0 (400), transaction-service is not called",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
+                  "pm.test('VALIDATION_ERROR', () => pm.expect(body.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('names the field', () => pm.expect(body.details.join()).to.include('amount'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/deposit/init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "deposit",
+                "init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 0\n}"
+            }
+          }
+        },
+        {
+          "name": "Transfer init - the same wallet twice (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
+                  "pm.test('VALIDATION_ERROR', () => pm.expect(body.error).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('names targetWalletUid', () => pm.expect(body.details.join()).to.include('targetWalletUid'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/transfer/init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "transfer",
+                "init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"targetWalletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 10\n}"
+            }
+          }
+        },
+        {
+          "name": "Withdrawal init - not enough for the fee: Savings has 200.00, 200.00 needs 202.00 (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
+                  "pm.test('INSUFFICIENT_FUNDS', () => pm.expect(body.error).to.eql('INSUFFICIENT_FUNDS'));",
+                  "pm.test('the text of transaction-service', () => pm.expect(body.message).to.eql('Not enough funds including the fee'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/withdrawal/init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "withdrawal",
+                "init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{ivanSavingsWallet}}\",\n  \"amount\": 200\n}"
+            }
+          }
+        },
+        {
+          "name": "Create wallet - unknown wallet type (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
+                  "pm.test('WALLET_TYPE_NOT_FOUND', () => pm.expect(body.error).to.eql('WALLET_TYPE_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nowhere\",\n  \"walletTypeUid\": \"00000000-0000-0000-0000-000000000001\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Deposit confirm - the requestId again with another amount (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409', () => pm.response.to.have.status(409));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
+                  "pm.test('REQUEST_ID_CONFLICT', () => pm.expect(body.error).to.eql('REQUEST_ID_CONFLICT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "deposit",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{ivanDepositRequestId}}\",\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 5\n}"
+            }
+          }
+        },
+        {
+          "name": "Search - unknown type (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
+                  "pm.test('VALIDATION_ERROR', () => pm.expect(body.error).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions?type=bonus",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "bonus"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ivan - Main USD after the failures, still balance is 698",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 698', () => pm.expect(pm.response.json().balance).to.eql(698));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets/{{ivanMainWallet}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets",
+                "{{ivanMainWallet}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Metrics",
       "item": [
         {
           "name": "Prometheus metrics",
@@ -629,7 +2049,8 @@
                   "    'auth_login_failure_total',",
                   "    'auth_refresh_total',",
                   "    'external_keycloak_requests_seconds_count',",
-                  "    'external_person_service_requests_seconds_count'",
+                  "    'external_person_service_requests_seconds_count',",
+                  "    'external_transaction_service_requests_seconds_count'",
                   "].forEach(meter => {",
                   "    pm.test(meter + ' is published', () => pm.expect(scrape).to.include(meter));",
                   "});"

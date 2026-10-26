@@ -59,3 +59,7 @@ screenShoots/
 
 # Personal study material, kept on disk but out of the repository.
 docs/quests/
+
+# Russian diagrams of transaction-service: kept on disk for study, the repository has English only.
+transaction-service/diagrams-c4/uml/ru/
+transaction-service/diagrams-c4/png/ru/

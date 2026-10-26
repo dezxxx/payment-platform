@@ -1,0 +1,38 @@
+@startuml sequence-wallets-of-user
+title The user's wallets (GET /wallets/user/{userUid})
+
+actor "Client" as Client
+participant "individuals-api" as IA
+box "transaction-service" #F5F9FF
+    participant "WalletService" as WS
+    database "DB (shard by user_uid)" as DB
+end box
+
+Client -> IA: GET the user's wallets
+alt invalid token
+    IA --> Client: 401
+else valid token
+    IA -> IA: user_uid from the token
+    note right of IA
+      A userUid from the client is not accepted:
+      the path gets the user_uid from the token
+      (otherwise anyone could read others' wallets)
+    end note
+    IA -> WS: GET /wallets/user/{user_uid from the token}
+    WS -> DB: SELECT * FROM wallets\nWHERE user_uid = :userUid AND archived_at IS NULL
+    note right of DB
+      ShardingSphere: user_uid → one shard,
+      all the user's wallets are there
+    end note
+    alt DB error
+        WS --> IA: 500 ErrorResponse
+        IA --> Client: 500
+    else 0 rows — no wallets
+        WS --> IA: 200 []
+        IA --> Client: 200 []
+    else 1 or more rows
+        WS --> IA: 200 list of WalletResponse
+        IA --> Client: 200 list of WalletResponse
+    end
+end
+@enduml

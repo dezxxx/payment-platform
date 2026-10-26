@@ -84,6 +84,196 @@ services:
       timeout: 5s
       retries: 10
 
+  transaction-service:
+    build:
+      context: ./transaction-service
+    depends_on:
+      transaction-postgres-0:
+        condition: service_healthy
+      transaction-postgres-1:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      alloy:
+        condition: service_started
+    environment:
+      TRANSACTION_SHARD_0_URL: jdbc:postgresql://transaction-postgres-0:5432/${TRANSACTION_DB_NAME}
+      TRANSACTION_SHARD_1_URL: jdbc:postgresql://transaction-postgres-1:5432/${TRANSACTION_DB_NAME}
+      TRANSACTION_DB_USER: ${TRANSACTION_DB_USER}
+      TRANSACTION_DB_PASSWORD: ${TRANSACTION_DB_PASSWORD}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      OTLP_TRACES_ENDPOINT: http://alloy:4318/v1/traces
+    # the JRE image has no curl or wget, only bash
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8084 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ports:
+      - "${TRANSACTION_SERVICE_PORT}:8084"
+
+  transaction-postgres-0:
+    image: ${POSTGRES_IMAGE}
+    environment:
+      POSTGRES_DB: ${TRANSACTION_DB_NAME}
+      POSTGRES_USER: ${TRANSACTION_DB_USER}
+      POSTGRES_PASSWORD: ${TRANSACTION_DB_PASSWORD}
+    ports:
+      - "${TRANSACTION_POSTGRES_0_PORT}:5432"
+    volumes:
+      - transaction-postgres-0-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TRANSACTION_DB_USER} -d ${TRANSACTION_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  transaction-postgres-1:
+    image: ${POSTGRES_IMAGE}
+    environment:
+      POSTGRES_DB: ${TRANSACTION_DB_NAME}
+      POSTGRES_USER: ${TRANSACTION_DB_USER}
+      POSTGRES_PASSWORD: ${TRANSACTION_DB_PASSWORD}
+    ports:
+      - "${TRANSACTION_POSTGRES_1_PORT}:5432"
+    volumes:
+      - transaction-postgres-1-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TRANSACTION_DB_USER} -d ${TRANSACTION_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # one exporter per shard: size, load, connections and locks of each database for Prometheus.
+  # No host port, only Prometheus reads it inside the network
+  transaction-postgres-0-exporter:
+    image: ${POSTGRES_EXPORTER_IMAGE}
+    environment:
+      DATA_SOURCE_URI: transaction-postgres-0:5432/${TRANSACTION_DB_NAME}?sslmode=disable
+      DATA_SOURCE_USER: ${TRANSACTION_DB_USER}
+      DATA_SOURCE_PASS: ${TRANSACTION_DB_PASSWORD}
+    depends_on:
+      transaction-postgres-0:
+        condition: service_healthy
+
+  transaction-postgres-1-exporter:
+    image: ${POSTGRES_EXPORTER_IMAGE}
+    environment:
+      DATA_SOURCE_URI: transaction-postgres-1:5432/${TRANSACTION_DB_NAME}?sslmode=disable
+      DATA_SOURCE_USER: ${TRANSACTION_DB_USER}
+      DATA_SOURCE_PASS: ${TRANSACTION_DB_PASSWORD}
+    depends_on:
+      transaction-postgres-1:
+        condition: service_healthy
+
+  # one node is both broker and controller (KRaft, no ZooKeeper)
+  kafka:
+    image: ${KAFKA_IMAGE}
+    hostname: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      # PLAINTEXT for containers, PLAINTEXT_HOST for clients on the host
+      KAFKA_LISTENERS: CONTROLLER://:29093,PLAINTEXT://:19092,PLAINTEXT_HOST://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092,PLAINTEXT_HOST://localhost:${KAFKA_PORT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # one broker: the internal topics default to 3 replicas
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:19092 > /dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    ports:
+      - "${KAFKA_PORT}:9092"
+
+  # keeps its schemas in the Kafka topic _schemas, so it has no volume of its own
+  schema-registry:
+    image: ${SCHEMA_REGISTRY_IMAGE}
+    hostname: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:19092
+    # no curl or wget in the image, only bash
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8081 && printf 'GET /subjects HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    ports:
+      - "${SCHEMA_REGISTRY_PORT}:8081"
+
+  # a web view of the topics, partitions, consumer groups and messages; Avro is read through Schema Registry
+  kafka-ui:
+    image: ${KAFKA_UI_IMAGE}
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: payment-platform
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:19092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      # view only: no topic deletes, no messages sent by hand
+      KAFKA_CLUSTERS_0_READONLY: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ports:
+      - "${KAFKA_UI_PORT}:8080"
+
+  # stands in for the external payment provider: answers *Requested with *Completed or *Failed
+  fake-payment-provider:
+    build:
+      context: ./fake-payment-provider
+      args:
+        NEXUS_PUBLIC_URL: http://host.docker.internal:${NEXUS_PORT}/repository/maven-public/
+      # host.docker.internal exists on Docker Desktop; this makes it exist on Linux too
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+      # it creates the topics this one listens to
+      transaction-service:
+        condition: service_healthy
+      alloy:
+        condition: service_started
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      OTLP_TRACES_ENDPOINT: http://alloy:4318/v1/traces
+    # the JRE image has no curl or wget, only bash
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8086 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ports:
+      - "${FAKE_PAYMENT_PROVIDER_PORT}:8086"
+
   individuals-api:
     build:
       # root context: the build needs gradle/libs.versions.toml and pulls person-service-client from Nexus
@@ -109,6 +299,7 @@ services:
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
       PERSON_SERVICE_URL: ${PERSON_SERVICE_URL:-http://person-service:8082}
+      TRANSACTION_SERVICE_URL: ${TRANSACTION_SERVICE_URL:-http://transaction-service:8084}
     # the JRE image has no curl or wget, only bash
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8081 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
@@ -123,6 +314,7 @@ services:
     image: ${PROMETHEUS_IMAGE}
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       # named, or Docker makes an anonymous volume that `volume prune` deletes
       - prometheus-data:/prometheus
     ports:
@@ -202,6 +394,9 @@ services:
 volumes:
   keycloak-postgres-data:
   person-postgres-data:
+  transaction-postgres-0-data:
+  transaction-postgres-1-data:
+  kafka-data:
   prometheus-data:
   nexus-data:
   tempo-data:

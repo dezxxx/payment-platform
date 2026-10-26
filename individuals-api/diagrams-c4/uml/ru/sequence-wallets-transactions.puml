@@ -1,0 +1,83 @@
+@startuml sequence-wallets-transactions
+title individuals-api — кошельки и транзакции через transaction-service
+
+autonumber
+skinparam shadowing false
+
+actor "Клиент" as Client
+participant "SecurityConfig" as Sec
+participant "WalletController /\nTransactionController" as Ctl
+participant "WalletService /\nTransactionService" as Svc
+participant "TransactionClient" as TCl
+participant "transaction-service" as Tx
+participant "Keycloak" as Kc
+
+Client -> Sec : любая из 11 операций, например\nPOST /api/v1/transactions/withdrawal/confirm\nAuthorization: Bearer-токен
+Sec -> Kc : JWKS (ключи подписи, кэшируются)
+alt токена нет, он просрочен или подпись неверна
+  Sec --> Client : 401 AUTHENTICATION_REQUIRED
+  note right of Sec : в transaction-service не ходим
+end
+
+Sec -> Ctl : запрос + проверенный Jwt
+alt @Valid не прошёл: обязательные поля, uuid, amount > 0, page / size,\nдва кошелька перевода (@DifferentWallets на классе клиента)
+  Ctl --> Client : 400 VALIDATION_ERROR
+end
+
+Ctl -> Svc : запрос, Jwt
+Svc -> Svc : KeycloakClaims.requireUserUid(jwt)
+alt в токене нет user_uid (сломан mapper realm)
+  Svc --> Client : 500 INTERNAL_ERROR
+end
+
+Svc -> TCl : user_uid, запрос
+TCl -> Tx : тот же путь и тело + X-User-Uid: user_uid\nWalletsApi / TransactionsApi на transactionWebClient
+note right of TCl
+  Клиент user_uid не передаёт:
+  GET /api/v1/wallets -> GET /api/v1/wallets/user/{user_uid}
+  GET /api/v1/transactions?... -> ...&userUid=user_uid
+end note
+
+alt 2xx
+  Tx --> TCl : 200 / 201 + тело
+  TCl --> Svc : тело (класс клиента)
+  Svc --> Ctl : тело
+  Ctl --> Client : тот же статус, то же тело
+else 400 INSUFFICIENT_FUNDS, CURRENCY_MISMATCH,\nWALLET_NOT_ACTIVE, WALLET_TYPE_NOT_ACTIVE
+  Tx --> TCl : 400 + код ошибки
+  TCl --> Client : 400, тот же код
+else 400 VALIDATION_ERROR (их правила поймали\nто, что пропустили наши)
+  Tx --> TCl : 400 VALIDATION_ERROR + details
+  TCl --> Client : 400 VALIDATION_ERROR, их details
+else 400 MALFORMED_REQUEST или неизвестный код
+  Tx --> TCl : 400
+  TCl --> Client : 500 INTERNAL_ERROR, их тело только в лог (наш баг)
+else 404 WALLET_NOT_FOUND, WALLET_TYPE_NOT_FOUND,\nTRANSACTION_NOT_FOUND
+  Tx --> TCl : 404 + код ошибки
+  TCl --> Client : 404, тот же код
+  note right of TCl : чужой кошелёк — тоже 404:\ntransaction-service ищет только\nсреди кошельков этого user_uid
+else 409 REQUEST_ID_CONFLICT
+  Tx --> TCl : 409
+  TCl --> Client : 409 REQUEST_ID_CONFLICT
+else 5xx
+  Tx --> TCl : 5xx
+  TCl --> Client : 503 DEPENDENCY_UNAVAILABLE
+else нет соединения или нет ответа за responseTimeout (5 с)
+  TCl --> Client : 503 DEPENDENCY_UNAVAILABLE
+end
+
+note over Client, Tx
+  Ошибки идут как ApiException в GlobalExceptionHandler и уходят
+  нашим ErrorResponseDto (timestamp, path, status, error, message,
+  traceId, details), а не problem details transaction-service.
+
+  Таймаут на confirm: операция могла закоммититься. Клиент повторяет
+  confirm с тем же requestId: transaction-service отвечает 200 с уже
+  созданной транзакцией и второй раз не списывает.
+  Сама individuals-api вызов не повторяет.
+
+  У individuals-api нет базы: кошельки и транзакции пишет только
+  transaction-service (по своим sequence-диаграммам).
+end note
+
+@enduml

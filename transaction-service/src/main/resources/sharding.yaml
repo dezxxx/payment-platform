@@ -1,0 +1,43 @@
+dataSources:
+  ds_0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: org.postgresql.Driver
+    jdbcUrl: $${TRANSACTION_SHARD_0_URL::jdbc:postgresql://localhost:5435/transaction}
+    username: $${TRANSACTION_DB_USER::transaction}
+    password: $${TRANSACTION_DB_PASSWORD::transaction}
+  ds_1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: org.postgresql.Driver
+    jdbcUrl: $${TRANSACTION_SHARD_1_URL::jdbc:postgresql://localhost:5436/transaction}
+    username: $${TRANSACTION_DB_USER::transaction}
+    password: $${TRANSACTION_DB_PASSWORD::transaction}
+
+rules:
+  - !SHARDING
+    tables:
+      wallets:
+        actualDataNodes: ds_${0..1}.wallets
+      transactions:
+        actualDataNodes: ds_${0..1}.transactions
+      transaction_events:
+        actualDataNodes: ds_${0..1}.transaction_events
+    # all of a user's rows land in one shard
+    defaultDatabaseStrategy:
+      standard:
+        shardingColumn: user_uid
+        shardingAlgorithmName: user_hash
+    defaultTableStrategy:
+      none:
+    # hash(user_uid) % 2; HASH_MOD would rename the tables to wallets_0, wallets_1.
+    # The value is read as a UUID, so a parameter and a string literal pick the same shard
+    shardingAlgorithms:
+      user_hash:
+        type: INLINE
+        props:
+          algorithm-expression: ds_${Math.abs(java.util.UUID.fromString(user_uid.toString()).hashCode() % 2)}
+  - !BROADCAST
+    tables:
+      - wallet_types
+
+props:
+  sql-show: false

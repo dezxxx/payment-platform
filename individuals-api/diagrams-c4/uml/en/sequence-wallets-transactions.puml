@@ -1,0 +1,83 @@
+@startuml sequence-wallets-transactions
+title individuals-api - wallets and transactions through transaction-service
+
+autonumber
+skinparam shadowing false
+
+actor Client
+participant "SecurityConfig" as Sec
+participant "WalletController /\nTransactionController" as Ctl
+participant "WalletService /\nTransactionService" as Svc
+participant "TransactionClient" as TCl
+participant "transaction-service" as Tx
+participant "Keycloak" as Kc
+
+Client -> Sec : any of the 11 operations, e.g.\nPOST /api/v1/transactions/withdrawal/confirm\nAuthorization: Bearer token
+Sec -> Kc : JWKS (signing keys, cached)
+alt no token, expired or bad signature
+  Sec --> Client : 401 AUTHENTICATION_REQUIRED
+  note right of Sec : transaction-service is not called
+end
+
+Sec -> Ctl : request + verified Jwt
+alt @Valid fails: required fields, uuid, amount > 0, page / size,\nthe two wallets of a transfer (@DifferentWallets on the client's class)
+  Ctl --> Client : 400 VALIDATION_ERROR
+end
+
+Ctl -> Svc : request, Jwt
+Svc -> Svc : KeycloakClaims.requireUserUid(jwt)
+alt the token carries no user_uid (realm mapper broken)
+  Svc --> Client : 500 INTERNAL_ERROR
+end
+
+Svc -> TCl : user_uid, request
+TCl -> Tx : same path and body + X-User-Uid: user_uid\nWalletsApi / TransactionsApi on transactionWebClient
+note right of TCl
+  The client never sends user_uid:
+  GET /api/v1/wallets -> GET /api/v1/wallets/user/{user_uid}
+  GET /api/v1/transactions?... -> ...&userUid=user_uid
+end note
+
+alt 2xx
+  Tx --> TCl : 200 / 201 + body
+  TCl --> Svc : the body (client class)
+  Svc --> Ctl : the body
+  Ctl --> Client : same status, same body
+else 400 INSUFFICIENT_FUNDS, CURRENCY_MISMATCH,\nWALLET_NOT_ACTIVE, WALLET_TYPE_NOT_ACTIVE
+  Tx --> TCl : 400 + error code
+  TCl --> Client : 400, the same error code
+else 400 VALIDATION_ERROR (their rules caught\nwhat ours let through)
+  Tx --> TCl : 400 VALIDATION_ERROR + details
+  TCl --> Client : 400 VALIDATION_ERROR, their details
+else 400 MALFORMED_REQUEST or an unknown error code
+  Tx --> TCl : 400
+  TCl --> Client : 500 INTERNAL_ERROR, their body only in the log (our bug)
+else 404 WALLET_NOT_FOUND, WALLET_TYPE_NOT_FOUND,\nTRANSACTION_NOT_FOUND
+  Tx --> TCl : 404 + error code
+  TCl --> Client : 404, the same error code
+  note right of TCl : another user's wallet is 404 too:\ntransaction-service looks only among\nthe wallets of this user_uid
+else 409 REQUEST_ID_CONFLICT
+  Tx --> TCl : 409
+  TCl --> Client : 409 REQUEST_ID_CONFLICT
+else 5xx
+  Tx --> TCl : 5xx
+  TCl --> Client : 503 DEPENDENCY_UNAVAILABLE
+else no connection or no answer within responseTimeout (5 s)
+  TCl --> Client : 503 DEPENDENCY_UNAVAILABLE
+end
+
+note over Client, Tx
+  Errors travel as ApiException to GlobalExceptionHandler and leave
+  as our ErrorResponseDto (timestamp, path, status, error, message,
+  traceId, details), not as transaction-service's problem details.
+
+  Timeout on confirm: the operation may have been committed. The client
+  repeats confirm with the same requestId: transaction-service answers 200
+  with the transaction it already made and never charges twice.
+  individuals-api does not repeat the call itself.
+
+  individuals-api has no database: wallets and transactions are written
+  by transaction-service only (its own sequence diagrams).
+end note
+
+@enduml
