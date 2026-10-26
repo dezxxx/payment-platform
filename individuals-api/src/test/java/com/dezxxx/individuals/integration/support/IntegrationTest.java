@@ -38,11 +38,17 @@ public abstract class IntegrationTest {
 
     protected static final StubPersonService PERSON_SERVICE = new StubPersonService();
 
+    protected static final StubTransactionService TRANSACTION_SERVICE = new StubTransactionService();
+
     protected static final StubOtlpCollector OTLP_COLLECTOR = new StubOtlpCollector();
+
+    // short, so the timeout test does not wait the real 5 s
+    protected static final String TRANSACTION_SERVICE_TIMEOUT = "1s";
 
     static {
         KEYCLOAK.start();
         PERSON_SERVICE.start();
+        TRANSACTION_SERVICE.start();
         OTLP_COLLECTOR.start();
     }
 
@@ -70,6 +76,8 @@ public abstract class IntegrationTest {
                 () -> KEYCLOAK.getAuthServerUrl() + "/realms/" + REALM);
 
         registry.add("individuals.person-service.base-url", PERSON_SERVICE::baseUrl);
+        registry.add("individuals.transaction-service.base-url", TRANSACTION_SERVICE::baseUrl);
+        registry.add("individuals.transaction-service.response-timeout", () -> TRANSACTION_SERVICE_TIMEOUT);
         registry.add("management.opentelemetry.tracing.export.otlp.endpoint", OTLP_COLLECTOR::tracesEndpoint);
     }
 

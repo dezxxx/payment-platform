@@ -21,7 +21,7 @@ Container_Boundary(app, "individuals-api") {
     Component(walletService, "WalletService", "Spring service, Reactor", "user_uid from the token (KeycloakClaims), then the wallet call")
     Component(transactionService2, "TransactionService", "Spring service, Reactor", "user_uid from the token (KeycloakClaims), then the transaction call")
     Component(personClient, "PersonClient", "adapter over person-service-client", "Create an individual, compensate a registration")
-    Component(transactionClient, "TransactionClient", "adapter over transaction-service-client: WalletsApi, TransactionsApi beans on transactionWebClient", "Sends X-User-Uid, maps the client's DTOs to ours, translates errors: 400/404/409 pass through, 5xx and timeout -> 503")
+    Component(transactionClient, "TransactionClient", "adapter over transaction-service-client: WalletsApi, TransactionsApi beans on transactionWebClient", "Sends X-User-Uid, translates errors: 400/404/409 pass through, 5xx and timeout -> 503")
     Component(keycloakClient, "KeycloakClient", "WebClient adapter", "Admin calls, password grant, refresh, rollback of a half-made account")
     Component(errors, "GlobalExceptionHandler, SecurityErrorWriter", "error handling", "Every error as one ErrorResponseDto with traceId")
     Component(metrics, "AuthMetrics", "Micrometer", "Registration, login and dependency metrics")

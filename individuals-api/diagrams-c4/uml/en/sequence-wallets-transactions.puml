@@ -20,7 +20,7 @@ alt no token, expired or bad signature
 end
 
 Sec -> Ctl : request + verified Jwt
-alt @Valid fails: required fields, uuid, amount > 0, page / size
+alt @Valid fails: required fields, uuid, amount > 0, page / size,\nthe two wallets of a transfer (@DifferentWallets on the client's class)
   Ctl --> Client : 400 VALIDATION_ERROR
 end
 
@@ -40,13 +40,13 @@ end note
 
 alt 2xx
   Tx --> TCl : 200 / 201 + body
-  TCl --> Svc : our DTO
-  Svc --> Ctl : our DTO
-  Ctl --> Client : same status, our DTO
+  TCl --> Svc : the body (client class)
+  Svc --> Ctl : the body
+  Ctl --> Client : same status, same body
 else 400 INSUFFICIENT_FUNDS, CURRENCY_MISMATCH,\nWALLET_NOT_ACTIVE, WALLET_TYPE_NOT_ACTIVE
   Tx --> TCl : 400 + error code
   TCl --> Client : 400, the same error code
-else 400 VALIDATION_ERROR (rules across two fields,\ne.g. transfer to the same wallet)
+else 400 VALIDATION_ERROR (their rules caught\nwhat ours let through)
   Tx --> TCl : 400 VALIDATION_ERROR + details
   TCl --> Client : 400 VALIDATION_ERROR, their details
 else 400 MALFORMED_REQUEST or an unknown error code

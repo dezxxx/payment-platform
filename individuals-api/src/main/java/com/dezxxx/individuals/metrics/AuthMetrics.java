@@ -28,6 +28,8 @@ public class AuthMetrics {
 
     private final Timer personServiceRequests;
 
+    private final Timer transactionServiceRequests;
+
     public AuthMetrics(MeterRegistry registry) {
         this.registry = registry;
         this.registrations = counter(registry, "auth.registration",
@@ -44,6 +46,8 @@ public class AuthMetrics {
                 "Time spent inside one call to Keycloak, OIDC and Admin alike");
         this.personServiceRequests = timer(registry, "external.person_service.requests",
                 "Time spent inside one call to person-service");
+        this.transactionServiceRequests = timer(registry, "external.transaction_service.requests",
+                "Time spent inside one call to transaction-service");
     }
 
     public void registrationStarted() {
@@ -76,6 +80,10 @@ public class AuthMetrics {
 
     public <T> Mono<T> timePersonService(Mono<T> call) {
         return time(personServiceRequests, call);
+    }
+
+    public <T> Mono<T> timeTransactionService(Mono<T> call) {
+        return time(transactionServiceRequests, call);
     }
 
     // defer: the stopwatch starts on subscribe; doFinally: failed and cancelled calls count too

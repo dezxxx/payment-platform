@@ -176,7 +176,8 @@ class TransactionTransferIT extends IntegrationTest {
         confirmTransfer(user, UUID.randomUUID(), wallet, wallet, AMOUNT)
                 .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.error").isEqualTo("VALIDATION_ERROR");
+                .jsonPath("$.error").isEqualTo("VALIDATION_ERROR")
+                .jsonPath("$.details[0]").isEqualTo("targetWalletUid: walletUid and targetWalletUid must be different wallets");
         assertThat(transactions(user)).isZero();
     }
 

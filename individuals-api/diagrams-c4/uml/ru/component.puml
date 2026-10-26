@@ -21,7 +21,7 @@ Container_Boundary(app, "individuals-api") {
     Component(walletService, "WalletService", "Spring-сервис, Reactor", "user_uid из токена (KeycloakClaims), затем вызов кошельков")
     Component(transactionService2, "TransactionService", "Spring-сервис, Reactor", "user_uid из токена (KeycloakClaims), затем вызов транзакций")
     Component(personClient, "PersonClient", "адаптер над person-service-client", "Создание физлица, компенсация регистрации")
-    Component(transactionClient, "TransactionClient", "адаптер над transaction-service-client: бины WalletsApi, TransactionsApi на transactionWebClient", "Ставит X-User-Uid, перекладывает DTO клиента в наши, переводит ошибки: 400/404/409 пробрасывает, 5xx и таймаут -> 503")
+    Component(transactionClient, "TransactionClient", "адаптер над transaction-service-client: бины WalletsApi, TransactionsApi на transactionWebClient", "Ставит X-User-Uid, переводит ошибки: 400/404/409 пробрасывает, 5xx и таймаут -> 503")
     Component(keycloakClient, "KeycloakClient", "адаптер на WebClient", "Admin-вызовы, вход по паролю, refresh, откат недоделанного аккаунта")
     Component(errors, "GlobalExceptionHandler, SecurityErrorWriter", "обработка ошибок", "Любая ошибка — один ErrorResponseDto с traceId")
     Component(metrics, "AuthMetrics", "Micrometer", "Метрики регистрации, входа и зависимостей")

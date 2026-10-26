@@ -5,9 +5,12 @@ info:
   description: |
     External entry layer of the payment platform.
 
-    Orchestrates registration and authentication. Owns no domain data:
+    Orchestrates registration and authentication, and passes wallets and
+    transactions to transaction-service with the user taken from the token.
+    Owns no domain data:
       - person-service is the source of truth about the domain user
       - Keycloak is the source of truth about the account, tokens and roles
+      - transaction-service is the source of truth about wallets and money
   version: 1.0.0
   contact:
     name: dezxxx
@@ -23,6 +26,10 @@ servers:
 tags:
   - name: auth
     description: Registration and authentication
+  - name: wallets
+    description: Wallets of the current user, kept by transaction-service
+  - name: transactions
+    description: Deposit, withdrawal, transfer of the current user, done by transaction-service
 
 paths:
 
@@ -231,6 +238,363 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  # Every operation below is passed to transaction-service with X-User-Uid = the token's user_uid;
+  # the client never names a user
+
+  /api/v1/wallets:
+    post:
+      tags: [wallets]
+      operationId: createWallet
+      summary: Create a wallet of the current user, balance 0
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWalletRequest"
+            examples:
+              usd:
+                summary: A USD wallet
+                value:
+                  name: Main USD
+                  walletTypeUid: 00000000-0000-0000-0000-000000000840
+      responses:
+        "201":
+          description: Wallet created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletResponse"
+        "400":
+          $ref: "#/components/responses/TransactionBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/TransactionNotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    get:
+      tags: [wallets]
+      operationId: getMyWallets
+      summary: All wallets of the current user that are not archived; an empty list if none
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Wallets of the current user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WalletResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/wallets/{walletUid}:
+    get:
+      tags: [wallets]
+      operationId: getWalletById
+      summary: A wallet of the current user; another user's or an archived wallet is not found
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: walletUid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletResponse"
+        "400":
+          $ref: "#/components/responses/TransactionBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/TransactionNotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/transactions/deposit/init:
+    post:
+      tags: [transactions]
+      operationId: initDeposit
+      summary: Compute the terms of a deposit; nothing is written
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepositInitRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/InitTerms"
+        "400":
+          $ref: "#/components/responses/TransactionBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/TransactionNotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/transactions/deposit/confirm:
+    post:
+      tags: [transactions]
+      operationId: confirmDeposit
+      summary: Create the deposit transaction (PENDING); the provider's answer finishes it
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepositConfirmRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Confirmed"
+        "400":
+          $ref: "#/components/responses/TransactionBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/TransactionNotFound"
+        "409":
+          $ref: "#/components/responses/RequestIdConflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ConfirmUnavailable"
+
+  /api/v1/transactions/withdrawal/init:
+    post:
+      tags: [transactions]
+      operationId: initWithdrawal
+      summary: Compute the terms of a withdrawal; nothing is written
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawalInitRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/InitTerms"
+        "400":
+          $ref: "#/components/responses/TransactionBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/TransactionNotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/transactions/withdrawal/confirm:
+    post:
+      tags: [transactions]
+      operationId: confirmWithdrawal
+      summary: Debit amount + fee and create the withdrawal transaction (PENDING)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawalConfirmRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Confirmed"
+        "400":
+          $ref: "#/components/responses/TransactionBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/TransactionNotFound"
+        "409":
+          $ref: "#/components/responses/RequestIdConflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ConfirmUnavailable"
+
+  /api/v1/transactions/transfer/init:
+    post:
+      tags: [transactions]
+      operationId: initTransfer
+      summary: Compute the terms of a transfer between two wallets of the current user; nothing is written
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferInitRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/InitTerms"
+        "400":
+          $ref: "#/components/responses/TransactionBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/TransactionNotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/transactions/transfer/confirm:
+    post:
+      tags: [transactions]
+      operationId: confirmTransfer
+      summary: The whole transfer in one transaction; answers COMPLETED
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferConfirmRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Confirmed"
+        "400":
+          $ref: "#/components/responses/TransactionBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/TransactionNotFound"
+        "409":
+          $ref: "#/components/responses/RequestIdConflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ConfirmUnavailable"
+
+  /api/v1/transactions/{transactionId}/status:
+    get:
+      tags: [transactions]
+      operationId: getTransactionStatus
+      summary: Status and details of a transaction of the current user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionStatusResponse"
+        "400":
+          $ref: "#/components/responses/TransactionBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/TransactionNotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /api/v1/transactions:
+    get:
+      tags: [transactions]
+      operationId: searchTransactions
+      summary: Transactions of the current user by filters, newest first, page by page
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: walletUid
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/TransactionType"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/TransactionStatus"
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TransactionStatusResponse"
+        "400":
+          $ref: "#/components/responses/TransactionBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
 components:
 
   securitySchemes:
@@ -421,6 +785,208 @@ components:
             instead of answering from the token alone.
           example: "2026-08-19T12:34:56Z"
 
+    # The schemas down to TransactionStatus describe transaction-service's models; no classes are
+    # generated for them: schemaMappings in build.gradle.kts points them at transaction-service-client
+
+    CreateWalletRequest:
+      type: object
+      required: [name, walletTypeUid]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 32
+          example: Main USD
+        walletTypeUid:
+          type: string
+          format: uuid
+          example: 00000000-0000-0000-0000-000000000840
+
+    WalletResponse:
+      type: object
+      required: [uid, name, walletTypeUid, currencyCode, status, balance]
+      properties:
+        uid:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Main USD
+        walletTypeUid:
+          type: string
+          format: uuid
+          example: 00000000-0000-0000-0000-000000000840
+        currencyCode:
+          type: string
+          example: USD
+        status:
+          type: string
+          example: ACTIVE
+        balance:
+          type: number
+          example: 150.00
+
+    DepositInitRequest:
+      type: object
+      required: [walletUid, amount]
+      properties:
+        walletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          example: 100.00
+
+    WithdrawalInitRequest:
+      type: object
+      required: [walletUid, amount]
+      properties:
+        walletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          example: 50.00
+
+    TransferInitRequest:
+      type: object
+      description: The two wallets must differ
+      required: [walletUid, targetWalletUid, amount]
+      properties:
+        walletUid:
+          type: string
+          format: uuid
+        targetWalletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          example: 25.00
+
+    TransactionInitResponse:
+      type: object
+      required: [amount, fee, total, requestId]
+      properties:
+        amount:
+          type: number
+          example: 100.00
+        fee:
+          type: number
+          example: 1.00
+        total:
+          type: number
+          example: 101.00
+        requestId:
+          type: string
+          format: uuid
+          description: Send it back in confirm; a repeated confirm with it never charges twice
+
+    DepositConfirmRequest:
+      type: object
+      required: [requestId, walletUid, amount]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        walletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          example: 100.00
+
+    WithdrawalConfirmRequest:
+      type: object
+      required: [requestId, walletUid, amount]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        walletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          example: 50.00
+
+    TransferConfirmRequest:
+      type: object
+      description: The two wallets must differ
+      required: [requestId, walletUid, targetWalletUid, amount]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        walletUid:
+          type: string
+          format: uuid
+        targetWalletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          example: 25.00
+
+    TransactionConfirmResponse:
+      type: object
+      required: [transactionId, status]
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/TransactionStatus"
+
+    TransactionStatusResponse:
+      type: object
+      required: [transactionId, type, status, walletUid, amount, createdAt]
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/TransactionType"
+        status:
+          $ref: "#/components/schemas/TransactionStatus"
+        walletUid:
+          type: string
+          format: uuid
+        targetWalletUid:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          example: 100.00
+        fee:
+          type: number
+          example: 1.00
+        failureReason:
+          type: string
+          example: INSUFFICIENT_FUNDS_EXTERNAL
+        createdAt:
+          type: string
+          format: date-time
+
+    TransactionType:
+      type: string
+      enum: [deposit, withdrawal, transfer]
+
+    TransactionStatus:
+      type: string
+      enum: [PENDING, COMPLETED, FAILED]
+
     ErrorResponse:
       type: object
       required: [timestamp, path, status, error, message, traceId]
@@ -576,3 +1142,146 @@ components:
                 error: DEPENDENCY_UNAVAILABLE
                 message: Keycloak is not reachable
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+    InitTerms:
+      description: Terms of the operation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TransactionInitResponse"
+    Confirmed:
+      description: Transaction confirmed; a repeated confirm with the same requestId answers the same transaction
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TransactionConfirmResponse"
+    TransactionBadRequest:
+      description: |
+        The request failed validation here or in transaction-service, or
+        transaction-service refused the operation; the `error` field names which.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            validationFailed:
+              summary: A field is missing or out of range
+              value:
+                timestamp: "2026-10-26T12:34:56Z"
+                path: /api/v1/transactions/transfer/init
+                status: 400
+                error: VALIDATION_ERROR
+                message: Request validation failed
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details:
+                  - "amount: must be greater than 0"
+            insufficientFunds:
+              summary: Not enough money including the fee
+              value:
+                timestamp: "2026-10-26T12:34:56Z"
+                path: /api/v1/transactions/withdrawal/confirm
+                status: 400
+                error: INSUFFICIENT_FUNDS
+                message: Not enough funds including the fee
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+            currencyMismatch:
+              summary: A transfer between wallets of different currencies
+              value:
+                timestamp: "2026-10-26T12:34:56Z"
+                path: /api/v1/transactions/transfer/init
+                status: 400
+                error: CURRENCY_MISMATCH
+                message: The wallets have different currencies
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+            walletNotActive:
+              summary: The wallet is blocked or archived
+              value:
+                timestamp: "2026-10-26T12:34:56Z"
+                path: /api/v1/transactions/deposit/init
+                status: 400
+                error: WALLET_NOT_ACTIVE
+                message: The wallet is not active
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+            walletTypeNotActive:
+              summary: The wallet type is archived or not active
+              value:
+                timestamp: "2026-10-26T12:34:56Z"
+                path: /api/v1/wallets
+                status: 400
+                error: WALLET_TYPE_NOT_ACTIVE
+                message: The wallet type is archived or not active
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+    TransactionNotFound:
+      description: |
+        No such wallet, wallet type or transaction among those of the current
+        user; another user's wallet is not found either.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            walletNotFound:
+              value:
+                timestamp: "2026-10-26T12:34:56Z"
+                path: /api/v1/transactions/deposit/init
+                status: 404
+                error: WALLET_NOT_FOUND
+                message: Wallet not found
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+            walletTypeNotFound:
+              value:
+                timestamp: "2026-10-26T12:34:56Z"
+                path: /api/v1/wallets
+                status: 404
+                error: WALLET_TYPE_NOT_FOUND
+                message: Wallet type not found
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+            transactionNotFound:
+              value:
+                timestamp: "2026-10-26T12:34:56Z"
+                path: /api/v1/transactions/7c9e6679-7425-40de-944b-e07fc1f90ae7/status
+                status: 404
+                error: TRANSACTION_NOT_FOUND
+                message: Transaction not found
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+    RequestIdConflict:
+      description: The requestId was already used for another operation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            conflict:
+              value:
+                timestamp: "2026-10-26T12:34:56Z"
+                path: /api/v1/transactions/withdrawal/confirm
+                status: 409
+                error: REQUEST_ID_CONFLICT
+                message: requestId already used for another operation
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+    ConfirmUnavailable:
+      description: |
+        transaction-service did not answer. The operation may already be
+        committed: repeat the confirm with the same requestId, or check the
+        transaction's status; it is never charged twice.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            transactionServiceDown:
+              value:
+                timestamp: "2026-10-26T12:34:56Z"
+                path: /api/v1/transactions/withdrawal/confirm
+                status: 503
+                error: DEPENDENCY_UNAVAILABLE
+                message: Dependency is not reachable
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []

@@ -1284,7 +1284,8 @@
                   "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
                   "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
                   "  pm.expect(p.status).to.eql(400);",
-                  "});"
+                  "});",
+                  "pm.test('names the field', () => pm.expect(p.details.join()).to.include('targetWalletUid'));"
                 ]
               }
             }

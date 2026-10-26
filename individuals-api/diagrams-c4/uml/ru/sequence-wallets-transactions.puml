@@ -20,7 +20,7 @@ alt токена нет, он просрочен или подпись неве�
 end
 
 Sec -> Ctl : запрос + проверенный Jwt
-alt @Valid не прошёл: обязательные поля, uuid, amount > 0, page / size
+alt @Valid не прошёл: обязательные поля, uuid, amount > 0, page / size,\nдва кошелька перевода (@DifferentWallets на классе клиента)
   Ctl --> Client : 400 VALIDATION_ERROR
 end
 
@@ -40,13 +40,13 @@ end note
 
 alt 2xx
   Tx --> TCl : 200 / 201 + тело
-  TCl --> Svc : наш DTO
-  Svc --> Ctl : наш DTO
-  Ctl --> Client : тот же статус, наш DTO
+  TCl --> Svc : тело (класс клиента)
+  Svc --> Ctl : тело
+  Ctl --> Client : тот же статус, то же тело
 else 400 INSUFFICIENT_FUNDS, CURRENCY_MISMATCH,\nWALLET_NOT_ACTIVE, WALLET_TYPE_NOT_ACTIVE
   Tx --> TCl : 400 + код ошибки
   TCl --> Client : 400, тот же код
-else 400 VALIDATION_ERROR (правила на два поля,\nнапример перевод на тот же кошелёк)
+else 400 VALIDATION_ERROR (их правила поймали\nто, что пропустили наши)
   Tx --> TCl : 400 VALIDATION_ERROR + details
   TCl --> Client : 400 VALIDATION_ERROR, их details
 else 400 MALFORMED_REQUEST или неизвестный код

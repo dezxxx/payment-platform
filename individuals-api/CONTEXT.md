@@ -765,7 +765,8 @@ the single place where the token is checked, so it is also the single place
 | Where `user_uid` comes from | only from the verified token (`KeycloakClaims.requireUserUid`); individuals-api sets it as `X-User-Uid` on every call | it is the same `user_uid` person-service issued at registration and Keycloak carries in the token; taken from the client, anyone could read another user's wallets |
 | Trust boundary | transaction-service checks no token and trusts `X-User-Uid`, so it is reachable from the Docker network only; its port is published locally for development and its own Postman collection | the header is safe only while individuals-api is the only caller |
 | Endpoints | the 11 operations of transaction-service under the same paths; own wallets are `GET /api/v1/wallets` (→ `/api/v1/wallets/user/{user_uid}`), search takes no `userUid` (added from the token) | the client never names a user |
-| Client | `TransactionClient` in `gateway/transaction`, an adapter over the generated `transaction-service-client` (`WalletsApi`, `TransactionsApi` beans on `transactionWebClient`), like `PersonClient` | one client per external system |
+| Client | `TransactionClient` in `gateway/transaction`, an adapter over the generated `transaction-service-client` (`WalletsApi`, `TransactionsApi` beans on `transactionWebClient`), like `PersonClient`; it sets `X-User-Uid` and translates errors | one client per external system |
+| Models | the endpoints take and return the client's classes (`com.dezxxx.transaction.client.model`): the contract keeps the schemas for Swagger, `schemaMappings` in `build.gradle.kts` stops the generator from copying them; `@Valid` checks their annotations, `@DifferentWallets` included | the bodies are the same on both sides: copies would only be moved field by field; a new client version must be compared with the schemas in `individuals-api.yaml` |
 | Classes | `WalletController`, `TransactionController` → `WalletService`, `TransactionService` → `TransactionClient` | `rest -> service -> gateway`, as in section 1 |
 | Configuration | `individuals.transaction-service.base-url` from `TRANSACTION_SERVICE_URL` (`http://localhost:8084` locally, `http://transaction-service:8084` in Docker), `response-timeout` 5 s by default | only the address differs between environments; paths come from the contract |
 | Error body | our `ErrorResponse`, not transaction-service's RFC 9457 problem details; the `error` code is kept | one error format on every individuals-api endpoint |
@@ -778,9 +779,9 @@ the single place where the token is checked, so it is also the single place
 | no token, expired or bad signature | **401** `AUTHENTICATION_REQUIRED` | no |
 | `@Valid` | **400** `VALIDATION_ERROR` | no |
 | the token has no `user_uid` (realm mapper broken) | **500** `INTERNAL_ERROR` | no |
-| 2xx | the same status, our DTO | yes |
+| 2xx | the same status and body (the client's class) | yes |
 | 400 `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`, `WALLET_NOT_ACTIVE`, `WALLET_TYPE_NOT_ACTIVE` | **400**, the same code — a business refusal the client must see | yes |
-| 400 `VALIDATION_ERROR` (rules across two fields, e.g. transfer to the same wallet) | **400** `VALIDATION_ERROR` with their `details` — those rules live only in transaction-service | yes |
+| 400 `VALIDATION_ERROR` (their rules caught what ours let through) | **400** `VALIDATION_ERROR` with their `details` | yes |
 | 400 `MALFORMED_REQUEST` or an unknown code | **500** `INTERNAL_ERROR`, their body only in the log — we sent it, our bug | yes |
 | 404 `WALLET_NOT_FOUND`, `WALLET_TYPE_NOT_FOUND`, `TRANSACTION_NOT_FOUND` | **404**, the same code; another user's wallet is 404 too | yes |
 | 409 `REQUEST_ID_CONFLICT` | **409** | yes |
@@ -801,14 +802,14 @@ never charges twice.
       `TransactionsApi` beans in `HttpClientsConfig`; `transaction-service-client`
       from Nexus; `TRANSACTION_SERVICE_URL` in compose and `.env.example`
 - [x] Scenario and C4 diagrams: container, component, `sequence-wallets-transactions`
-- [ ] Contract `openapi/individuals-api.yaml`: the 11 paths and their schemas
-      (schema names must not repeat the client's DTO names: `TransactionClient`
-      imports both)
-- [ ] Controllers, services, `TransactionClient`, new `ErrorCode` values, the
+- [x] Contract `openapi/individuals-api.yaml`: the 11 paths (own wallets are
+      `getMyWallets`), the schemas mapped to the client's classes, the error answers
+- [x] Controllers, services, `TransactionClient`, new `ErrorCode` values, the
       `external.transaction_service.requests` timer
-- [ ] Unit and integration tests (transaction-service stubbed with WireMock),
-      a Postman folder
-- [ ] Republish `transaction-service-client` to Nexus, full rebuild, `make verify`
+- [x] Unit and integration tests (transaction-service is a Reactor Netty stub
+      in the integration tests), Postman folders 5-7
+- [x] Republish `transaction-service-client` to Nexus, rebuild the images, run
+      both Postman collections
 - [ ] Grafana legends read as `create_wallet`, not as Java names (`createWallet`)
 - [ ] Open: no endpoint lists wallet types, their uids come only from the
       `V003__seed_wallet_types.sql` seed

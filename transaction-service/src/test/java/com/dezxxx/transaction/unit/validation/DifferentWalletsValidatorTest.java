@@ -68,6 +68,22 @@ class DifferentWalletsValidatorTest {
     }
 
     @Test
+    @DisplayName("puts the error on targetWalletUid, so the response details name the field")
+    void reportsOnTargetWallet() {
+        // given
+        UUID wallet = UUID.randomUUID();
+        TransferInitRequestDto request = initRequest(wallet, wallet);
+
+        // when
+        Set<ConstraintViolation<TransferInitRequestDto>> violations = validator.validate(request);
+
+        // then
+        assertThat(violations)
+                .extracting(violation -> violation.getPropertyPath().toString())
+                .containsExactly("targetWalletUid");
+    }
+
+    @Test
     @DisplayName("rejects a confirm request that sends money to the same wallet")
     void rejectsSameWalletOnConfirm() {
         // given

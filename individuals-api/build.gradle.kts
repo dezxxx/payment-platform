@@ -51,6 +51,17 @@ openApiGenerate {
     modelNameSuffix.set("Dto")
     invokerPackage.set("com.dezxxx.individuals.api")
 
+    // transaction-service's models: no copies, the endpoints take and return the client's classes
+    val transactionModel = "com.dezxxx.transaction.client.model"
+    schemaMappings.set(
+        listOf(
+            "CreateWalletRequest", "WalletResponse",
+            "DepositInitRequest", "WithdrawalInitRequest", "TransferInitRequest", "TransactionInitResponse",
+            "DepositConfirmRequest", "WithdrawalConfirmRequest", "TransferConfirmRequest",
+            "TransactionConfirmResponse", "TransactionStatusResponse", "TransactionType", "TransactionStatus"
+        ).associateWith { "$transactionModel.${it}Dto" }
+    )
+
     generateApiTests.set(false)
     generateModelTests.set(false)
     generateApiDocumentation.set(false)
