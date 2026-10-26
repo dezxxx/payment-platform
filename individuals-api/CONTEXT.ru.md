@@ -1,6 +1,6 @@
 # CONTEXT - individuals-api (русская версия)
 
-Модуль 1. Общие правила, порты и как запускается платформа: [`CONTEXT.ru.md`](../CONTEXT.ru.md).
+Модуль 1; модуль 3 добавляет кошельки и транзакции (раздел 6). Общие правила, порты и как запускается платформа: [`CONTEXT.ru.md`](../CONTEXT.ru.md).
 
 Модуль 1 сдаёт **individuals-api**: внешний входной слой, который оркестрирует
 регистрацию и аутентификацию пользователей. Сам он не хранит ничего.
@@ -701,3 +701,66 @@ Maven Central руками, но по-настоящему ничего не р�
 
 `UserResponse` переименован в `CurrentUserResponse`, чтобы совпасть со списком
 обязательных схем из задания.
+
+---
+
+## 6. Модуль 3 — кошельки и транзакции через transaction-service
+
+С кошельками и деньгами клиент работает только через individuals-api. Только
+здесь проверяется токен, поэтому только отсюда может взяться `user_uid`.
+Диаграммы: `diagrams-c4/uml/ru/container.puml`, `component.puml`,
+`sequence-wallets-transactions.puml`.
+
+### Решения
+
+| Тема | Решение | Почему |
+|---|---|---|
+| Откуда `user_uid` | только из проверенного токена (`KeycloakClaims.requireUserUid`); individuals-api ставит его в `X-User-Uid` на каждый вызов | это тот же `user_uid`, что выдал person-service при регистрации и несёт токен Keycloak; если брать его от клиента, любой прочитает чужие кошельки |
+| Граница доверия | transaction-service токен не проверяет и верит `X-User-Uid`, поэтому доступен только из сети Docker; его порт опубликован локально для разработки и его собственной Postman-коллекции | заголовок безопасен, пока individuals-api — единственный, кто его вызывает |
+| Эндпоинты | 11 операций transaction-service по тем же путям; свои кошельки — `GET /api/v1/wallets` (→ `/api/v1/wallets/user/{user_uid}`), поиск без `userUid` (подставляется из токена) | клиент никогда не называет пользователя |
+| Клиент | `TransactionClient` в `gateway/transaction`, адаптер над сгенерированным `transaction-service-client` (бины `WalletsApi`, `TransactionsApi` на `transactionWebClient`), как `PersonClient` | один клиент на внешнюю систему |
+| Классы | `WalletController`, `TransactionController` → `WalletService`, `TransactionService` → `TransactionClient` | `rest -> service -> gateway`, как в разделе 1 |
+| Настройка | `individuals.transaction-service.base-url` из `TRANSACTION_SERVICE_URL` (`http://localhost:8084` локально, `http://transaction-service:8084` в Docker), `response-timeout` по умолчанию 5 с | между окружениями меняется только адрес; пути берутся из контракта |
+| Тело ошибки | наш `ErrorResponse`, а не RFC 9457 problem details transaction-service; код `error` сохраняется | один формат ошибок на всех эндпоинтах individuals-api |
+| Повторы | individuals-api вызов не повторяет | confirm идемпотентен по `requestId`, повторяет клиент |
+
+### Что получает клиент
+
+| Где | Клиент видит | Вызван ли transaction-service |
+|---|---|---|
+| токена нет, он просрочен или подпись неверна | **401** `AUTHENTICATION_REQUIRED` | нет |
+| `@Valid` | **400** `VALIDATION_ERROR` | нет |
+| в токене нет `user_uid` (сломан mapper realm) | **500** `INTERNAL_ERROR` | нет |
+| 2xx | тот же статус, наш DTO | да |
+| 400 `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`, `WALLET_NOT_ACTIVE`, `WALLET_TYPE_NOT_ACTIVE` | **400**, тот же код — бизнес-отказ, клиент должен его видеть | да |
+| 400 `VALIDATION_ERROR` (правила на два поля, например перевод на тот же кошелёк) | **400** `VALIDATION_ERROR` с их `details` — эти правила есть только в transaction-service | да |
+| 400 `MALFORMED_REQUEST` или неизвестный код | **500** `INTERNAL_ERROR`, их тело только в лог — запрос слали мы, это наш баг | да |
+| 404 `WALLET_NOT_FOUND`, `WALLET_TYPE_NOT_FOUND`, `TRANSACTION_NOT_FOUND` | **404**, тот же код; чужой кошелёк — тоже 404 | да |
+| 409 `REQUEST_ID_CONFLICT` | **409** | да |
+| 5xx | **503** `DEPENDENCY_UNAVAILABLE` | да |
+| нет соединения или нет ответа за 5 с | **503** `DEPENDENCY_UNAVAILABLE` (`GatewayErrors.transportFailures`) | да |
+
+В отличие от person-service, 400 от transaction-service пробрасывается: там это
+обычно бизнес-ошибка клиента, а не наша.
+
+**Таймаут на confirm.** Операция может быть уже закоммичена, когда ответ
+потерялся. Клиент повторяет confirm с тем же `requestId`; transaction-service
+отвечает `200` с уже созданной транзакцией и второй раз не списывает.
+
+### Прогресс
+
+- [x] `TransactionServiceProperties`, `transactionWebClient`, бины `WalletsApi` и
+      `TransactionsApi` в `HttpClientsConfig`; `transaction-service-client` из
+      Nexus; `TRANSACTION_SERVICE_URL` в compose и `.env.example`
+- [x] Сценарий и C4-диаграммы: container, component, `sequence-wallets-transactions`
+- [ ] Контракт `openapi/individuals-api.yaml`: 11 путей и их схемы (имена схем
+      не должны повторять имена DTO клиента: `TransactionClient` импортирует оба)
+- [ ] Контроллеры, сервисы, `TransactionClient`, новые значения `ErrorCode`,
+      таймер `external.transaction_service.requests`
+- [ ] Unit- и integration-тесты (transaction-service — заглушка WireMock),
+      папка в Postman
+- [ ] Переопубликовать `transaction-service-client` в Nexus, полная пересборка,
+      `make verify`
+- [ ] Подписи в легендах Grafana — `create_wallet`, а не Java-имена (`createWallet`)
+- [ ] Открыто: нет эндпоинта со списком типов кошельков, их uid есть только в
+      seed-миграции `V003__seed_wallet_types.sql`

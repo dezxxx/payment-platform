@@ -122,6 +122,12 @@ dependencies {
             providers.gradleProperty("personClientVersion").get()
     )
 
+    implementation(
+        "${providers.gradleProperty("transactionClientGroup").get()}:" +
+            "${providers.gradleProperty("transactionClientArtifact").get()}:" +
+            providers.gradleProperty("transactionClientVersion").get()
+    )
+
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.security.test)
     testImplementation(libs.reactor.test)

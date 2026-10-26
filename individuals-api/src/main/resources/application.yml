@@ -27,6 +27,8 @@ individuals:
     realm: ${KEYCLOAK_REALM:payment-platform}
     client-id: ${KEYCLOAK_CLIENT_ID:individuals-api}
     client-secret: ${KEYCLOAK_CLIENT_SECRET:}
+  transaction-service:
+    base-url: ${TRANSACTION_SERVICE_URL:http://localhost:8084}
 
 springdoc:
   swagger-ui:

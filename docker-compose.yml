@@ -299,6 +299,7 @@ services:
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
       PERSON_SERVICE_URL: ${PERSON_SERVICE_URL:-http://person-service:8082}
+      TRANSACTION_SERVICE_URL: ${TRANSACTION_SERVICE_URL:-http://transaction-service:8084}
     # the JRE image has no curl or wget, only bash
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8081 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
