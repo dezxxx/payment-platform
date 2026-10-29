@@ -15,6 +15,7 @@ import com.dezxxx.transaction.event.DepositRequested;
 import com.dezxxx.transaction.event.WithdrawalRequested;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -33,12 +34,16 @@ public class TransactionMapper {
 
     private final JsonMapper jsonMapper;
 
-    public TransactionInitResponseDto toInitResponse(BigDecimal amount, BigDecimal fee, UUID requestId) {
+    public TransactionInitResponseDto toInitResponse(BigDecimal amount,
+                                                     BigDecimal fee,
+                                                     Instant expiresAt,
+                                                     String offerToken) {
         return new TransactionInitResponseDto()
                 .amount(amount)
                 .fee(fee)
                 .total(amount.add(fee))
-                .requestId(requestId);
+                .expiresAt(expiresAt.atOffset(ZoneOffset.UTC))
+                .offerToken(offerToken);
     }
 
     public TransactionConfirmResponseDto toConfirmResponse(UUID transactionId, TransactionStatus status) {
@@ -60,7 +65,6 @@ public class TransactionMapper {
                 .createdAt(transaction.getCreatedAt().atOffset(ZoneOffset.UTC));
     }
 
-    // the search filters in the entity's terms; a filter not given stays null
     public TransactionPaymentType toPaymentType(TransactionTypeDto type) {
         return type == null ? null : TransactionPaymentType.valueOf(type.name());
     }
@@ -89,7 +93,6 @@ public class TransactionMapper {
         return event;
     }
 
-    // a row of transaction_events as the Avro event it stands for
     public SpecificRecord toRequestedEvent(TransactionEventEntity event) {
         RequestedPayload payload = jsonMapper.readValue(event.getPayload(), RequestedPayload.class);
         BigDecimal amount = payload.amount().setScale(MONEY_SCALE, RoundingMode.UNNECESSARY);
@@ -112,7 +115,6 @@ public class TransactionMapper {
         };
     }
 
-    // the JSON in transaction_events.payload: written on confirm, read back by TransactionKafkaProducer
     record RequestedPayload(UUID transactionId, UUID userId, UUID walletUid, BigDecimal amount, String currency) {
     }
 }

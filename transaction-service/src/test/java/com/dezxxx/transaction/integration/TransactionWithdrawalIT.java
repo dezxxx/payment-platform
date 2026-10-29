@@ -22,11 +22,11 @@ class TransactionWithdrawalIT extends IntegrationTest {
 
     private static final BigDecimal AMOUNT = new BigDecimal("100.00");
 
-    // a withdrawal of 100.00 debits 101.00 with the 1 % fee, 49.00 stays
     private static final BigDecimal FUNDS = new BigDecimal("150.00");
 
     @Test
-    @DisplayName("given exactly amount + fee on the wallet, when init, then 200 with fee 1.00 and total 101.00, nothing written")
+    @DisplayName("given exactly amount + fee on the wallet, when init, then 200 with fee 1.00, total 101.00 and an"
+            + " offerToken, nothing written")
     void initsWithdrawal() {
         // given
         UUID user = UUID.randomUUID();
@@ -34,7 +34,7 @@ class TransactionWithdrawalIT extends IntegrationTest {
         fund(wallet, user, new BigDecimal("101.00"));
 
         // when
-        TransactionInitResponseDto terms = post(user, "/api/v1/transactions/withdrawal/init",
+        TransactionInitResponseDto offer = post(user, "/api/v1/transactions/withdrawal/init",
                 new WithdrawalInitRequestDto().walletUid(wallet).amount(AMOUNT))
                 .expectStatus().isOk()
                 .expectBody(TransactionInitResponseDto.class)
@@ -42,10 +42,10 @@ class TransactionWithdrawalIT extends IntegrationTest {
                 .getResponseBody();
 
         // then
-        assertThat(terms.getAmount()).isEqualByComparingTo("100.00");
-        assertThat(terms.getFee()).isEqualByComparingTo("1.00");
-        assertThat(terms.getTotal()).isEqualByComparingTo("101.00");
-        assertThat(terms.getRequestId()).isNotNull();
+        assertThat(offer.getAmount()).isEqualByComparingTo("100.00");
+        assertThat(offer.getFee()).isEqualByComparingTo("1.00");
+        assertThat(offer.getTotal()).isEqualByComparingTo("101.00");
+        assertThat(offer.getOfferToken()).isNotBlank();
         assertThat(transactions(user)).isZero();
         assertThat(balance(wallet, user)).isEqualByComparingTo("101.00");
     }
@@ -67,16 +67,16 @@ class TransactionWithdrawalIT extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("given the terms, when confirm, then 200 PENDING, amount + fee debited, the transaction and WithdrawalRequested")
+    @DisplayName("given the offer, when confirm, then 200 PENDING, amount + fee debited, the transaction and"
+            + " WithdrawalRequested")
     void confirmsWithdrawal() {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
         fund(wallet, user, FUNDS);
-        UUID requestId = UUID.randomUUID();
 
         // when
-        TransactionConfirmResponseDto confirmed = confirmedWithdrawal(user, requestId, wallet, AMOUNT);
+        TransactionConfirmResponseDto confirmed = confirmedWithdrawal(user, wallet, AMOUNT);
 
         // then
         assertThat(confirmed.getStatus()).isEqualTo(TransactionStatusDto.PENDING);
@@ -85,7 +85,8 @@ class TransactionWithdrawalIT extends IntegrationTest {
                 "SELECT type::text AS type, status, wallet_uid, amount, fee, request_id FROM transactions"
                         + " WHERE uid = ? AND user_uid = ?", confirmed.getTransactionId(), user);
         assertThat(transaction).containsEntry("type", "WITHDRAWAL").containsEntry("status", "PENDING")
-                .containsEntry("wallet_uid", wallet).containsEntry("request_id", requestId);
+                .containsEntry("wallet_uid", wallet);
+        assertThat(transaction.get("request_id")).isNotNull();
         assertThat((BigDecimal) transaction.get("amount")).isEqualByComparingTo("100.00");
         assertThat((BigDecimal) transaction.get("fee")).isEqualByComparingTo("1.00");
 
@@ -99,16 +100,18 @@ class TransactionWithdrawalIT extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("given too little on the wallet, when confirm, then 400, nothing written and the requestId stays free")
+    @DisplayName("given a balance spent after init, when confirm, then 400, nothing written, and the same offerToken"
+            + " passes once the funds are back")
     void confirmRollsBackWithoutFunds() {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
+        fund(wallet, user, FUNDS);
+        String offerToken = withdrawalOffer(user, wallet, AMOUNT);
         fund(wallet, user, new BigDecimal("50.00"));
-        UUID requestId = UUID.randomUUID();
 
         // when
-        confirmWithdrawal(user, requestId, wallet, AMOUNT)
+        confirmWithdrawal(user, offerToken)
                 .expectStatus().isBadRequest()
                 .expectBody()
                 .jsonPath("$.error").isEqualTo("INSUFFICIENT_FUNDS");
@@ -118,22 +121,22 @@ class TransactionWithdrawalIT extends IntegrationTest {
         assertThat(events(user)).isZero();
         assertThat(balance(wallet, user)).isEqualByComparingTo("50.00");
         fund(wallet, user, FUNDS);
-        assertThat(confirmedWithdrawal(user, requestId, wallet, AMOUNT).getStatus())
-                .isEqualTo(TransactionStatusDto.PENDING);
+        assertThat(ok(confirmWithdrawal(user, offerToken)).getStatus()).isEqualTo(TransactionStatusDto.PENDING);
     }
 
     @Test
-    @DisplayName("given a confirmed withdrawal, when confirm repeats with the same requestId, then the same transaction, debited once")
+    @DisplayName("given a confirmed withdrawal, when confirm repeats with the same offerToken, then the same transaction,"
+            + " debited once")
     void repeatedConfirmDebitsOnce() {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
         fund(wallet, user, new BigDecimal("300.00"));
-        UUID requestId = UUID.randomUUID();
-        TransactionConfirmResponseDto first = confirmedWithdrawal(user, requestId, wallet, AMOUNT);
+        String offerToken = withdrawalOffer(user, wallet, AMOUNT);
+        TransactionConfirmResponseDto first = ok(confirmWithdrawal(user, offerToken));
 
         // when
-        TransactionConfirmResponseDto second = confirmedWithdrawal(user, requestId, wallet, AMOUNT);
+        TransactionConfirmResponseDto second = ok(confirmWithdrawal(user, offerToken));
 
         // then
         assertThat(second).isEqualTo(first);
@@ -144,18 +147,21 @@ class TransactionWithdrawalIT extends IntegrationTest {
 
     // a race does not happen on every run: repeated, so both confirms really meet on the wallet
     @RepeatedTest(20)
-    @DisplayName("given funds for one withdrawal, when two confirms with different requestIds race, then one 200, one 400, never below zero")
+    @DisplayName("given funds for one withdrawal and two offers, when both confirms race, then one 200, one 400,"
+            + " never below zero")
     void concurrentConfirmsDebitOnce() {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
         fund(wallet, user, FUNDS);
+        String firstOffer = withdrawalOffer(user, wallet, AMOUNT);
+        String secondOffer = withdrawalOffer(user, wallet, AMOUNT);
         CountDownLatch start = new CountDownLatch(1);
 
         // when
         List<CompletableFuture<Integer>> confirms = List.of(
-                CompletableFuture.supplyAsync(() -> raceConfirm(start, user, wallet)),
-                CompletableFuture.supplyAsync(() -> raceConfirm(start, user, wallet)));
+                CompletableFuture.supplyAsync(() -> raceConfirm(start, user, firstOffer)),
+                CompletableFuture.supplyAsync(() -> raceConfirm(start, user, secondOffer)));
         start.countDown();
         List<Integer> statuses = confirms.stream().map(CompletableFuture::join).toList();
 
@@ -165,14 +171,14 @@ class TransactionWithdrawalIT extends IntegrationTest {
         assertThat(transactions(user)).isEqualTo(1);
     }
 
-    private int raceConfirm(CountDownLatch start, UUID user, UUID wallet) {
+    private int raceConfirm(CountDownLatch start, UUID user, String offerToken) {
         try {
             start.await();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(ex);
         }
-        return confirmWithdrawal(user, UUID.randomUUID(), wallet, AMOUNT)
+        return confirmWithdrawal(user, offerToken)
                 .returnResult(String.class)
                 .getStatus()
                 .value();

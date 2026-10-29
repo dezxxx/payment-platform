@@ -17,7 +17,6 @@ class TransactionMetricsIT extends IntegrationTest {
 
     private static final BigDecimal AMOUNT = new BigDecimal("100.00");
 
-    // a user lands on a shard by hash: a few tries find both
     private static final int MAX_USERS = 50;
 
     @Autowired
@@ -53,11 +52,10 @@ class TransactionMetricsIT extends IntegrationTest {
         assertThat(meterRegistry.get("jdbc.connections.active").tag("name", "ds_0").gauge().value()).isNotNegative();
     }
 
-    // confirms deposits of new users until one lands on this shard
     private UUID pendingOn(JdbcTemplate shard) {
         for (int i = 0; i < MAX_USERS; i++) {
             UUID user = UUID.randomUUID();
-            UUID transactionId = confirmed(user, UUID.randomUUID(), createWallet(user), AMOUNT).getTransactionId();
+            UUID transactionId = confirmed(user, createWallet(user), AMOUNT).getTransactionId();
             Integer rows = shard.queryForObject("SELECT count(*) FROM transactions WHERE uid = ?", Integer.class,
                     transactionId);
             if (rows == 1) {

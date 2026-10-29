@@ -49,38 +49,32 @@ public class WalletService {
 
     @Observed(name = OPERATIONS, contextualName = "walletService.getById", lowCardinalityKeyValues = {"operation", "getById"})
     public WalletResponseDto getWalletById(UUID userUid, UUID walletUid) {
-        // another user's or an archived wallet is not found either: 404, not 403
         WalletEntity wallet = walletRepository.findActive(walletUid, userUid)
                 .orElseThrow(() -> new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND));
         log.info("Found wallet {} of user {}", walletUid, userUid);
         return walletMapper.toWalletResponse(wallet);
     }
 
-    // the wallet an operation works on: the user's, not archived, ACTIVE
-    public WalletEntity getWalletForOperation(UUID walletUid, UUID userUid) {
-        return requireActive(walletRepository.findActive(walletUid, userUid));
+    public WalletEntity getActiveWallet(UUID walletUid, UUID userUid) {
+        return requireFoundAndActive(walletRepository.findActive(walletUid, userUid));
     }
 
-    // the same wallet locked until the caller's transaction ends: its balance cannot change before the debit
     @Transactional
-    public WalletEntity getWalletForDebit(UUID walletUid, UUID userUid) {
-        return requireActive(walletRepository.findActiveForUpdate(walletUid, userUid));
+    public WalletEntity lockActiveWallet(UUID walletUid, UUID userUid) {
+        return requireFoundAndActive(walletRepository.findActiveForUpdate(walletUid, userUid));
     }
 
-    // the source of a transfer, checked together with its target; the source's balance is checked by the caller
-    public WalletEntity getTransferSource(UUID walletUid, UUID targetWalletUid, UUID userUid) {
+    public WalletEntity getActiveSameCurrencyWallet(UUID walletUid, UUID targetWalletUid, UUID userUid) {
         return requireTransferPair(
                 walletRepository.findAllActiveByUids(List.of(walletUid, targetWalletUid), userUid), walletUid);
     }
 
-    // the same, with both wallets locked until the caller's transaction ends
     @Transactional
-    public WalletEntity getTransferSourceForDebit(UUID walletUid, UUID targetWalletUid, UUID userUid) {
+    public WalletEntity lockActiveSameCurrencyWallets(UUID walletUid, UUID targetWalletUid, UUID userUid) {
         return requireTransferPair(
                 walletRepository.findAllActiveForUpdate(List.of(walletUid, targetWalletUid), userUid), walletUid);
     }
 
-    // runs inside the caller's transaction: finalization credits together with the status change
     @Transactional
     public void credit(UUID walletUid, UUID userUid, BigDecimal amount) {
         int updated = walletRepository.credit(walletUid, userUid, amount, Instant.now());
@@ -90,7 +84,6 @@ public class WalletService {
         log.info("Credited {} to wallet {} of user {}", amount, walletUid, userUid);
     }
 
-    // runs inside the caller's transaction, after getWalletForDebit has locked the wallet and the funds were checked
     @Transactional
     public void debit(UUID walletUid, UUID userUid, BigDecimal amount) {
         int updated = walletRepository.debit(walletUid, userUid, amount, Instant.now());
@@ -116,8 +109,7 @@ public class WalletService {
         return walletType;
     }
 
-    // 404 when not found, another user's or archived; 400 when not ACTIVE
-    private WalletEntity requireActive(Optional<WalletEntity> found) {
+    private WalletEntity requireFoundAndActive(Optional<WalletEntity> found) {
         return requireActive(found.orElseThrow(() -> new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND)));
     }
 
@@ -128,7 +120,6 @@ public class WalletService {
         return wallet;
     }
 
-    // 404 unless both are found; 400 when one is not ACTIVE or the currencies differ
     private static WalletEntity requireTransferPair(List<WalletEntity> wallets, UUID sourceUid) {
         if (wallets.size() < 2) {
             throw new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND);

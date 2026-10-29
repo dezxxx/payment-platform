@@ -7,8 +7,6 @@ import java.time.Instant;
 import java.util.UUID;
 import org.springframework.data.jpa.domain.Specification;
 
-// the conditions of the search, one per filter; a filter not given adds no condition.
-// ofUser is always there: ShardingSphere goes to one shard and only the user's rows are seen
 public final class TransactionSpecifications {
 
     private TransactionSpecifications() {

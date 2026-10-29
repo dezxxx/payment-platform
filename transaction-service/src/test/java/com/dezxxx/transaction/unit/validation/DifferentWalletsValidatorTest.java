@@ -2,7 +2,6 @@ package com.dezxxx.transaction.unit.validation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.dezxxx.transaction.api.model.TransferConfirmRequestDto;
 import com.dezxxx.transaction.api.model.TransferInitRequestDto;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
@@ -81,22 +80,6 @@ class DifferentWalletsValidatorTest {
         assertThat(violations)
                 .extracting(violation -> violation.getPropertyPath().toString())
                 .containsExactly("targetWalletUid");
-    }
-
-    @Test
-    @DisplayName("rejects a confirm request that sends money to the same wallet")
-    void rejectsSameWalletOnConfirm() {
-        // given
-        UUID wallet = UUID.randomUUID();
-        TransferConfirmRequestDto request = new TransferConfirmRequestDto(UUID.randomUUID(), wallet, wallet, AMOUNT);
-
-        // when
-        Set<ConstraintViolation<TransferConfirmRequestDto>> violations = validator.validate(request);
-
-        // then
-        assertThat(violations)
-                .extracting(ConstraintViolation::getMessage)
-                .containsExactly(SAME_WALLET_MESSAGE);
     }
 
     @Test

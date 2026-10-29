@@ -12,7 +12,6 @@ import reactor.netty.DisposableServer;
 import reactor.netty.http.server.HttpServer;
 import reactor.netty.http.server.HttpServerRequest;
 
-// answers every request with what the test set, and keeps what individuals-api sent
 public final class StubTransactionService {
 
     public record Received(String method, String uri, String userUid, String body) {

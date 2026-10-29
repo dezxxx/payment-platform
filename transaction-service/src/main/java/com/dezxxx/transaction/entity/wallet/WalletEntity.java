@@ -40,7 +40,6 @@ public class WalletEntity {
     @JoinColumn(name = "wallet_type_uid")
     private WalletTypeEntity walletType;
 
-    // the sharding key: ShardingSphere routes every statement on this table by it
     private UUID userUid;
 
     @Enumerated(EnumType.STRING)

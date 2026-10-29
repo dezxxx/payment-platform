@@ -2,7 +2,6 @@ spring:
   application:
     name: individuals-api
   web:
-    # validation messages follow the client's Accept-Language or the server locale unless fixed
     locale: en
     locale-resolver: fixed
   jackson:

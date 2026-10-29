@@ -36,7 +36,6 @@ class TransactionKafkaIT extends IntegrationTest {
 
     private static final BigDecimal AMOUNT = new BigDecimal("100.00");
 
-    // a withdrawal of 100.00 debits 101.00 with the 1 % fee, 49.00 stays
     private static final BigDecimal FUNDS = new BigDecimal("150.00");
 
     private static final Duration WAIT = Duration.ofSeconds(30);
@@ -57,7 +56,7 @@ class TransactionKafkaIT extends IntegrationTest {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
-        TransactionConfirmResponseDto confirmed = confirmed(user, UUID.randomUUID(), wallet, AMOUNT);
+        TransactionConfirmResponseDto confirmed = confirmed(user, wallet, AMOUNT);
         String traceparent = jdbc.queryForObject("SELECT traceparent FROM transaction_events"
                 + " WHERE transaction_uid = ? AND user_uid = ?", String.class, confirmed.getTransactionId(), user);
 
@@ -83,7 +82,7 @@ class TransactionKafkaIT extends IntegrationTest {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
-        UUID transactionId = confirmed(user, UUID.randomUUID(), wallet, AMOUNT).getTransactionId();
+        UUID transactionId = confirmed(user, wallet, AMOUNT).getTransactionId();
 
         // when
         kafkaTemplate.send(EventTopics.DEPOSIT_COMPLETED, transactionId.toString(),
@@ -100,7 +99,7 @@ class TransactionKafkaIT extends IntegrationTest {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
-        UUID transactionId = confirmed(user, UUID.randomUUID(), wallet, AMOUNT).getTransactionId();
+        UUID transactionId = confirmed(user, wallet, AMOUNT).getTransactionId();
         kafkaTemplate.send(EventTopics.DEPOSIT_COMPLETED, transactionId.toString(),
                 new DepositCompleted(transactionId, user));
         await().atMost(WAIT).until(() -> "COMPLETED".equals(status(transactionId, user)));
@@ -120,7 +119,7 @@ class TransactionKafkaIT extends IntegrationTest {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
-        UUID transactionId = confirmed(user, UUID.randomUUID(), wallet, AMOUNT).getTransactionId();
+        UUID transactionId = confirmed(user, wallet, AMOUNT).getTransactionId();
 
         // when
         kafkaTemplate.send(EventTopics.DEPOSIT_FAILED, transactionId.toString(),
@@ -140,7 +139,7 @@ class TransactionKafkaIT extends IntegrationTest {
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
         fund(wallet, user, FUNDS);
-        UUID transactionId = confirmedWithdrawal(user, UUID.randomUUID(), wallet, AMOUNT).getTransactionId();
+        UUID transactionId = confirmedWithdrawal(user, wallet, AMOUNT).getTransactionId();
 
         // when
         ConsumerRecord<String, Object> message = firstMessage(EventTopics.WITHDRAWAL_REQUESTED,
@@ -162,7 +161,7 @@ class TransactionKafkaIT extends IntegrationTest {
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
         fund(wallet, user, FUNDS);
-        UUID transactionId = confirmedWithdrawal(user, UUID.randomUUID(), wallet, AMOUNT).getTransactionId();
+        UUID transactionId = confirmedWithdrawal(user, wallet, AMOUNT).getTransactionId();
 
         // when
         kafkaTemplate.send(EventTopics.WITHDRAWAL_COMPLETED, transactionId.toString(),
@@ -180,7 +179,7 @@ class TransactionKafkaIT extends IntegrationTest {
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
         fund(wallet, user, FUNDS);
-        UUID transactionId = confirmedWithdrawal(user, UUID.randomUUID(), wallet, AMOUNT).getTransactionId();
+        UUID transactionId = confirmedWithdrawal(user, wallet, AMOUNT).getTransactionId();
         assertThat(balance(wallet, user)).isEqualByComparingTo("49.00");
 
         // when
@@ -210,7 +209,6 @@ class TransactionKafkaIT extends IntegrationTest {
                 .tag("topic", EventTopics.DEPOSIT_COMPLETED).counter().count()).isGreaterThanOrEqualTo(1));
     }
 
-    // reads the topic from the start with its own group until the message with this key shows up
     private ConsumerRecord<String, Object> firstMessage(String topic, String key) {
         Map<String, Object> config = kafkaProperties.buildConsumerProperties();
         config.put(ConsumerConfig.GROUP_ID_CONFIG, "test-" + UUID.randomUUID());
@@ -236,7 +234,6 @@ class TransactionKafkaIT extends IntegrationTest {
         return new String(header.value(), StandardCharsets.UTF_8);
     }
 
-    // 00-<traceId>-<spanId>-<flags>: the producer's span is a child, so only the traceId is the same
     private static String traceId(String traceparent) {
         return traceparent.split("-")[1];
     }

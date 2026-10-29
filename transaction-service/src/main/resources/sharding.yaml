@@ -21,7 +21,6 @@ rules:
         actualDataNodes: ds_${0..1}.transactions
       transaction_events:
         actualDataNodes: ds_${0..1}.transaction_events
-    # all of a user's rows land in one shard
     defaultDatabaseStrategy:
       standard:
         shardingColumn: user_uid

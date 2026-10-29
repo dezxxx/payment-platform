@@ -36,12 +36,10 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.kafka.KafkaContainer;
 
 @SpringBootTest(properties = "management.tracing.export.otlp.enabled=false")
-// a real tracer: the answer continues the trace of the request
 @AutoConfigureTracing
 @DisplayName("Fake Payment Provider against a real Kafka")
 class PaymentKafkaIT {
 
-    // the image compose runs
     private static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:4.3.2");
 
     private static final Duration WAIT = Duration.ofSeconds(30);
@@ -58,11 +56,9 @@ class PaymentKafkaIT {
     @DynamicPropertySource
     static void kafka(DynamicPropertyRegistry registry) {
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
-        // Confluent's in-memory registry: the serializer and the deserializer of this JVM share it
         registry.add("spring.kafka.properties.schema.registry.url", () -> "mock://fake-payment-provider");
     }
 
-    // transaction-service creates the topics in the platform; here the test does
     @BeforeAll
     static void topics() throws Exception {
         try (AdminClient admin = AdminClient.create(Map.of("bootstrap.servers", KAFKA.getBootstrapServers()))) {
@@ -104,8 +100,7 @@ class PaymentKafkaIT {
                 .isEqualTo(new DepositFailed(transactionId, user, "Not enough funds on the card"));
     }
 
-    // as transaction-service sends it: keyed by the transaction, the confirm's trace in the one header.
-    // A plain producer: the template's own observation would add a traceparent of a new trace
+    // a plain producer: the template's own observation would add a traceparent of a new trace
     private void request(UUID transactionId, UUID user, String amount) {
         Map<String, Object> config = kafkaProperties.buildProducerProperties();
         config.remove(ProducerConfig.TRANSACTIONAL_ID_CONFIG);
@@ -119,7 +114,6 @@ class PaymentKafkaIT {
         }
     }
 
-    // reads the topic from the start with its own group until the message with this key shows up
     private ConsumerRecord<String, Object> firstMessage(String topic, String key) {
         Map<String, Object> config = kafkaProperties.buildConsumerProperties();
         config.put(ConsumerConfig.GROUP_ID_CONFIG, "test-" + UUID.randomUUID());

@@ -23,7 +23,7 @@ while coding is decided before it is coded. The next push carries working code.
 | no failure event for a deposit | `DepositFailed` → `FAILED`, the balance does not change | otherwise a failed deposit stays `PENDING` forever |
 | provider answers carry no `userId` | they carry `userId` from the request | the shard is chosen by `user_uid`: one query to one shard |
 | events in JSON, amounts as `100.0` | Avro + Schema Registry, amounts as `decimal` | the registry refuses an incompatible schema; floating point rounds money |
-| `init` and `confirm` are not linked | `init` returns a `requestId` (stores nothing), the client sends it in `confirm`, which stores it in `transactions.request_id`, unique per `user_uid` | links the two requests in traces and logs; a repeated `confirm` returns the existing transaction instead of a second debit |
+| `init` and `confirm` are not linked | `init` stores nothing and returns a signed `offerToken` with its terms (`requestId`, user, type, wallets, `amount`, `fee`, `expiresAt` = 5 minutes); `confirm` takes only that token and does exactly what it says. The `requestId` from the token goes to `transactions.request_id`, unique per `user_uid` | the teacher's review of 2026-10-27: confirm must carry out the offer init made, not new terms from the client; the signature makes the amount, fee and wallets unchangeable, and a repeated `confirm` returns the existing transaction instead of a second debit |
 | `userUid` comes from the client (`/wallets/user/{userUid}`, `?userUid=`) | individuals-api fills it from the token; every other operation gets it in the header `X-User-Uid` | otherwise anyone could read others' wallets; the path already holds `walletUid` / `transactionId`, a GET has no body |
 | one path `/transactions/{type}/init` (and `/confirm`) with a `oneOf` body | six paths `/transactions/{deposit,withdrawal,transfer}/{init,confirm}`, each with its own body | the same URLs for the client; different operations are not mixed, each body has its own class and its own validation |
 | `/transactions/{transactionId}/confirm` in the list of functions | `/transactions/{type}/confirm`, as in the contract | `init` creates nothing, so there is no `transactionId` before `confirm` |
@@ -54,9 +54,11 @@ while coding is decided before it is coded. The next push carries working code.
 | Alerts | `infra/prometheus/alerts.yml`, no Alertmanager: `TransactionPendingTooLong` (oldest `PENDING` > 5 min), `TransactionEventsNotSent` (oldest unsent > 60 s), `TransactionDeadLetters` (any in 5 min), `TransactionConsumerLag` (> 100 for 5 min). Firing ones are on Prometheus `/alerts` and on the dashboard |
 | Shard metrics | `postgres_exporter` per shard (job `transaction-shards`, label `shard`); the pools ShardingSphere opens (`ds_0`, `ds_1`) bound by `ShardPoolMetrics` with Spring Boot's `DataSourcePoolMetrics`: `jdbc_connections_*{name="ds_0"}`. ShardingSphere's default pool is 50 connections per shard. No full route counter: ShardingSphere-JDBC exposes none without its Java agent |
 | Dashboard | `infra/grafana/dashboards/transaction-service.json`: HTTP, operations, the `transaction_events` backlog, `PENDING`, lag, DLT, the provider's answers, a Shards row (load, rows per table, size, connections, pools, locks, deadlocks) and the logs of both services |
-| Idempotency of confirm | the first statement of the confirm transaction claims the `requestId`: `INSERT … 'PENDING', :requestId ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid`. 1 row - this request owns it; 0 rows - a repeat: same parameters → `200` with the existing transaction and its status, other parameters → `409`. A concurrent second INSERT waits for the first transaction; a rollback frees the `requestId`. ShardingSphere 5.5.3 parses the statement; the concurrent case is checked by `ShardingIT` on two shards |
+| Offer token | `base64url(JSON OfferTerms) + "." + base64url(HMAC-SHA256)`: the terms are readable, not changeable. `OfferTokenSigner` issues and reads it (`readVerified`: the signature compared in constant time, `MessageDigest.isEqual`; a new `Mac` per call, it is not thread-safe); `OfferTokenValidator` adds the owner (`userUid` = `X-User-Uid`) and the type (= the endpoint). Any failure → `400 OFFER_TOKEN_INVALID`. The key is `transaction.offer.secret` from `TRANSACTION_OFFER_SECRET` (`.env`), no default: the service does not start without it. Lifetime `transaction.offer.ttl`, 5 minutes; time comes from a `Clock` bean, tests fix it |
+| Order in confirm | validate the token (nothing touched yet) → claim the `requestId` → taken: a repeat, `200` with the existing transaction, the expiry is not checked → new: the expiry (`400 OFFER_EXPIRED`, the rollback frees the claim) → lock, funds, debit as before |
+| Idempotency of confirm | the first statement of the confirm transaction claims the `requestId` of the token: `INSERT … 'PENDING', :requestId ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid`. 1 row - this request owns it; 0 rows - a repeat → `200` with the existing transaction and its status. Other terms under the same `requestId` cannot come: they would need a new signature. A concurrent second INSERT waits for the first transaction; a rollback frees the `requestId`. ShardingSphere 5.5.3 parses the statement; the concurrent case is checked by `ShardingIT` on two shards |
 | Request validation | `@Valid` in the controller, before any database transaction: required fields, UUIDs, `amount > 0` with at most 2 decimals; for a transfer `walletUid ≠ targetWalletUid`. Failure → `400`, nothing written |
-| Fee and balance | the fee is computed after the wallet is read and before the check `balance < amount + fee` → `400`, in init and again in confirm (the init terms are not trusted). `fee` is `NULL` on insert and set by `UPDATE` in the same transaction |
+| Fee and balance | init computes the fee after the wallet is read and checks `balance < amount + fee` → `400`; the fee goes into the token. confirm takes `amount` and `fee` from the token (a fee rate changed in between does not touch an issued offer), inserts them with the claim and checks the balance again after the lock: the money may be gone since init |
 | Fee rate | a share of the amount per operation in `transaction.fee` (`FeeProperties`): deposit `0`, withdrawal `0.01`, transfer `0.005`; rounded half up to cents. A private method of `TransactionService`, its only user; an environment variable such as `TRANSACTION_FEE_WITHDRAWAL` overrides it |
 | Unknown wallet in confirm | the claim INSERT runs first and `transactions.wallet_uid` references `wallets`: a wallet missing from the user's shard fails it on `transactions_wallet_uid_fkey`. `GlobalExceptionHandler` answers `404 WALLET_NOT_FOUND` for that constraint (as person-service does for the email index); the transaction rolls back, the `requestId` stays free |
 | `payment_type` in SQL | the type is a literal in the `requestId` claim (`'DEPOSIT'`), one statement per operation: ShardingSphere 5.5.3 rewrites `CAST(:type AS payment_type)` into broken SQL. The search filter compares the column as text (`cast(type as varchar) = ?`): ShardingSphere binds the parameter as `varchar`, and PostgreSQL has no `payment_type = varchar` |
@@ -66,7 +68,7 @@ while coding is decided before it is coded. The next push carries working code.
 | Balance | never negative: `amount > 0`, the check after the fee, the lock. A `CHECK (balance >= 0)` in the migration as the last guard |
 | Deposit | no balance check; the provider's refusal (not enough on the card, the bank refused) → `DepositFailed` |
 | Soft delete | every wallet read carries `archived_at IS NULL` |
-| Failures | a database error at any step → rollback, `500`, nothing written. A response lost after the commit → the client repeats confirm with the same `requestId` → `200` with the same transaction |
+| Failures | a database error at any step → rollback, `500`, nothing written. A response lost after the commit → the client repeats confirm with the same `offerToken` → `200` with the same transaction, even after the offer expired |
 | Errors | RFC 9457 body with `timestamp`, `error`, `traceId`, `details`, as person-service |
 
 ### Contract
@@ -80,12 +82,13 @@ Avro classes of the events come from `.avsc` files in a later step.
 | Item | Value |
 |---|---|
 | DTO names | schemas exactly the handout's: `CreateWalletRequest`, `WalletResponse`, `DepositInitRequest`, `WithdrawalInitRequest`, `TransferInitRequest`, `TransactionInitResponse`, `DepositConfirmRequest`, `WithdrawalConfirmRequest`, `TransferConfirmRequest`, `TransactionConfirmResponse`, `TransactionStatusResponse`, `ErrorResponse`. The generated Java classes carry a `Dto` suffix (`modelNameSuffix`), as in person-service: `WalletResponseDto` goes over HTTP, the entity stays inside |
-| `TransactionInitResponse` | `amount`, `fee`, `total`, `requestId` |
+| `TransactionInitResponse` | `amount`, `fee`, `total`, `expiresAt`, `offerToken` |
+| `*ConfirmRequest` | only `offerToken` (`minLength: 1`); the terms come from inside it |
 | `TransactionConfirmResponse` | `transactionId`, `status` |
 | `TransactionStatusResponse` | the same in the status and in the search: `transactionId`, `type`, `status`, `walletUid`, `targetWalletUid`, `amount`, `fee`, `failureReason`, `createdAt` |
 | `amount` checks | `> 0` from `exclusiveMinimum`; at most 2 decimals - the standard `@Digits(fraction = 2)` put on the field through `x-field-extra-annotation` |
-| `walletUid ≠ targetWalletUid` | our own class-level `@DifferentWallets` with a `ConstraintValidator` in the `validation` package, put on `TransferInitRequest` and `TransferConfirmRequest` through `x-class-extra-annotation`. Without it the same wallet twice reads as one row and would answer `404` |
-| `TransferWallets` | interface with `getWalletUid()` and `getTargetWalletUid()`; both transfer DTOs implement it through `x-implements`, so the validator reads them without knowing the generated classes and works in the server and in the client jar alike |
+| `walletUid ≠ targetWalletUid` | our own class-level `@DifferentWallets` with a `ConstraintValidator` in the `validation` package, put on `TransferInitRequest` through `x-class-extra-annotation`; confirm gets the wallets from the signed offer. Without it the same wallet twice reads as one row and would answer `404` |
+| `TransferWallets` | interface with `getWalletUid()` and `getTargetWalletUid()`; `TransferInitRequest` implements it through `x-implements`, so the validator reads them without knowing the generated classes and works in the server and in the client jar alike |
 | Enum query parameters | `?type=deposit` is converted by the contract value through the generated `EnumConverterConfiguration` (`fromValue`); `Enum.valueOf` knows only `DEPOSIT`. An unknown value → `400 VALIDATION_ERROR` |
 | Client | `openApiGenerateClient`: `spring-http-interface`, reactive; its own `client` source set and `transaction-service-client` jar holding the client API, its DTOs and `@DifferentWallets` with its validator and `TransferWallets` (only these files of `validation`: the rest needs the service's own classes) |
 
@@ -119,7 +122,7 @@ Avro classes of the events come from `.avsc` files in a later step.
 - [x] Deposit init and confirm by the diagram: `TransactionRestControllerV1` → `TransactionService` →
       `TransactionRepository`, `TransactionEventRepository`, `WalletService`; `TransactionMapper`.
       confirm claims the `requestId`, writes the `PENDING` transaction and an unsent `DepositRequested`
-      (JSON payload, `traceparent`) in one database transaction; a repeat → `200`, other terms → `409`
+      (JSON payload, `traceparent`) in one database transaction; a repeat → `200`
 - [x] Kafka (KRaft) + Schema Registry in compose; Avro events and the `transaction-service-events` jar;
       `TransactionKafkaProducer` (sends `transaction_events`, continues the trace), `TransactionKafkaConsumer`
       (finalization, retries, DLT); `TransactionKafkaIT` against a real Kafka
@@ -146,6 +149,11 @@ Avro classes of the events come from `.avsc` files in a later step.
 - [x] The diagrams match the code: the search compares `type` as text and reads `size + 1` rows
       (a `Slice`), the confirm locks read `wallets` alone and the currency after the lock
 - [x] transaction-service in the configuration map of the root `CONTEXT.md`
+- [x] The offer token links init and confirm (the teacher's review of 2026-10-27): `OfferTerms`,
+      `OfferTokenSigner`, `OfferTokenValidator`, `OFFER_TOKEN_INVALID` and `OFFER_EXPIRED` instead of
+      `409 REQUEST_ID_CONFLICT`; the contract, the sequence and component diagrams, unit tests of the signer
+      on a real HMAC, integration tests for a forged token, another user's token and a token of another
+      operation; both Postman collections; `TRANSACTION_OFFER_SECRET` in `.env.example` and compose
 
 ### Next
 

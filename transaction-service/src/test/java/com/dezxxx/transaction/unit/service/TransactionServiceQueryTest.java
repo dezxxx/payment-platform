@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.dezxxx.transaction.api.model.TransactionStatusResponseDto;
 import com.dezxxx.transaction.config.FeeProperties;
+import com.dezxxx.transaction.config.OfferTokenProperties;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
@@ -17,10 +18,14 @@ import com.dezxxx.transaction.repository.TransactionEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
+import com.dezxxx.transaction.token.OfferTokenSigner;
 import com.dezxxx.transaction.validation.DateRangeValidator;
+import com.dezxxx.transaction.validation.OfferTokenValidator;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -70,12 +75,19 @@ class TransactionServiceQueryTest {
     @Mock
     private Propagator propagator;
 
+    @Mock
+    private OfferTokenSigner offerTokenSigner;
+
+    @Mock
+    private OfferTokenValidator offerTokenValidator;
+
     private TransactionService transactionService;
 
     @BeforeEach
     void setUp() {
         transactionService = new TransactionService(transactionRepository, transactionEventRepository, walletService,
-                FEES, transactionMapper, dateRangeValidator, tracer, propagator);
+                FEES, transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
+                new OfferTokenProperties("secret", Duration.ofMinutes(5)), Clock.systemUTC());
     }
 
     @Test

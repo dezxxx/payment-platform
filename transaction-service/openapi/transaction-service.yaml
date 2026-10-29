@@ -109,7 +109,7 @@ paths:
     post:
       tags: [transactions]
       operationId: initDeposit
-      summary: Compute the terms of a deposit; nothing is written
+      summary: Compute the terms of a deposit and issue a signed offerToken valid for 5 minutes; nothing is written
       parameters:
         - $ref: "#/components/parameters/UserUidHeader"
       requestBody:
@@ -148,8 +148,6 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -157,7 +155,7 @@ paths:
     post:
       tags: [transactions]
       operationId: initWithdrawal
-      summary: Compute the terms of a withdrawal; nothing is written
+      summary: Compute the terms of a withdrawal and issue a signed offerToken valid for 5 minutes; nothing is written
       parameters:
         - $ref: "#/components/parameters/UserUidHeader"
       requestBody:
@@ -196,8 +194,6 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -205,7 +201,7 @@ paths:
     post:
       tags: [transactions]
       operationId: initTransfer
-      summary: Compute the terms of a transfer between two wallets of the user; nothing is written
+      summary: Compute the terms of a transfer between two wallets of the user and issue a signed offerToken valid for 5 minutes; nothing is written
       parameters:
         - $ref: "#/components/parameters/UserUidHeader"
       requestBody:
@@ -244,8 +240,6 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -439,7 +433,7 @@ components:
 
     TransactionInitResponse:
       type: object
-      required: [amount, fee, total, requestId]
+      required: [amount, fee, total, expiresAt, offerToken]
       properties:
         amount:
           type: number
@@ -450,65 +444,36 @@ components:
         total:
           type: number
           example: 101.00
-        requestId:
+        expiresAt:
           type: string
-          format: uuid
+          format: date-time
+          example: "2026-10-29T12:05:00Z"
+        offerToken:
+          type: string
 
     DepositConfirmRequest:
       type: object
-      required: [requestId, walletUid, amount]
+      required: [offerToken]
       properties:
-        requestId:
+        offerToken:
           type: string
-          format: uuid
-        walletUid:
-          type: string
-          format: uuid
-        amount:
-          type: number
-          minimum: 0
-          exclusiveMinimum: true
-          x-field-extra-annotation: "@jakarta.validation.constraints.Digits(integer = 17, fraction = 2)"
-          example: 100.00
+          minLength: 1
 
     WithdrawalConfirmRequest:
       type: object
-      required: [requestId, walletUid, amount]
+      required: [offerToken]
       properties:
-        requestId:
+        offerToken:
           type: string
-          format: uuid
-        walletUid:
-          type: string
-          format: uuid
-        amount:
-          type: number
-          minimum: 0
-          exclusiveMinimum: true
-          x-field-extra-annotation: "@jakarta.validation.constraints.Digits(integer = 17, fraction = 2)"
-          example: 50.00
+          minLength: 1
 
     TransferConfirmRequest:
       type: object
-      x-class-extra-annotation: "@com.dezxxx.transaction.validation.DifferentWallets"
-      x-implements: [com.dezxxx.transaction.validation.TransferWallets]
-      required: [requestId, walletUid, targetWalletUid, amount]
+      required: [offerToken]
       properties:
-        requestId:
+        offerToken:
           type: string
-          format: uuid
-        walletUid:
-          type: string
-          format: uuid
-        targetWalletUid:
-          type: string
-          format: uuid
-        amount:
-          type: number
-          minimum: 0
-          exclusiveMinimum: true
-          x-field-extra-annotation: "@jakarta.validation.constraints.Digits(integer = 17, fraction = 2)"
-          example: 25.00
+          minLength: 1
 
     TransactionConfirmResponse:
       type: object
@@ -604,7 +569,7 @@ components:
           schema:
             $ref: "#/components/schemas/TransactionInitResponse"
     Confirmed:
-      description: Transaction confirmed
+      description: Transaction confirmed; a repeated confirm with the same offerToken returns the same transaction
       content:
         application/json:
           schema:
@@ -617,12 +582,6 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     NotFound:
       description: Not found
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-    Conflict:
-      description: requestId already used for another operation
       content:
         application/problem+json:
           schema:

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.dezxxx.transaction.config.FeeProperties;
+import com.dezxxx.transaction.config.OfferTokenProperties;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
@@ -20,10 +21,14 @@ import com.dezxxx.transaction.repository.TransactionEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
+import com.dezxxx.transaction.token.OfferTokenSigner;
 import com.dezxxx.transaction.validation.DateRangeValidator;
+import com.dezxxx.transaction.validation.OfferTokenValidator;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,13 +71,20 @@ class TransactionServiceFinalizeTest {
     @Mock
     private Propagator propagator;
 
+    @Mock
+    private OfferTokenSigner offerTokenSigner;
+
+    @Mock
+    private OfferTokenValidator offerTokenValidator;
+
     private TransactionService transactionService;
 
     @BeforeEach
     void setUp() {
         transactionService = new TransactionService(transactionRepository, transactionEventRepository, walletService,
                 new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.01"), new BigDecimal("0.005")),
-                transactionMapper, dateRangeValidator, tracer, propagator);
+                transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
+                new OfferTokenProperties("secret", Duration.ofMinutes(5)), Clock.systemUTC());
     }
 
     @Test

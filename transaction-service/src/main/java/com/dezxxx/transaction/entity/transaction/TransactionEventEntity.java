@@ -13,7 +13,6 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-// an event waiting for TransactionKafkaProducer: sent_at is NULL until the broker acknowledges it
 @Getter
 @Setter
 @Entity
@@ -29,7 +28,6 @@ public class TransactionEventEntity {
 
     private UUID transactionUid;
 
-    // the sharding key
     private UUID userUid;
 
     private String eventType;

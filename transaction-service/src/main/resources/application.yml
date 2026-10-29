@@ -5,7 +5,6 @@ spring:
   application:
     name: transaction-service
   web:
-    # validation messages follow the client's Accept-Language or the server locale unless fixed
     locale: en
     locale-resolver: fixed
   datasource:
@@ -24,7 +23,6 @@ spring:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     properties:
       schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8085}
-      # uuid and decimal fields as UUID and BigDecimal, the types the generated classes hold
       avro.use.logical.type.converters: true
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -39,9 +37,7 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       properties:
         spring.deserializer.value.delegate.class: io.confluent.kafka.serializers.KafkaAvroDeserializer
-        # the generated classes, not GenericRecord
         specific.avro.reader: true
-    # the trace goes on through Kafka in the traceparent header
     template:
       observation-enabled: true
     listener:
@@ -52,6 +48,9 @@ springdoc:
     url: /openapi/transaction-service.yaml
 
 transaction:
+  offer:
+    secret: ${TRANSACTION_OFFER_SECRET}
+    ttl: 5m
   shards:
     - url: ${TRANSACTION_SHARD_0_URL:jdbc:postgresql://localhost:5435/transaction}
       username: ${TRANSACTION_DB_USER:transaction}
@@ -102,7 +101,6 @@ management:
         otlp:
           endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
 
-# JSON lines, as person-service: Alloy reads log.level and traceId from them
 logging:
   structured:
     format:

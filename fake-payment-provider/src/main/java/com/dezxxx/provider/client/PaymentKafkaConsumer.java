@@ -9,8 +9,7 @@ import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-// the requests of transaction-service; the method is chosen by the event class.
-// Each one runs in a Kafka transaction: read, answer and offset commit together (Kafka to Kafka exactly-once)
+// each request runs in a Kafka transaction: read, answer and offset commit together (Kafka to Kafka exactly-once)
 @Component
 @RequiredArgsConstructor
 @KafkaListener(topics = {EventTopics.DEPOSIT_REQUESTED, EventTopics.WITHDRAWAL_REQUESTED})

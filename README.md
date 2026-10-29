@@ -61,13 +61,15 @@ different screen for each, and one code could not ask for all three.
 
 ## Running it
 
-**1. Environment.** Copy the template and set the Keycloak client secret; `.env`
+**1. Environment.** Copy the template and set the two secrets; `.env`
 itself is never committed.
 
 ```bash
 cp .env.example .env
 # KEYCLOAK_CLIENT_SECRET must match the value in
 # individuals-api/src/main/resources/realm/realm-export.json
+# TRANSACTION_OFFER_SECRET signs the offers of transaction-service: any long
+# random string, e.g. openssl rand -base64 32; transaction-service does not start without it
 ```
 
 **2. Everything at once.** One command starts Nexus, builds the image and starts
@@ -178,8 +180,8 @@ Module 1 is not finished. What is honest as of today:
 |---|---|
 | ✅ Working | Contract, Gradle build, Keycloak realm, `KeycloakClient` and `PersonClient`, `UserService` with compensation, `TokenService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — all eight meters, and JSON logs carrying every field the module requires |
 | 🐳 Compose | `make up` brings up twenty services and builds the app inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
-| 🧪 Tests | **individuals-api: 118 tests, green — 85 unit and 33 integration**; every test case the module 1 handout lists carries its code (`UT-REG-001`, `IT-KC-001`) in its display name, against a real Keycloak and PostgreSQL in containers; coverage on the key services 100%. **person-service: 57 tests, green — 38 unit and 19 integration** on a real PostgreSQL, every scenario of the module 2 handout; **97% of lines**. Both builds fail below 80%. **transaction-service: 191 tests, green — 93 unit and 98 integration** against two real PostgreSQL shards and a real Kafka, races included |
-| 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, their wallets and money, 55 requests, tokens captured automatically, 142 assertions; `postman/transaction-service.postman_collection.json` — 183 assertions |
+| 🧪 Tests | **individuals-api: 120 tests, green — 84 unit and 36 integration**; every test case the module 1 handout lists carries its code (`UT-REG-001`, `IT-KC-001`) in its display name, against a real Keycloak and PostgreSQL in containers; coverage on the key services 100%. **person-service: 57 tests, green — 38 unit and 19 integration** on a real PostgreSQL, every scenario of the module 2 handout; **97% of lines**. Both builds fail below 80%. **transaction-service: 207 tests, green — 108 unit and 99 integration** against two real PostgreSQL shards and a real Kafka, races and forged offer tokens included |
+| 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, their wallets and money, 56 requests, tokens captured automatically, 146 assertions; `postman/transaction-service.postman_collection.json` — 189 assertions |
 | 📦 Nexus | In the compose file. person-service publishes `person-service-client` into it, and individuals-api resolves the client from it by coordinates |
 | ✅ Module 2 | **`person-service`**: the contract (`/api/v1/individuals`, six operations, RFC 9457 errors), Flyway migrations, JPA, transactions, the Envers audit, Swagger UI, metrics, JSON logs and traces with a Grafana dashboard, a Docker image in compose, tests, and `person-service-client` in Nexus. individuals-api registers through it, with address and personal data, and compensates a failed Keycloak part by deleting the individual. Done, merged into `main` |
 | 🚧 Module 3 | **`transaction-service`**: wallets, deposit, transfer, withdrawal, transaction status and search over two PostgreSQL shards (ShardingSphere-JDBC), deposit and withdrawal finished through Kafka. The design - C4 diagrams with every failure branch - is approved; transaction-service itself is done on `module-3-transaction-service`; individuals-api calling it with the user from the token is next |

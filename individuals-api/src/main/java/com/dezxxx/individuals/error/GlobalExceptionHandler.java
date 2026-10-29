@@ -52,7 +52,6 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponseDto> handleResponseStatus(ResponseStatusException ex,
                                                               ServerWebExchange exchange) {
         ErrorCode code = fromStatus(ex.getStatusCode());
-        // ex.getHeaders() carries what HTTP requires with the status, e.g. Allow on a 405
         return respond(code, code.getDefaultMessage(), List.of(), exchange, ex, ex.getHeaders());
     }
 
@@ -94,7 +93,6 @@ public class GlobalExceptionHandler {
         String path = exchange.getRequest().getPath().value();
         ErrorResponseDto body = errorResponseFactory.create(code, message, details, path);
 
-        // before the log line, so that line already carries the code as a field
         RequestLog.errorCode(code.name());
 
         if (status.is5xxServerError()) {

@@ -152,14 +152,25 @@ class TransactionClientTest {
     }
 
     @Test
-    @DisplayName("given a requestId used for another operation, when confirming, then REQUEST_ID_CONFLICT passes through")
-    void requestIdConflictPassesThrough() {
+    @DisplayName("given a forged or foreign offerToken, when confirming, then OFFER_TOKEN_INVALID passes through")
+    void offerTokenInvalidPassesThrough() {
         // given
         TransactionClient client = clientAnswering(new AtomicReference<>(),
-                problem(HttpStatus.CONFLICT, "REQUEST_ID_CONFLICT", "[]"));
+                problem(HttpStatus.BAD_REQUEST, "OFFER_TOKEN_INVALID", "[]"));
 
         // when / then
-        expectError(client.confirmWithdrawal(USER_UID, withdrawal()), ErrorCode.REQUEST_ID_CONFLICT);
+        expectError(client.confirmWithdrawal(USER_UID, withdrawal()), ErrorCode.OFFER_TOKEN_INVALID);
+    }
+
+    @Test
+    @DisplayName("given an offer older than 5 minutes, when confirming, then OFFER_EXPIRED passes through")
+    void offerExpiredPassesThrough() {
+        // given
+        TransactionClient client = clientAnswering(new AtomicReference<>(),
+                problem(HttpStatus.BAD_REQUEST, "OFFER_EXPIRED", "[]"));
+
+        // when / then
+        expectError(client.confirmWithdrawal(USER_UID, withdrawal()), ErrorCode.OFFER_EXPIRED);
     }
 
     @Test
@@ -241,7 +252,7 @@ class TransactionClientTest {
     }
 
     private static WithdrawalConfirmRequestDto withdrawal() {
-        return new WithdrawalConfirmRequestDto(UUID.randomUUID(), WALLET_UID, new BigDecimal("50.00"));
+        return new WithdrawalConfirmRequestDto("payload.signature");
     }
 
     private static ClientResponse json(HttpStatus status, String body) {

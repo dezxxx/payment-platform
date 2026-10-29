@@ -6,7 +6,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -16,9 +15,10 @@ import com.dezxxx.transaction.api.model.DepositInitRequestDto;
 import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
 import com.dezxxx.transaction.config.FeeProperties;
-import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
+import com.dezxxx.transaction.config.OfferTokenProperties;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionEventEntity;
+import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
@@ -28,12 +28,19 @@ import com.dezxxx.transaction.repository.TransactionEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
+import com.dezxxx.transaction.token.OfferTerms;
+import com.dezxxx.transaction.token.OfferTokenSigner;
 import com.dezxxx.transaction.validation.DateRangeValidator;
+import com.dezxxx.transaction.validation.OfferTokenValidator;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -59,6 +66,16 @@ class TransactionServiceTest {
 
     private static final BigDecimal AMOUNT = new BigDecimal("100.00");
 
+    private static final BigDecimal TOKEN_FEE = new BigDecimal("3.00");
+
+    private static final String OFFER_TOKEN = "payload.signature";
+
+    private static final Instant NOW = Instant.parse("2026-10-29T12:00:00Z");
+
+    private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
+
+    private static final OfferTokenProperties OFFER = new OfferTokenProperties("secret", Duration.ofMinutes(5));
+
     private static final FeeProperties FEES =
             new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.01"), new BigDecimal("0.005"));
 
@@ -83,6 +100,12 @@ class TransactionServiceTest {
     @Mock
     private Propagator propagator;
 
+    @Mock
+    private OfferTokenSigner offerTokenSigner;
+
+    @Mock
+    private OfferTokenValidator offerTokenValidator;
+
     private TransactionService transactionService;
 
     @BeforeEach
@@ -91,18 +114,26 @@ class TransactionServiceTest {
     }
 
     @Test
-    @DisplayName("given the user's wallet, when init, then the terms with fee 0 and a new requestId, nothing written")
+    @DisplayName("given the user's wallet, when init, then a signed offer with fee 0 for 5 minutes, nothing written")
     void initsDeposit() {
         // given
-        TransactionInitResponseDto terms = new TransactionInitResponseDto();
-        when(transactionMapper.toInitResponse(eq(AMOUNT), eq(new BigDecimal("0.00")), any())).thenReturn(terms);
+        when(offerTokenSigner.issue(any())).thenReturn(OFFER_TOKEN);
+        TransactionInitResponseDto offer = new TransactionInitResponseDto();
+        when(transactionMapper.toInitResponse(AMOUNT, new BigDecimal("0.00"), NOW.plus(Duration.ofMinutes(5)),
+                OFFER_TOKEN)).thenReturn(offer);
 
         // when
         TransactionInitResponseDto result = transactionService.initDeposit(USER_UID, initRequest(AMOUNT));
 
         // then
-        assertThat(result).isSameAs(terms);
-        verify(walletService).getWalletForOperation(WALLET_UID, USER_UID);
+        assertThat(result).isSameAs(offer);
+        ArgumentCaptor<OfferTerms> terms = ArgumentCaptor.forClass(OfferTerms.class);
+        verify(offerTokenSigner).issue(terms.capture());
+        assertThat(terms.getValue().requestId()).isNotNull();
+        assertThat(terms.getValue()).usingRecursiveComparison().ignoringFields("requestId")
+                .isEqualTo(new OfferTerms(null, USER_UID, TransactionPaymentType.DEPOSIT, WALLET_UID, null, AMOUNT,
+                        new BigDecimal("0.00"), NOW.plus(Duration.ofMinutes(5))));
+        verify(walletService).getActiveWallet(WALLET_UID, USER_UID);
         verifyNoInteractions(transactionRepository, transactionEventRepository);
     }
 
@@ -117,33 +148,35 @@ class TransactionServiceTest {
         transactionService.initDeposit(USER_UID, initRequest(amount));
 
         // then
-        verify(transactionMapper).toInitResponse(eq(amount), eq(new BigDecimal("0.50")), any());
+        verify(transactionMapper).toInitResponse(eq(amount), eq(new BigDecimal("0.50")), any(), any());
     }
 
     @Test
-    @DisplayName("given no wallet of this user, when init, then WALLET_NOT_FOUND and no terms")
+    @DisplayName("given no wallet of this user, when init, then WALLET_NOT_FOUND and no offer")
     void initRefusesMissingWallet() {
         // given
-        when(walletService.getWalletForOperation(WALLET_UID, USER_UID))
+        when(walletService.getActiveWallet(WALLET_UID, USER_UID))
                 .thenThrow(new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND));
 
         // when / then
         assertThatThrownBy(() -> transactionService.initDeposit(USER_UID, initRequest(AMOUNT)))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.WALLET_NOT_FOUND);
-        verifyNoInteractions(transactionMapper);
+        verifyNoInteractions(offerTokenSigner, transactionMapper);
     }
 
     @Test
-    @DisplayName("given a free requestId, when confirm, then the fee is set, DepositRequested saved with the traceparent, PENDING")
+    @DisplayName("given a valid offer, when confirm, then claimed with the fee from the token, DepositRequested saved"
+            + " with the traceparent, PENDING")
     void confirmsDeposit() {
         // given
+        givenOffer(NOW.plus(Duration.ofMinutes(5)));
         WalletEntity wallet = new WalletEntity();
         TransactionEventEntity event = new TransactionEventEntity();
         TransactionConfirmResponseDto answer = new TransactionConfirmResponseDto();
-        when(transactionRepository.claimDepositRequestId(any(), eq(USER_UID), eq(WALLET_UID), eq(AMOUNT), eq(REQUEST_ID)))
-                .thenAnswer(call -> Optional.of(call.getArgument(0)));
-        when(walletService.getWalletForOperation(WALLET_UID, USER_UID)).thenReturn(wallet);
+        when(transactionRepository.claimDepositRequestId(any(), eq(USER_UID), eq(WALLET_UID), eq(AMOUNT),
+                eq(TOKEN_FEE), eq(REQUEST_ID))).thenAnswer(call -> Optional.of(call.getArgument(0)));
+        when(walletService.getActiveWallet(WALLET_UID, USER_UID)).thenReturn(wallet);
         when(transactionMapper.toRequestedPayload(any(), eq(USER_UID), eq(wallet), eq(AMOUNT))).thenReturn("{}");
         givenTraceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
         when(transactionMapper.toTransactionEvent(any(), eq(USER_UID), eq("DepositRequested"), eq("{}"),
@@ -151,12 +184,13 @@ class TransactionServiceTest {
         when(transactionMapper.toConfirmResponse(any(), eq(TransactionStatus.PENDING))).thenReturn(answer);
 
         // when
-        TransactionConfirmResponseDto result = transactionService.confirmDeposit(USER_UID, confirmRequest(AMOUNT));
+        TransactionConfirmResponseDto result = transactionService.confirmDeposit(USER_UID, confirmRequest());
 
         // then
         assertThat(result).isSameAs(answer);
         ArgumentCaptor<UUID> transactionId = ArgumentCaptor.forClass(UUID.class);
-        verify(transactionRepository).updateFee(transactionId.capture(), eq(USER_UID), eq(new BigDecimal("0.00")));
+        verify(transactionRepository).claimDepositRequestId(transactionId.capture(), eq(USER_UID), eq(WALLET_UID),
+                eq(AMOUNT), eq(TOKEN_FEE), eq(REQUEST_ID));
         verify(transactionMapper).toConfirmResponse(transactionId.getValue(), TransactionStatus.PENDING);
         verify(transactionEventRepository).saveAndFlush(event);
     }
@@ -165,13 +199,14 @@ class TransactionServiceTest {
     @DisplayName("given no current span, when confirm, then the event is saved without a traceparent")
     void confirmsWithoutSpan() {
         // given
-        when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any()))
+        givenOffer(NOW.plus(Duration.ofMinutes(5)));
+        when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any(), any()))
                 .thenAnswer(call -> Optional.of(call.getArgument(0)));
-        when(walletService.getWalletForOperation(WALLET_UID, USER_UID)).thenReturn(new WalletEntity());
+        when(walletService.getActiveWallet(WALLET_UID, USER_UID)).thenReturn(new WalletEntity());
         when(transactionMapper.toRequestedPayload(any(), any(), any(), any())).thenReturn("{}");
 
         // when
-        transactionService.confirmDeposit(USER_UID, confirmRequest(AMOUNT));
+        transactionService.confirmDeposit(USER_UID, confirmRequest());
 
         // then
         verify(transactionMapper).toTransactionEvent(any(), eq(USER_UID), eq("DepositRequested"), eq("{}"), eq(null));
@@ -179,73 +214,98 @@ class TransactionServiceTest {
     }
 
     @Test
-    @DisplayName("given the requestId of the same deposit, when confirm repeats, then its transaction, nothing new written")
-    void repeatsConfirm() {
+    @DisplayName("given a taken requestId and an offer already expired, when confirm repeats, then its transaction:"
+            + " the expiry is not checked, nothing new written")
+    void repeatsConfirmAfterExpiry() {
         // given
-        when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any())).thenReturn(Optional.empty());
-        when(transactionRepository.findByUserUidAndRequestId(USER_UID, REQUEST_ID))
-                .thenReturn(Optional.of(existing(TransactionPaymentType.DEPOSIT, new BigDecimal("100"))));
+        givenOffer(NOW.minus(Duration.ofMinutes(1)));
+        when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any(), any()))
+                .thenReturn(Optional.empty());
+        when(transactionRepository.findByUserUidAndRequestId(USER_UID, REQUEST_ID)).thenReturn(Optional.of(existing()));
         TransactionConfirmResponseDto answer = new TransactionConfirmResponseDto();
         when(transactionMapper.toConfirmResponse(EXISTING_UID, TransactionStatus.COMPLETED)).thenReturn(answer);
 
         // when
-        TransactionConfirmResponseDto result = transactionService.confirmDeposit(USER_UID, confirmRequest(AMOUNT));
+        TransactionConfirmResponseDto result = transactionService.confirmDeposit(USER_UID, confirmRequest());
 
         // then
         assertThat(result).isSameAs(answer);
         verifyNoInteractions(walletService, transactionEventRepository);
-        verify(transactionRepository, never()).updateFee(any(), any(), any());
     }
 
     @Test
-    @DisplayName("given the requestId of another amount, when confirm, then REQUEST_ID_CONFLICT")
-    void refusesRequestIdOfAnotherAmount() {
+    @DisplayName("given a free requestId and an expired offer, when confirm, then OFFER_EXPIRED, no wallet and no event")
+    void refusesExpiredOffer() {
         // given
-        when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any())).thenReturn(Optional.empty());
-        when(transactionRepository.findByUserUidAndRequestId(USER_UID, REQUEST_ID))
-                .thenReturn(Optional.of(existing(TransactionPaymentType.DEPOSIT, new BigDecimal("200.00"))));
+        givenOffer(NOW.minus(Duration.ofSeconds(1)));
+        when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(call -> Optional.of(call.getArgument(0)));
 
         // when / then
-        assertThatThrownBy(() -> transactionService.confirmDeposit(USER_UID, confirmRequest(AMOUNT)))
+        assertThatThrownBy(() -> transactionService.confirmDeposit(USER_UID, confirmRequest()))
                 .isInstanceOf(TransactionServiceException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.REQUEST_ID_CONFLICT);
-        verifyNoInteractions(transactionEventRepository);
+                .extracting("errorCode").isEqualTo(ErrorCode.OFFER_EXPIRED);
+        verifyNoInteractions(walletService, transactionEventRepository);
     }
 
     @Test
-    @DisplayName("given the requestId of a withdrawal, when confirm a deposit with it, then REQUEST_ID_CONFLICT")
-    void refusesRequestIdOfAnotherType() {
+    @DisplayName("given an offer that expires right now, when confirm, then it is still accepted")
+    void acceptsOfferAtItsLastInstant() {
         // given
-        when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any())).thenReturn(Optional.empty());
-        when(transactionRepository.findByUserUidAndRequestId(USER_UID, REQUEST_ID))
-                .thenReturn(Optional.of(existing(TransactionPaymentType.WITHDRAWAL, AMOUNT)));
+        givenOffer(NOW);
+        when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(call -> Optional.of(call.getArgument(0)));
+        when(walletService.getActiveWallet(WALLET_UID, USER_UID)).thenReturn(new WalletEntity());
+        when(transactionMapper.toRequestedPayload(any(), any(), any(), any())).thenReturn("{}");
+
+        // when
+        transactionService.confirmDeposit(USER_UID, confirmRequest());
+
+        // then
+        verify(transactionMapper).toConfirmResponse(any(), eq(TransactionStatus.PENDING));
+    }
+
+    @Test
+    @DisplayName("given a token that fails the validator, when confirm, then OFFER_TOKEN_INVALID and nothing touched")
+    void refusesInvalidToken() {
+        // given
+        when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.DEPOSIT))
+                .thenThrow(new TransactionServiceException(ErrorCode.OFFER_TOKEN_INVALID));
 
         // when / then
-        assertThatThrownBy(() -> transactionService.confirmDeposit(USER_UID, confirmRequest(AMOUNT)))
+        assertThatThrownBy(() -> transactionService.confirmDeposit(USER_UID, confirmRequest()))
                 .isInstanceOf(TransactionServiceException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.REQUEST_ID_CONFLICT);
+                .extracting("errorCode").isEqualTo(ErrorCode.OFFER_TOKEN_INVALID);
+        verifyNoInteractions(transactionRepository, walletService, transactionEventRepository);
     }
 
     @Test
-    @DisplayName("given a claimed requestId and no wallet, when confirm, then WALLET_NOT_FOUND, no fee and no event")
+    @DisplayName("given a claimed requestId and no wallet, when confirm, then WALLET_NOT_FOUND and no event")
     void confirmRefusesMissingWallet() {
         // given
-        when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any()))
+        givenOffer(NOW.plus(Duration.ofMinutes(5)));
+        when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any(), any()))
                 .thenAnswer(call -> Optional.of(call.getArgument(0)));
-        when(walletService.getWalletForOperation(WALLET_UID, USER_UID))
+        when(walletService.getActiveWallet(WALLET_UID, USER_UID))
                 .thenThrow(new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND));
 
         // when / then
-        assertThatThrownBy(() -> transactionService.confirmDeposit(USER_UID, confirmRequest(AMOUNT)))
+        assertThatThrownBy(() -> transactionService.confirmDeposit(USER_UID, confirmRequest()))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.WALLET_NOT_FOUND);
-        verify(transactionRepository, never()).updateFee(any(), any(), any());
         verifyNoInteractions(transactionEventRepository);
     }
 
     private TransactionService service(FeeProperties fees) {
         return new TransactionService(transactionRepository, transactionEventRepository, walletService, fees,
-                transactionMapper, dateRangeValidator, tracer, propagator);
+                transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
+                OFFER, CLOCK);
+    }
+
+    private void givenOffer(Instant expiresAt) {
+        when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.DEPOSIT))
+                .thenReturn(new OfferTerms(REQUEST_ID, USER_UID, TransactionPaymentType.DEPOSIT, WALLET_UID, null,
+                        AMOUNT, TOKEN_FEE, expiresAt));
     }
 
     @SuppressWarnings("unchecked")
@@ -261,12 +321,9 @@ class TransactionServiceTest {
         }).when(propagator).inject(eq(context), any(Map.class), any(Propagator.Setter.class));
     }
 
-    private static TransactionEntity existing(TransactionPaymentType type, BigDecimal amount) {
+    private static TransactionEntity existing() {
         TransactionEntity transaction = new TransactionEntity();
         transaction.setUid(EXISTING_UID);
-        transaction.setType(type);
-        transaction.setWalletUid(WALLET_UID);
-        transaction.setAmount(amount);
         transaction.setStatus(TransactionStatus.COMPLETED);
         return transaction;
     }
@@ -275,7 +332,7 @@ class TransactionServiceTest {
         return new DepositInitRequestDto().walletUid(WALLET_UID).amount(amount);
     }
 
-    private static DepositConfirmRequestDto confirmRequest(BigDecimal amount) {
-        return new DepositConfirmRequestDto().requestId(REQUEST_ID).walletUid(WALLET_UID).amount(amount);
+    private static DepositConfirmRequestDto confirmRequest() {
+        return new DepositConfirmRequestDto().offerToken(OFFER_TOKEN);
     }
 }

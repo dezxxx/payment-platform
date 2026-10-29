@@ -18,7 +18,6 @@ import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 import org.springframework.web.reactive.function.client.support.WebClientAdapter;
 import reactor.netty.http.client.HttpClient;
 
-// Timeouts are explicit: WebClient has none and would wait forever
 @Configuration
 @EnableConfigurationProperties({KeycloakProperties.class,
                                 PersonServiceProperties.class,

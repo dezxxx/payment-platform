@@ -23,10 +23,13 @@ public enum ErrorCode {
 
     NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found"),
 
-    // refusals of transaction-service, passed to the client with its own code and text
     INSUFFICIENT_FUNDS(HttpStatus.BAD_REQUEST, "Not enough funds including the fee"),
 
     CURRENCY_MISMATCH(HttpStatus.BAD_REQUEST, "The wallets have different currencies"),
+
+    OFFER_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "The offer token is invalid"),
+
+    OFFER_EXPIRED(HttpStatus.BAD_REQUEST, "The offer token is expired"),
 
     WALLET_NOT_ACTIVE(HttpStatus.BAD_REQUEST, "The wallet is not active"),
 
@@ -37,8 +40,6 @@ public enum ErrorCode {
     WALLET_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet type not found"),
 
     TRANSACTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Transaction not found"),
-
-    REQUEST_ID_CONFLICT(HttpStatus.CONFLICT, "requestId already used for another operation"),
 
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "HTTP method is not supported for this path"),
 

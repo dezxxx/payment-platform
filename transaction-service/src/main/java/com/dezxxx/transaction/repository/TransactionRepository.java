@@ -18,35 +18,33 @@ public interface TransactionRepository extends JpaRepository<TransactionEntity, 
     // empty when the requestId is already taken; a concurrent claim waits here until the first one ends.
     // The type is a literal: ShardingSphere rewrites CAST(:type AS payment_type) into broken SQL,
     // so each type has its own statement
-    @Query(value = "INSERT INTO transactions (uid, user_uid, wallet_uid, amount, type, status, request_id)"
-            + " VALUES (:uid, :userUid, :walletUid, :amount, 'DEPOSIT', 'PENDING', :requestId)"
+    @Query(value = "INSERT INTO transactions (uid, user_uid, wallet_uid, amount, fee, type, status, request_id)"
+            + " VALUES (:uid, :userUid, :walletUid, :amount, :fee, 'DEPOSIT', 'PENDING', :requestId)"
             + " ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid", nativeQuery = true)
-    Optional<UUID> claimDepositRequestId(UUID uid, UUID userUid, UUID walletUid, BigDecimal amount, UUID requestId);
+    Optional<UUID> claimDepositRequestId(UUID uid, UUID userUid, UUID walletUid, BigDecimal amount, BigDecimal fee,
+                                         UUID requestId);
 
-    @Query(value = "INSERT INTO transactions (uid, user_uid, wallet_uid, amount, type, status, request_id)"
-            + " VALUES (:uid, :userUid, :walletUid, :amount, 'WITHDRAWAL', 'PENDING', :requestId)"
+    @Query(value = "INSERT INTO transactions (uid, user_uid, wallet_uid, amount, fee, type, status, request_id)"
+            + " VALUES (:uid, :userUid, :walletUid, :amount, :fee, 'WITHDRAWAL', 'PENDING', :requestId)"
             + " ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid", nativeQuery = true)
-    Optional<UUID> claimWithdrawalRequestId(UUID uid, UUID userUid, UUID walletUid, BigDecimal amount, UUID requestId);
+    Optional<UUID> claimWithdrawalRequestId(UUID uid, UUID userUid, UUID walletUid, BigDecimal amount,
+                                            BigDecimal fee, UUID requestId);
 
     @Query(value = "INSERT INTO transactions"
-            + " (uid, user_uid, wallet_uid, target_wallet_uid, amount, type, status, request_id)"
-            + " VALUES (:uid, :userUid, :walletUid, :targetWalletUid, :amount, 'TRANSFER', 'PENDING', :requestId)"
+            + " (uid, user_uid, wallet_uid, target_wallet_uid, amount, fee, type, status, request_id)"
+            + " VALUES (:uid, :userUid, :walletUid, :targetWalletUid, :amount, :fee, 'TRANSFER', 'PENDING',"
+            + " :requestId)"
             + " ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid", nativeQuery = true)
     Optional<UUID> claimTransferRequestId(UUID uid, UUID userUid, UUID walletUid, UUID targetWalletUid,
-                                          BigDecimal amount, UUID requestId);
+                                          BigDecimal amount, BigDecimal fee, UUID requestId);
 
     Optional<TransactionEntity> findByUserUidAndRequestId(UUID userUid, UUID requestId);
 
     @Modifying
-    @Query("update TransactionEntity t set t.fee = :fee where t.uid = :uid and t.userUid = :userUid")
-    int updateFee(UUID uid, UUID userUid, BigDecimal fee);
-
-    // a transfer has no provider: its confirm sets the fee and finishes it in one statement
-    @Modifying
-    @Query("update TransactionEntity t set t.fee = :fee,"
-            + " t.status = com.dezxxx.transaction.entity.transaction.TransactionStatus.COMPLETED,"
+    @Query("update TransactionEntity t"
+            + " set t.status = com.dezxxx.transaction.entity.transaction.TransactionStatus.COMPLETED,"
             + " t.modifiedAt = :modifiedAt where t.uid = :uid and t.userUid = :userUid")
-    int completeTransfer(UUID uid, UUID userUid, BigDecimal fee, Instant modifiedAt);
+    int completeTransfer(UUID uid, UUID userUid, Instant modifiedAt);
 
     Optional<TransactionEntity> findByUidAndUserUid(UUID uid, UUID userUid);
 

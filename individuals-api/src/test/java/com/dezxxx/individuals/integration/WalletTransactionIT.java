@@ -20,7 +20,15 @@ class WalletTransactionIT extends IntegrationTest {
 
     private static final String TRANSACTIONS = "/api/v1/transactions";
 
+    private static final String WITHDRAWAL_INIT = TRANSACTIONS + "/withdrawal/init";
+
     private static final String WITHDRAWAL_CONFIRM = TRANSACTIONS + "/withdrawal/confirm";
+
+    private static final String OFFER_TOKEN = "payload.signature";
+
+    private static final String OFFER_JSON = """
+            {"amount":50.00,"fee":1.00,"total":51.00,"expiresAt":"2026-10-29T12:05:00Z","offerToken":"%s"}
+            """.formatted(OFFER_TOKEN);
 
     private static final String PASSWORD = "Str0ngPass!";
 
@@ -116,17 +124,57 @@ class WalletTransactionIT extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("given a zero amount, when confirming, then 400 VALIDATION_ERROR and transaction-service is not called")
-    void invalidAmountStopsHere() {
+    @DisplayName("given an offer from transaction-service, when initialising, then the offerToken and expiresAt reach"
+            + " the client unchanged")
+    void offerPassesThrough() {
+        // given
+        TRANSACTION_SERVICE.answer(200, OFFER_JSON);
+
+        // when / then
+        authorized(client.post().uri(WITHDRAWAL_INIT))
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"walletUid\":\"%s\",\"amount\":50.00}".formatted(WALLET_UID))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.offerToken").isEqualTo(OFFER_TOKEN)
+                .jsonPath("$.expiresAt").isEqualTo("2026-10-29T12:05:00Z")
+                .jsonPath("$.total").isEqualTo(51.0);
+
+        // then
+        assertThat(onlyCall().uri()).isEqualTo(WITHDRAWAL_INIT);
+    }
+
+    @Test
+    @DisplayName("given an offerToken, when confirming, then transaction-service gets it as is with X-User-Uid from"
+            + " the token")
+    void offerTokenGoesToTransactionService() {
+        // given
+        TRANSACTION_SERVICE.answer(200, "{\"transactionId\":\"%s\",\"status\":\"PENDING\"}".formatted(WALLET_UID));
+
+        // when
+        confirmWithdrawal().expectStatus().isOk();
+
+        // then
+        Received sent = onlyCall();
+        assertThat(sent.uri()).isEqualTo(WITHDRAWAL_CONFIRM);
+        assertThat(sent.userUid()).isEqualTo(PERSON_SERVICE.userUid().toString());
+        assertThat(sent.body()).isEqualTo("{\"offerToken\":\"" + OFFER_TOKEN + "\"}");
+    }
+
+    @Test
+    @DisplayName("given an empty offerToken, when confirming, then 400 VALIDATION_ERROR and transaction-service is not"
+            + " called")
+    void emptyOfferTokenStopsHere() {
         // when / then
         authorized(client.post().uri(WITHDRAWAL_CONFIRM))
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(withdrawal("0"))
+                .bodyValue("{\"offerToken\":\"\"}")
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody()
                 .jsonPath("$.error").isEqualTo("VALIDATION_ERROR")
-                .jsonPath("$.details[0]").value(detail -> assertThat((String) detail).startsWith("amount:"));
+                .jsonPath("$.details[0]").value(detail -> assertThat((String) detail).startsWith("offerToken:"));
 
         // then
         assertThat(TRANSACTION_SERVICE.received()).isEmpty();
@@ -167,29 +215,47 @@ class WalletTransactionIT extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("given another user's wallet, when confirming, then 404 WALLET_NOT_FOUND")
+    @DisplayName("given another user's wallet, when initialising, then 404 WALLET_NOT_FOUND")
     void walletNotFoundPassesThrough() {
         // given
         TRANSACTION_SERVICE.answerProblem(404, "WALLET_NOT_FOUND", "[]");
 
         // when / then
-        confirmWithdrawal()
+        authorized(client.post().uri(WITHDRAWAL_INIT))
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"walletUid\":\"%s\",\"amount\":50.00}".formatted(WALLET_UID))
+                .exchange()
                 .expectStatus().isNotFound()
                 .expectBody()
                 .jsonPath("$.error").isEqualTo("WALLET_NOT_FOUND");
     }
 
     @Test
-    @DisplayName("given a requestId used for another operation, when confirming, then 409 REQUEST_ID_CONFLICT")
-    void requestIdConflictPassesThrough() {
+    @DisplayName("given a forged or foreign offerToken, when confirming, then 400 OFFER_TOKEN_INVALID")
+    void offerTokenInvalidPassesThrough() {
         // given
-        TRANSACTION_SERVICE.answerProblem(409, "REQUEST_ID_CONFLICT", "[]");
+        TRANSACTION_SERVICE.answerProblem(400, "OFFER_TOKEN_INVALID", "[]");
 
         // when / then
         confirmWithdrawal()
-                .expectStatus().isEqualTo(409)
+                .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.error").isEqualTo("REQUEST_ID_CONFLICT");
+                .jsonPath("$.error").isEqualTo("OFFER_TOKEN_INVALID")
+                .jsonPath("$.message").isEqualTo("The offer token is invalid");
+    }
+
+    @Test
+    @DisplayName("given an offer older than 5 minutes, when confirming, then 400 OFFER_EXPIRED")
+    void offerExpiredPassesThrough() {
+        // given
+        TRANSACTION_SERVICE.answerProblem(400, "OFFER_EXPIRED", "[]");
+
+        // when / then
+        confirmWithdrawal()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("OFFER_EXPIRED")
+                .jsonPath("$.message").isEqualTo("The offer token is expired");
     }
 
     @Test
@@ -235,12 +301,8 @@ class WalletTransactionIT extends IntegrationTest {
     private WebTestClient.ResponseSpec confirmWithdrawal() {
         return authorized(client.post().uri(WITHDRAWAL_CONFIRM))
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(withdrawal("50.00"))
+                .bodyValue("{\"offerToken\":\"" + OFFER_TOKEN + "\"}")
                 .exchange();
-    }
-
-    private static String withdrawal(String amount) {
-        return "{\"requestId\":\"%s\",\"walletUid\":\"%s\",\"amount\":%s}".formatted(UUID.randomUUID(), WALLET_UID, amount);
     }
 
     private static <S extends WebTestClient.RequestHeadersSpec<?>> S authorized(S request) {

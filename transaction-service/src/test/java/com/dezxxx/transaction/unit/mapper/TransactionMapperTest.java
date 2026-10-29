@@ -41,20 +41,19 @@ class TransactionMapperTest {
     private final TransactionMapper transactionMapper = new TransactionMapper(jsonMapper);
 
     @Test
-    @DisplayName("given an amount and a fee, when mapping the terms, then total is their sum")
-    void mapsInitTerms() {
-        // given
-        UUID requestId = UUID.randomUUID();
-
+    @DisplayName("given an amount, a fee, an expiry and a token, when mapping the offer, then total is their sum,"
+            + " expiresAt in UTC and the token as is")
+    void mapsInitOffer() {
         // when
-        TransactionInitResponseDto terms = transactionMapper.toInitResponse(
-                new BigDecimal("100.00"), new BigDecimal("1.00"), requestId);
+        TransactionInitResponseDto offer = transactionMapper.toInitResponse(new BigDecimal("100.00"),
+                new BigDecimal("1.00"), Instant.parse("2026-10-29T12:05:00Z"), "payload.signature");
 
         // then
-        assertThat(terms.getAmount()).isEqualByComparingTo("100.00");
-        assertThat(terms.getFee()).isEqualByComparingTo("1.00");
-        assertThat(terms.getTotal()).isEqualByComparingTo("101.00");
-        assertThat(terms.getRequestId()).isEqualTo(requestId);
+        assertThat(offer.getAmount()).isEqualByComparingTo("100.00");
+        assertThat(offer.getFee()).isEqualByComparingTo("1.00");
+        assertThat(offer.getTotal()).isEqualByComparingTo("101.00");
+        assertThat(offer.getExpiresAt()).isEqualTo(OffsetDateTime.of(2026, 10, 29, 12, 5, 0, 0, ZoneOffset.UTC));
+        assertThat(offer.getOfferToken()).isEqualTo("payload.signature");
     }
 
     @Test

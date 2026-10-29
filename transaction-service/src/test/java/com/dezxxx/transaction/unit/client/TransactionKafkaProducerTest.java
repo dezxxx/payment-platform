@@ -35,7 +35,6 @@ import org.mockito.quality.Strictness;
 import org.springframework.kafka.core.KafkaTemplate;
 
 @ExtendWith(MockitoExtension.class)
-// the tracing stubs serve every test, not each one uses all of them
 @MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("TransactionKafkaProducer")
 class TransactionKafkaProducerTest {

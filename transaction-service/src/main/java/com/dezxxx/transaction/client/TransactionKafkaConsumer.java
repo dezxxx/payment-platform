@@ -13,8 +13,6 @@ import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-// the provider's answers; the method is chosen by the event class. userId from the event sends
-// ShardingSphere to one shard. An exception goes to the error handler: retries, then the DLT
 @Slf4j
 @Component
 @RequiredArgsConstructor

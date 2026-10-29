@@ -44,7 +44,7 @@ class TransactionServiceTest {
 
     private static final UUID TARGET_WALLET_UID = UUID.fromString("9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a");
 
-    private static final UUID REQUEST_ID = UUID.fromString("1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d");
+    private static final String OFFER_TOKEN = "payload.signature";
 
     private static final UUID TRANSACTION_ID = UUID.fromString("7c9e6679-7425-40de-944b-e07fc1f90ae7");
 
@@ -65,7 +65,7 @@ class TransactionServiceTest {
 
         // when / then
         StepVerifier.create(transactionService.initDeposit(accessToken(), request))
-                .assertNext(terms -> assertThat(terms.getRequestId()).isEqualTo(REQUEST_ID))
+                .assertNext(terms -> assertThat(terms.getOfferToken()).isEqualTo(OFFER_TOKEN))
                 .verifyComplete();
     }
 
@@ -73,7 +73,7 @@ class TransactionServiceTest {
     @DisplayName("given a token, when confirming a deposit, then the transaction is confirmed for the token's user_uid")
     void confirmDepositForTokenUser() {
         // given
-        DepositConfirmRequestDto request = new DepositConfirmRequestDto(REQUEST_ID, WALLET_UID, AMOUNT);
+        DepositConfirmRequestDto request = new DepositConfirmRequestDto(OFFER_TOKEN);
         when(transactionClient.confirmDeposit(USER_UID, request)).thenReturn(Mono.just(confirmed()));
 
         // when / then
@@ -99,7 +99,7 @@ class TransactionServiceTest {
     @DisplayName("given a token, when confirming a withdrawal, then the transaction is confirmed for the token's user_uid")
     void confirmWithdrawalForTokenUser() {
         // given
-        WithdrawalConfirmRequestDto request = new WithdrawalConfirmRequestDto(REQUEST_ID, WALLET_UID, AMOUNT);
+        WithdrawalConfirmRequestDto request = new WithdrawalConfirmRequestDto(OFFER_TOKEN);
         when(transactionClient.confirmWithdrawal(USER_UID, request)).thenReturn(Mono.just(confirmed()));
 
         // when / then
@@ -125,7 +125,7 @@ class TransactionServiceTest {
     @DisplayName("given a token, when confirming a transfer, then the transaction is confirmed for the token's user_uid")
     void confirmTransferForTokenUser() {
         // given
-        TransferConfirmRequestDto request = new TransferConfirmRequestDto(REQUEST_ID, WALLET_UID, TARGET_WALLET_UID, AMOUNT);
+        TransferConfirmRequestDto request = new TransferConfirmRequestDto(OFFER_TOKEN);
         when(transactionClient.confirmTransfer(USER_UID, request)).thenReturn(Mono.just(confirmed()));
 
         // when / then
@@ -163,7 +163,7 @@ class TransactionServiceTest {
     @DisplayName("given a token without user_uid, when confirming, then INTERNAL_ERROR and transaction-service is not called")
     void refusesTokenWithoutUserUid() {
         // given
-        WithdrawalConfirmRequestDto request = new WithdrawalConfirmRequestDto(REQUEST_ID, WALLET_UID, AMOUNT);
+        WithdrawalConfirmRequestDto request = new WithdrawalConfirmRequestDto(OFFER_TOKEN);
 
         // when / then
         StepVerifier.create(transactionService.confirmWithdrawal(tokenWithoutUserUid(), request))
@@ -176,7 +176,8 @@ class TransactionServiceTest {
     }
 
     private static TransactionInitResponseDto terms() {
-        return new TransactionInitResponseDto(AMOUNT, new BigDecimal("1.00"), new BigDecimal("101.00"), REQUEST_ID);
+        return new TransactionInitResponseDto(AMOUNT, new BigDecimal("1.00"), new BigDecimal("101.00"),
+                OffsetDateTime.parse("2026-10-29T12:05:00Z"), OFFER_TOKEN);
     }
 
     private static TransactionConfirmResponseDto confirmed() {

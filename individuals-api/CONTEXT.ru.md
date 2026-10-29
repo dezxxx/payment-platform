@@ -723,7 +723,8 @@ Maven Central руками, но по-настоящему ничего не р�
 | Классы | `WalletController`, `TransactionController` → `WalletService`, `TransactionService` → `TransactionClient` | `rest -> service -> gateway`, как в разделе 1 |
 | Настройка | `individuals.transaction-service.base-url` из `TRANSACTION_SERVICE_URL` (`http://localhost:8084` локально, `http://transaction-service:8084` в Docker), `response-timeout` по умолчанию 5 с | между окружениями меняется только адрес; пути берутся из контракта |
 | Тело ошибки | наш `ErrorResponse`, а не RFC 9457 problem details transaction-service; код `error` сохраняется | один формат ошибок на всех эндпоинтах individuals-api |
-| Повторы | individuals-api вызов не повторяет | confirm идемпотентен по `requestId`, повторяет клиент |
+| Offer token | передаётся как есть: `offerToken` из init уходит клиенту, клиент присылает его в confirm, individuals-api пересылает дальше. Ключа у него нет, внутри токена он ничего не проверяет | токен — обещание transaction-service самому себе; проверить подпись может только он |
+| Повторы | individuals-api вызов не повторяет | confirm идемпотентен по `offerToken`, повторяет клиент |
 
 ### Что получает клиент
 
@@ -734,10 +735,10 @@ Maven Central руками, но по-настоящему ничего не р�
 | в токене нет `user_uid` (сломан mapper realm) | **500** `INTERNAL_ERROR` | нет |
 | 2xx | тот же статус и тело (класс клиента) | да |
 | 400 `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`, `WALLET_NOT_ACTIVE`, `WALLET_TYPE_NOT_ACTIVE` | **400**, тот же код — бизнес-отказ, клиент должен его видеть | да |
+| 400 `OFFER_TOKEN_INVALID`, `OFFER_EXPIRED` | **400**, тот же код — токен подделан, чужой, от другой операции или старше 5 минут: клиент заново вызывает init | да |
 | 400 `VALIDATION_ERROR` (их правила поймали то, что пропустили наши) | **400** `VALIDATION_ERROR` с их `details` | да |
 | 400 `MALFORMED_REQUEST` или неизвестный код | **500** `INTERNAL_ERROR`, их тело только в лог — запрос слали мы, это наш баг | да |
 | 404 `WALLET_NOT_FOUND`, `WALLET_TYPE_NOT_FOUND`, `TRANSACTION_NOT_FOUND` | **404**, тот же код; чужой кошелёк — тоже 404 | да |
-| 409 `REQUEST_ID_CONFLICT` | **409** | да |
 | 5xx | **503** `DEPENDENCY_UNAVAILABLE` | да |
 | нет соединения или нет ответа за 5 с | **503** `DEPENDENCY_UNAVAILABLE` (`GatewayErrors.transportFailures`) | да |
 
@@ -745,8 +746,9 @@ Maven Central руками, но по-настоящему ничего не р�
 обычно бизнес-ошибка клиента, а не наша.
 
 **Таймаут на confirm.** Операция может быть уже закоммичена, когда ответ
-потерялся. Клиент повторяет confirm с тем же `requestId`; transaction-service
-отвечает `200` с уже созданной транзакцией и второй раз не списывает.
+потерялся. Клиент повторяет confirm с тем же `offerToken`; transaction-service
+отвечает `200` с уже созданной транзакцией и второй раз не списывает, даже если
+срок оффера уже вышел.
 
 ### Прогресс
 
@@ -762,6 +764,11 @@ Maven Central руками, но по-настоящему ничего не р�
       заглушка на Reactor Netty), папки 5–7 в Postman
 - [x] Переопубликовать `transaction-service-client` в Nexus, пересобрать образы,
       прогнать обе Postman-коллекции
+- [x] Offer token: контракт (`expiresAt`, `offerToken`; confirm принимает только токен),
+      `OFFER_TOKEN_INVALID` и `OFFER_EXPIRED` пробрасываются вместо `409 REQUEST_ID_CONFLICT`,
+      тесты и Postman-коллекция
+- [ ] Опубликовать `transaction-service-client` с offer token в Nexus, пересобрать образы, прогнать
+      обе Postman-коллекции на стеке
 - [ ] Подписи в легендах Grafana — `create_wallet`, а не Java-имена (`createWallet`)
 - [ ] Открыто: нет эндпоинта со списком типов кошельков, их uid есть только в
       seed-миграции `V003__seed_wallet_types.sql`

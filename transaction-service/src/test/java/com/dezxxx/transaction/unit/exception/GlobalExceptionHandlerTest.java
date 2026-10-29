@@ -61,19 +61,19 @@ class GlobalExceptionHandlerTest {
     @DisplayName("given a TransactionServiceException, when handled, then its ErrorCode decides status, error and type")
     void handlesServiceException() {
         // given
-        TransactionServiceException ex = new TransactionServiceException(ErrorCode.REQUEST_ID_CONFLICT);
+        TransactionServiceException ex = new TransactionServiceException(ErrorCode.OFFER_EXPIRED);
 
         // when
         ProblemDetail problem = handler.handleService(ex, request).getBody();
 
         // then
-        assertThat(problem.getStatus()).isEqualTo(409);
-        assertThat(problem.getTitle()).isEqualTo("Conflict");
-        assertThat(problem.getDetail()).isEqualTo("requestId already used for another operation");
-        assertThat(problem.getType()).isEqualTo(URI.create("https://example.org/problems/request-id-conflict"));
+        assertThat(problem.getStatus()).isEqualTo(400);
+        assertThat(problem.getTitle()).isEqualTo("Bad Request");
+        assertThat(problem.getDetail()).isEqualTo("The offer token is expired");
+        assertThat(problem.getType()).isEqualTo(URI.create("https://example.org/problems/offer-expired"));
         assertThat(problem.getInstance()).isEqualTo(URI.create(PATH));
         assertThat(problem.getProperties())
-                .containsEntry("error", "REQUEST_ID_CONFLICT")
+                .containsEntry("error", "OFFER_EXPIRED")
                 .containsEntry("traceId", TRACE_ID)
                 .containsEntry("details", List.of())
                 .containsKey("timestamp");

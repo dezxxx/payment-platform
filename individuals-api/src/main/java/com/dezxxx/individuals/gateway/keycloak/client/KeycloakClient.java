@@ -245,10 +245,10 @@ public class KeycloakClient {
     private static ErrorCode classify(HttpStatusCode status, KeycloakError body) {
         String error = body.error();
         if (error != null && CLIENT_AUTH_FAILURES.contains(error)) {
-            return ErrorCode.INTERNAL_ERROR;          // our client secret is wrong
+            return ErrorCode.INTERNAL_ERROR;
         }
         if (INVALID_GRANT.equals(error)) {
-            return ErrorCode.INVALID_CREDENTIALS;     // wrong password or dead refresh token
+            return ErrorCode.INVALID_CREDENTIALS;
         }
         if (status.isSameCodeAs(HttpStatus.CONFLICT)) {
             return ErrorCode.USER_ALREADY_EXISTS;
@@ -262,7 +262,6 @@ public class KeycloakClient {
         return ErrorCode.INTERNAL_ERROR;
     }
 
-    // both shapes: OIDC {error, error_description} and Admin API {errorMessage}
     private record KeycloakError(
             String error,
             @JsonProperty("error_description") String errorDescription,

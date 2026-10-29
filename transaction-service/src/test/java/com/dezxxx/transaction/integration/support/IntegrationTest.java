@@ -2,9 +2,14 @@ package com.dezxxx.transaction.integration.support;
 
 import com.dezxxx.transaction.api.model.CreateWalletRequestDto;
 import com.dezxxx.transaction.api.model.DepositConfirmRequestDto;
+import com.dezxxx.transaction.api.model.DepositInitRequestDto;
 import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
+import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
+import com.dezxxx.transaction.api.model.TransferConfirmRequestDto;
+import com.dezxxx.transaction.api.model.TransferInitRequestDto;
 import com.dezxxx.transaction.api.model.WalletResponseDto;
 import com.dezxxx.transaction.api.model.WithdrawalConfirmRequestDto;
+import com.dezxxx.transaction.api.model.WithdrawalInitRequestDto;
 import java.math.BigDecimal;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,14 +44,12 @@ public abstract class IntegrationTest {
 
     protected static final PostgreSQLContainer SHARD_1 = new PostgreSQLContainer(POSTGRES_IMAGE);
 
-    // the image compose runs
     protected static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:4.3.2");
 
     static {
         SHARD_0.start();
         SHARD_1.start();
         KAFKA.start();
-        // the names sharding.yaml and application.yml read; in the container they come from the environment
         System.setProperty("TRANSACTION_SHARD_0_URL", SHARD_0.getJdbcUrl());
         System.setProperty("TRANSACTION_SHARD_1_URL", SHARD_1.getJdbcUrl());
         System.setProperty("TRANSACTION_DB_USER", SHARD_0.getUsername());
@@ -64,8 +67,8 @@ public abstract class IntegrationTest {
         registry.add("spring.datasource.url",
                 () -> "jdbc:shardingsphere:classpath:sharding.yaml?placeholder-type=system_props");
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
-        // Confluent's in-memory registry: the serializer and the deserializer of this JVM share it
         registry.add("spring.kafka.properties.schema.registry.url", () -> "mock://transaction-service");
+        registry.add("transaction.offer.secret", () -> "integration-test-secret");
     }
 
     protected UUID createWallet(UUID user) {
@@ -77,35 +80,63 @@ public abstract class IntegrationTest {
                 .getUid();
     }
 
-    protected TransactionConfirmResponseDto confirmed(UUID user, UUID requestId, UUID wallet, BigDecimal amount) {
-        return confirm(user, requestId, wallet, amount)
-                .expectStatus().isOk()
-                .expectBody(TransactionConfirmResponseDto.class)
-                .returnResult()
-                .getResponseBody();
+    protected String depositOffer(UUID user, UUID wallet, BigDecimal amount) {
+        return offerToken(user, "/api/v1/transactions/deposit/init",
+                new DepositInitRequestDto().walletUid(wallet).amount(amount));
     }
 
-    protected RestTestClient.ResponseSpec confirm(UUID user, UUID requestId, UUID wallet, BigDecimal amount) {
-        return post(user, "/api/v1/transactions/deposit/confirm",
-                new DepositConfirmRequestDto().requestId(requestId).walletUid(wallet).amount(amount));
+    protected RestTestClient.ResponseSpec confirmDeposit(UUID user, String offerToken) {
+        return post(user, "/api/v1/transactions/deposit/confirm", new DepositConfirmRequestDto().offerToken(offerToken));
     }
 
-    protected TransactionConfirmResponseDto confirmedWithdrawal(UUID user, UUID requestId, UUID wallet,
-                                                                BigDecimal amount) {
-        return confirmWithdrawal(user, requestId, wallet, amount)
-                .expectStatus().isOk()
-                .expectBody(TransactionConfirmResponseDto.class)
-                .returnResult()
-                .getResponseBody();
+    protected TransactionConfirmResponseDto confirmed(UUID user, UUID wallet, BigDecimal amount) {
+        return ok(confirmDeposit(user, depositOffer(user, wallet, amount)));
     }
 
-    protected RestTestClient.ResponseSpec confirmWithdrawal(UUID user, UUID requestId, UUID wallet,
-                                                            BigDecimal amount) {
+    protected String withdrawalOffer(UUID user, UUID wallet, BigDecimal amount) {
+        return offerToken(user, "/api/v1/transactions/withdrawal/init",
+                new WithdrawalInitRequestDto().walletUid(wallet).amount(amount));
+    }
+
+    protected RestTestClient.ResponseSpec confirmWithdrawal(UUID user, String offerToken) {
         return post(user, "/api/v1/transactions/withdrawal/confirm",
-                new WithdrawalConfirmRequestDto().requestId(requestId).walletUid(wallet).amount(amount));
+                new WithdrawalConfirmRequestDto().offerToken(offerToken));
     }
 
-    // money on a wallet without a deposit through Kafka
+    protected TransactionConfirmResponseDto confirmedWithdrawal(UUID user, UUID wallet, BigDecimal amount) {
+        return ok(confirmWithdrawal(user, withdrawalOffer(user, wallet, amount)));
+    }
+
+    protected String transferOffer(UUID user, UUID source, UUID target, BigDecimal amount) {
+        return offerToken(user, "/api/v1/transactions/transfer/init",
+                new TransferInitRequestDto().walletUid(source).targetWalletUid(target).amount(amount));
+    }
+
+    protected RestTestClient.ResponseSpec confirmTransfer(UUID user, String offerToken) {
+        return post(user, "/api/v1/transactions/transfer/confirm", new TransferConfirmRequestDto().offerToken(offerToken));
+    }
+
+    protected TransactionConfirmResponseDto confirmedTransfer(UUID user, UUID source, UUID target, BigDecimal amount) {
+        return ok(confirmTransfer(user, transferOffer(user, source, target, amount)));
+    }
+
+    protected TransactionConfirmResponseDto ok(RestTestClient.ResponseSpec confirm) {
+        return confirm
+                .expectStatus().isOk()
+                .expectBody(TransactionConfirmResponseDto.class)
+                .returnResult()
+                .getResponseBody();
+    }
+
+    private String offerToken(UUID user, String uri, Object initRequest) {
+        return post(user, uri, initRequest)
+                .expectStatus().isOk()
+                .expectBody(TransactionInitResponseDto.class)
+                .returnResult()
+                .getResponseBody()
+                .getOfferToken();
+    }
+
     protected void fund(UUID wallet, UUID user, BigDecimal balance) {
         jdbc.update("UPDATE wallets SET balance = ? WHERE uid = ? AND user_uid = ?", balance, wallet, user);
     }
@@ -131,7 +162,6 @@ public abstract class IntegrationTest {
                 .exchange();
     }
 
-    // straight to one shard, past ShardingSphere: shows where a row really is
     protected static JdbcTemplate shard(PostgreSQLContainer container) {
         return new JdbcTemplate(new DriverManagerDataSource(
                 container.getJdbcUrl(), container.getUsername(), container.getPassword()));

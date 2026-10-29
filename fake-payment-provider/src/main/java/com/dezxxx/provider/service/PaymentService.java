@@ -15,7 +15,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-// stands in for the bank: no card is charged, the answer depends only on the amount
 @Slf4j
 @Service
 @RequiredArgsConstructor

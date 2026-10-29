@@ -23,7 +23,7 @@
 | у пополнения нет события неудачи | `DepositFailed` → `FAILED`, баланс не меняется | иначе неуспешное пополнение навсегда `PENDING` |
 | ответы провайдера без `userId` | несут `userId` из запроса | шард выбирается по `user_uid`: один запрос в один шард |
 | события в JSON, суммы как `100.0` | Avro + Schema Registry, суммы как `decimal` | registry отклоняет несовместимую схему; плавающая точка округляет деньги |
-| `init` и `confirm` ничем не связаны | `init` возвращает `requestId` (ничего не сохраняя), клиент передаёт его в `confirm`, тот сохраняет его в `transactions.request_id`, уникально в пределах `user_uid` | связь двух запросов в трассах и логах; повторный `confirm` возвращает уже созданную транзакцию, а не списывает второй раз |
+| `init` и `confirm` ничем не связаны | `init` ничего не сохраняет и возвращает подписанный `offerToken` с условиями (`requestId`, пользователь, тип, кошельки, `amount`, `fee`, `expiresAt` = 5 минут); `confirm` принимает только этот токен и делает ровно то, что в нём написано. `requestId` из токена ложится в `transactions.request_id`, уникально в пределах `user_uid` | ревью учителя 2026-10-27: confirm должен исполнить оффер, который сделал init, а не новые условия от клиента; подпись не даёт изменить сумму, комиссию и кошельки, а повторный `confirm` возвращает уже созданную транзакцию, а не списывает второй раз |
 | `userUid` приходит от клиента (`/wallets/user/{userUid}`, `?userUid=`) | individuals-api подставляет его из токена; остальные операции получают его в заголовке `X-User-Uid` | иначе можно читать чужие кошельки; путь уже занят `walletUid` / `transactionId`, у GET нет тела |
 | один путь `/transactions/{type}/init` (и `/confirm`) с телом `oneOf` | шесть путей `/transactions/{deposit,withdrawal,transfer}/{init,confirm}`, у каждого своё тело | адреса для клиента те же; разные операции не смешиваются, у каждого тела свой класс и своя проверка |
 | `/transactions/{transactionId}/confirm` в списке функций | `/transactions/{type}/confirm`, как в контракте | `init` ничего не создаёт, до `confirm` нет `transactionId` |
@@ -54,9 +54,11 @@
 | Алерты | `infra/prometheus/alerts.yml`, без Alertmanager: `TransactionPendingTooLong` (самая старая `PENDING` > 5 мин), `TransactionEventsNotSent` (самое старое неотправленное > 60 с), `TransactionDeadLetters` (хоть одно за 5 мин), `TransactionConsumerLag` (> 100 в течение 5 мин). Сработавшие видны на `/alerts` Prometheus и на дашборде |
 | Метрики шардов | `postgres_exporter` на каждый шард (job `transaction-shards`, метка `shard`); пулы, которые открывает ShardingSphere (`ds_0`, `ds_1`), подключает `ShardPoolMetrics` штатным `DataSourcePoolMetrics` из Spring Boot: `jdbc_connections_*{name="ds_0"}`. Пул ShardingSphere по умолчанию — 50 соединений на шард. Счётчика full route нет: ShardingSphere-JDBC без своего Java agent его не отдаёт |
 | Дашборд | `infra/grafana/dashboards/transaction-service.json`: HTTP, операции, очередь `transaction_events`, `PENDING`, lag, DLT, ответы провайдера, ряд Shards (нагрузка, строки по таблицам, размер, соединения, пулы, блокировки, deadlock-и) и логи обоих сервисов |
-| Идемпотентность confirm | первая команда транзакции confirm занимает `requestId`: `INSERT … 'PENDING', :requestId ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid`. 1 строка — запрос его занял; 0 строк — повтор: те же параметры → `200` с уже созданной транзакцией и её статусом, другие → `409`. Одновременный второй INSERT ждёт окончания первой транзакции; откат освобождает `requestId`. ShardingSphere 5.5.3 разбирает эту команду; одновременный случай проверяет `ShardingIT` на двух шардах |
+| Offer token | `base64url(JSON OfferTerms) + "." + base64url(HMAC-SHA256)`: условия можно прочитать, но нельзя изменить. `OfferTokenSigner` выпускает и читает токен (`readVerified`: подпись сравнивается за постоянное время, `MessageDigest.isEqual`; `Mac` новый на каждый вызов, он не потокобезопасен); `OfferTokenValidator` добавляет владельца (`userUid` = `X-User-Uid`) и тип (= эндпоинт). Любой провал → `400 OFFER_TOKEN_INVALID`. Ключ — `transaction.offer.secret` из `TRANSACTION_OFFER_SECRET` (`.env`), без значения по умолчанию: без него сервис не стартует. Срок жизни `transaction.offer.ttl`, 5 минут; время даёт бин `Clock`, тесты его фиксируют |
+| Порядок в confirm | проверка токена (ещё ничего не тронуто) → захват `requestId` → занят: повтор, `200` с уже созданной транзакцией, срок не проверяется → новый: срок (`400 OFFER_EXPIRED`, откат освобождает захват) → блокировка, средства, списание как раньше |
+| Идемпотентность confirm | первая команда транзакции confirm занимает `requestId` из токена: `INSERT … 'PENDING', :requestId ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid`. 1 строка — запрос его занял; 0 строк — повтор → `200` с уже созданной транзакцией и её статусом. Другие условия под тем же `requestId` прийти не могут: для них нужна новая подпись. Одновременный второй INSERT ждёт окончания первой транзакции; откат освобождает `requestId`. ShardingSphere 5.5.3 разбирает эту команду; одновременный случай проверяет `ShardingIT` на двух шардах |
 | Проверка запроса | `@Valid` в контроллере до любой транзакции БД: обязательные поля, UUID, `amount > 0` и не больше 2 знаков после запятой; у перевода `walletUid ≠ targetWalletUid`. Ошибка → `400`, ничего не записано |
-| Комиссия и баланс | fee считается после чтения кошелька и до проверки `balance < amount + fee` → `400`, в init и заново в confirm (условиям из init не доверяем). `fee` при вставке `NULL`, заполняется `UPDATE` в той же транзакции |
+| Комиссия и баланс | init считает fee после чтения кошелька и проверяет `balance < amount + fee` → `400`; fee попадает в токен. confirm берёт `amount` и `fee` из токена (изменённый за это время размер комиссии выданный оффер не трогает), вставляет их при захвате и снова проверяет баланс после блокировки: деньги могли уйти после init |
 | Размер комиссии | доля суммы на операцию в `transaction.fee` (`FeeProperties`): deposit `0`, withdrawal `0.01`, transfer `0.005`; округление до копеек, от пяти вверх. Private-метод `TransactionService`, единственного, кто её считает; переменная окружения, например `TRANSACTION_FEE_WITHDRAWAL`, её переопределяет |
 | Неизвестный кошелёк в confirm | INSERT захвата идёт первым, а `transactions.wallet_uid` ссылается на `wallets`: кошелька нет в шарде пользователя — INSERT падает на `transactions_wallet_uid_fkey`. `GlobalExceptionHandler` отвечает на этот constraint `404 WALLET_NOT_FOUND` (как person-service на индекс email); транзакция откатывается, `requestId` остаётся свободным |
 | `payment_type` в SQL | тип — строкой в захвате `requestId` (`'DEPOSIT'`), свой запрос на операцию: ShardingSphere 5.5.3 переписывает `CAST(:type AS payment_type)` в сломанный SQL. Фильтр поиска сравнивает колонку как текст (`cast(type as varchar) = ?`): ShardingSphere передаёт параметр как `varchar`, а сравнения `payment_type = varchar` в PostgreSQL нет |
@@ -66,7 +68,7 @@
 | Баланс | никогда не отрицательный: `amount > 0`, проверка после fee, блокировка. `CHECK (balance >= 0)` в миграции — последняя защита |
 | Пополнение | без проверки баланса; отказ провайдера (на карте не хватает, банк отказал) → `DepositFailed` |
 | Мягкое удаление | каждое чтение кошелька идёт с `archived_at IS NULL` |
-| Сбои | ошибка БД на любом шаге → откат, `500`, ничего не записано. Ответ потерялся после commit → клиент повторяет confirm с тем же `requestId` → `200` с той же транзакцией |
+| Сбои | ошибка БД на любом шаге → откат, `500`, ничего не записано. Ответ потерялся после commit → клиент повторяет confirm с тем же `offerToken` → `200` с той же транзакцией, даже если срок оффера уже вышел |
 | Ошибки | тело RFC 9457 с `timestamp`, `error`, `traceId`, `details`, как в person-service |
 
 ### Контракт
@@ -80,12 +82,13 @@ Avro-классы событий — из файлов `.avsc`, на следу�
 | Пункт | Значение |
 |---|---|
 | Имена DTO | схемы ровно из ТЗ: `CreateWalletRequest`, `WalletResponse`, `DepositInitRequest`, `WithdrawalInitRequest`, `TransferInitRequest`, `TransactionInitResponse`, `DepositConfirmRequest`, `WithdrawalConfirmRequest`, `TransferConfirmRequest`, `TransactionConfirmResponse`, `TransactionStatusResponse`, `ErrorResponse`. У сгенерированных Java-классов суффикс `Dto` (`modelNameSuffix`), как в person-service: по HTTP ходит `WalletResponseDto`, сущность остаётся внутри |
-| `TransactionInitResponse` | `amount`, `fee`, `total`, `requestId` |
+| `TransactionInitResponse` | `amount`, `fee`, `total`, `expiresAt`, `offerToken` |
+| `*ConfirmRequest` | только `offerToken` (`minLength: 1`); условия берутся из него |
 | `TransactionConfirmResponse` | `transactionId`, `status` |
 | `TransactionStatusResponse` | одинаковый в статусе и в поиске: `transactionId`, `type`, `status`, `walletUid`, `targetWalletUid`, `amount`, `fee`, `failureReason`, `createdAt` |
 | Проверки `amount` | `> 0` из `exclusiveMinimum`; не больше 2 знаков — стандартная `@Digits(fraction = 2)`, ставится на поле через `x-field-extra-annotation` |
-| `walletUid ≠ targetWalletUid` | своя аннотация класса `@DifferentWallets` с `ConstraintValidator` в пакете `validation`, ставится на `TransferInitRequest` и `TransferConfirmRequest` через `x-class-extra-annotation`. Без неё один кошелёк дважды читается как одна строка и дал бы `404` |
-| `TransferWallets` | интерфейс с `getWalletUid()` и `getTargetWalletUid()`; оба DTO перевода реализуют его через `x-implements`, поэтому валидатор читает их, не зная сгенерированных классов, и одинаково работает в сервере и в jar клиента |
+| `walletUid ≠ targetWalletUid` | своя аннотация класса `@DifferentWallets` с `ConstraintValidator` в пакете `validation`, ставится на `TransferInitRequest` через `x-class-extra-annotation`; confirm берёт кошельки из подписанного оффера. Без неё один кошелёк дважды читается как одна строка и дал бы `404` |
+| `TransferWallets` | интерфейс с `getWalletUid()` и `getTargetWalletUid()`; `TransferInitRequest` реализует его через `x-implements`, поэтому валидатор читает их, не зная сгенерированных классов, и одинаково работает в сервере и в jar клиента |
 | Enum в параметрах запроса | `?type=deposit` переводится по значению из контракта через сгенерированный `EnumConverterConfiguration` (`fromValue`); `Enum.valueOf` знает только `DEPOSIT`. Неизвестное значение → `400 VALIDATION_ERROR` |
 | Клиент | `openApiGenerateClient`: `spring-http-interface`, реактивный; свой source set `client` и jar `transaction-service-client` с API клиента, его DTO и `@DifferentWallets` с валидатором и `TransferWallets` (только эти файлы из `validation`: остальным нужны классы самого сервиса) |
 
@@ -118,7 +121,7 @@ Avro-классы событий — из файлов `.avsc`, на следу�
 - [x] Пополнение init и confirm по диаграмме: `TransactionRestControllerV1` → `TransactionService` →
       `TransactionRepository`, `TransactionEventRepository`, `WalletService`; `TransactionMapper`.
       confirm захватывает `requestId`, пишет транзакцию `PENDING` и неотправленное `DepositRequested`
-      (payload в JSON, `traceparent`) в одной транзакции БД; повтор → `200`, другие условия → `409`
+      (payload в JSON, `traceparent`) в одной транзакции БД; повтор → `200`
 - [x] Kafka (KRaft) + Schema Registry в compose; Avro-события и jar `transaction-service-events`;
       `TransactionKafkaProducer` (отправляет `transaction_events`, продолжает трейс), `TransactionKafkaConsumer`
       (финализация, повторы, DLT); `TransactionKafkaIT` на настоящей Kafka
@@ -144,6 +147,11 @@ Avro-классы событий — из файлов `.avsc`, на следу�
 - [x] Диаграммы совпадают с кодом: поиск сравнивает `type` как текст и читает `size + 1` строк (`Slice`),
       блокировки confirm читают только `wallets`, а валюту — после блокировки
 - [x] transaction-service в карте конфигурации корневого `CONTEXT.ru.md`
+- [x] Offer token связывает init и confirm (ревью учителя 2026-10-27): `OfferTerms`, `OfferTokenSigner`,
+      `OfferTokenValidator`, `OFFER_TOKEN_INVALID` и `OFFER_EXPIRED` вместо `409 REQUEST_ID_CONFLICT`;
+      контракт, sequence- и компонентная диаграммы, unit-тесты signer на настоящем HMAC, интеграционные тесты
+      на подделанный токен, токен другого пользователя и токен другой операции; обе Postman-коллекции;
+      `TRANSACTION_OFFER_SECRET` в `.env.example` и compose
 
 ### Дальше
 

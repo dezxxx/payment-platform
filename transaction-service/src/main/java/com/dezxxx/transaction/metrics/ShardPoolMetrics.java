@@ -38,7 +38,6 @@ public class ShardPoolMetrics implements MeterBinder {
                 new DataSourcePoolMetrics(unit.getDataSource(), HIKARI, name, Tags.empty()).bindTo(registry));
     }
 
-    // the storage units of sharding.yaml, ds_0 and ds_1, read from the context behind a ShardingSphere connection
     private Map<String, StorageUnit> shardPools() {
         try (Connection connection = dataSource.getConnection()) {
             ShardingSphereConnection sharding = connection.unwrap(ShardingSphereConnection.class);

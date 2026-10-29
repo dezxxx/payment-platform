@@ -20,7 +20,6 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-// the user is always the token's; a lost confirm answer is repeated by the client with the same requestId
 @Slf4j
 @Service
 @RequiredArgsConstructor

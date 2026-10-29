@@ -46,13 +46,11 @@ public class TransactionKafkaProducer {
     public void sendUnsent() {
         for (TransactionEventEntity event : transactionEventRepository.findUnsent(kafkaEventProperties.batchSize())) {
             if (!send(event)) {
-                // Kafka is not answering: the rest of the batch would fail the same way
                 return;
             }
         }
     }
 
-    // false when the broker did not acknowledge; a row that cannot be mapped is skipped and stays unsent.
     // "try": the span scope is opened only to be closed
     @SuppressWarnings("try")
     private boolean send(TransactionEventEntity event) {
@@ -64,7 +62,6 @@ public class TransactionKafkaProducer {
                     event.getTransactionUid(), ex);
             return true;
         }
-        // a child of the confirm request's trace: KafkaTemplate puts its traceparent into the message headers
         Span span = continueTrace(event.getTraceparent()).name("send " + event.getEventType()).start();
         try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
             kafkaTemplate.send(topic(event.getEventType()), event.getTransactionUid().toString(), record)

@@ -6,7 +6,6 @@ import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
-// Prometheus adds _total itself: auth.registration is scraped as auth_registration_total
 @Component
 public class AuthMetrics {
 

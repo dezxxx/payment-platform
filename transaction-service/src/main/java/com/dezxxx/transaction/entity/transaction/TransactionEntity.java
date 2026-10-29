@@ -27,7 +27,6 @@ public class TransactionEntity {
 
     private Instant modifiedAt;
 
-    // the sharding key
     private UUID userUid;
 
     private UUID walletUid;

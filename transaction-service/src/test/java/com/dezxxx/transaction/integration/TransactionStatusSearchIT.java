@@ -2,11 +2,9 @@ package com.dezxxx.transaction.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.TransactionStatusDto;
 import com.dezxxx.transaction.api.model.TransactionStatusResponseDto;
 import com.dezxxx.transaction.api.model.TransactionTypeDto;
-import com.dezxxx.transaction.api.model.TransferConfirmRequestDto;
 import com.dezxxx.transaction.integration.support.IntegrationTest;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -33,7 +31,7 @@ class TransactionStatusSearchIT extends IntegrationTest {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
-        UUID transaction = confirmed(user, UUID.randomUUID(), wallet, AMOUNT).getTransactionId();
+        UUID transaction = confirmed(user, wallet, AMOUNT).getTransactionId();
 
         // when / then
         status(user, transaction)
@@ -52,7 +50,7 @@ class TransactionStatusSearchIT extends IntegrationTest {
     void refusesForeignStatus() {
         // given
         UUID owner = UUID.randomUUID();
-        UUID transaction = confirmed(owner, UUID.randomUUID(), createWallet(owner), AMOUNT).getTransactionId();
+        UUID transaction = confirmed(owner, createWallet(owner), AMOUNT).getTransactionId();
 
         // when / then
         status(UUID.randomUUID(), transaction)
@@ -199,22 +197,14 @@ class TransactionStatusSearchIT extends IntegrationTest {
                 .jsonPath("$.error").isEqualTo("VALIDATION_ERROR");
     }
 
-    // a deposit on the target wallet (Oct 1), a withdrawal (Oct 2) and a transfer (Oct 3) from the source;
-    // the dates are set by hand, so the order does not hang on the clock
     private History history() {
         UUID user = UUID.randomUUID();
         UUID source = createWallet(user);
         UUID target = createWallet(user);
         fund(source, user, new BigDecimal("500.00"));
-        UUID deposit = confirmed(user, UUID.randomUUID(), target, AMOUNT).getTransactionId();
-        UUID withdrawal = confirmedWithdrawal(user, UUID.randomUUID(), source, AMOUNT).getTransactionId();
-        UUID transfer = post(user, "/api/v1/transactions/transfer/confirm", new TransferConfirmRequestDto()
-                .requestId(UUID.randomUUID()).walletUid(source).targetWalletUid(target).amount(AMOUNT))
-                .expectStatus().isOk()
-                .expectBody(TransactionConfirmResponseDto.class)
-                .returnResult()
-                .getResponseBody()
-                .getTransactionId();
+        UUID deposit = confirmed(user, target, AMOUNT).getTransactionId();
+        UUID withdrawal = confirmedWithdrawal(user, source, AMOUNT).getTransactionId();
+        UUID transfer = confirmedTransfer(user, source, target, AMOUNT).getTransactionId();
         createdAt(deposit, user, "2026-10-01T12:00:00Z");
         createdAt(withdrawal, user, "2026-10-02T12:00:00Z");
         createdAt(transfer, user, "2026-10-03T12:00:00Z");

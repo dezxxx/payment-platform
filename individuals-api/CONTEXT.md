@@ -770,7 +770,8 @@ the single place where the token is checked, so it is also the single place
 | Classes | `WalletController`, `TransactionController` → `WalletService`, `TransactionService` → `TransactionClient` | `rest -> service -> gateway`, as in section 1 |
 | Configuration | `individuals.transaction-service.base-url` from `TRANSACTION_SERVICE_URL` (`http://localhost:8084` locally, `http://transaction-service:8084` in Docker), `response-timeout` 5 s by default | only the address differs between environments; paths come from the contract |
 | Error body | our `ErrorResponse`, not transaction-service's RFC 9457 problem details; the `error` code is kept | one error format on every individuals-api endpoint |
-| Retries | individuals-api never repeats a call | confirm is idempotent by `requestId`, the client repeats it |
+| Offer token | passed through as is: the `offerToken` of init goes to the client, the client sends it back in confirm, individuals-api forwards it. It holds no key and checks nothing in it | the token is transaction-service's promise to itself; only transaction-service can verify its signature |
+| Retries | individuals-api never repeats a call | confirm is idempotent by the `offerToken`, the client repeats it |
 
 ### What the client is told
 
@@ -781,10 +782,10 @@ the single place where the token is checked, so it is also the single place
 | the token has no `user_uid` (realm mapper broken) | **500** `INTERNAL_ERROR` | no |
 | 2xx | the same status and body (the client's class) | yes |
 | 400 `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`, `WALLET_NOT_ACTIVE`, `WALLET_TYPE_NOT_ACTIVE` | **400**, the same code — a business refusal the client must see | yes |
+| 400 `OFFER_TOKEN_INVALID`, `OFFER_EXPIRED` | **400**, the same code — a forged, foreign or other-operation token, or one older than 5 minutes: the client calls init again | yes |
 | 400 `VALIDATION_ERROR` (their rules caught what ours let through) | **400** `VALIDATION_ERROR` with their `details` | yes |
 | 400 `MALFORMED_REQUEST` or an unknown code | **500** `INTERNAL_ERROR`, their body only in the log — we sent it, our bug | yes |
 | 404 `WALLET_NOT_FOUND`, `WALLET_TYPE_NOT_FOUND`, `TRANSACTION_NOT_FOUND` | **404**, the same code; another user's wallet is 404 too | yes |
-| 409 `REQUEST_ID_CONFLICT` | **409** | yes |
 | 5xx | **503** `DEPENDENCY_UNAVAILABLE` | yes |
 | no connection or no answer within 5 s | **503** `DEPENDENCY_UNAVAILABLE` (`GatewayErrors.transportFailures`) | yes |
 
@@ -792,9 +793,9 @@ Unlike person-service, a 400 from transaction-service is passed through: there
 it is usually the client's business mistake, not ours.
 
 **Timeout on confirm.** The operation may already be committed when the answer
-is lost. The client repeats confirm with the same `requestId`;
+is lost. The client repeats confirm with the same `offerToken`;
 transaction-service answers `200` with the transaction it already made and
-never charges twice.
+never charges twice, even after the offer expired.
 
 ### Progress
 
@@ -810,6 +811,11 @@ never charges twice.
       in the integration tests), Postman folders 5-7
 - [x] Republish `transaction-service-client` to Nexus, rebuild the images, run
       both Postman collections
+- [x] The offer token: the contract (`expiresAt`, `offerToken`; confirm takes only the token),
+      `OFFER_TOKEN_INVALID` and `OFFER_EXPIRED` passed through instead of `409 REQUEST_ID_CONFLICT`,
+      the tests and the Postman collection
+- [ ] Publish `transaction-service-client` with the offer token to Nexus, rebuild the images, run
+      both Postman collections on the stack
 - [ ] Grafana legends read as `create_wallet`, not as Java names (`createWallet`)
 - [ ] Open: no endpoint lists wallet types, their uids come only from the
       `V003__seed_wallet_types.sql` seed

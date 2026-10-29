@@ -10,8 +10,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-// the platform's own meters: the transaction_events backlog, PENDING transactions, Kafka send failures, the DLT.
-// Prometheus adds _total to counters and the unit to gauges: transaction.pending.oldest is transaction_pending_oldest_seconds
 @Component
 public class TransactionMetrics {
 
@@ -53,7 +51,6 @@ public class TransactionMetrics {
                 .register(registry);
     }
 
-    // reads both shards: these are the only queries without user_uid besides the producer's
     @Scheduled(fixedDelayString = "${transaction.metrics.refresh-interval}")
     public void refresh() {
         unsentEvents.set(transactionEventRepository.countUnsent());
@@ -66,7 +63,6 @@ public class TransactionMetrics {
         sendFailures.increment();
     }
 
-    // one series per source topic; register returns the existing counter on the next call
     public void deadLettered(String topic) {
         Counter.builder("transaction.events.dead.letter")
                 .description("Messages the consumer gave up on and published to <topic>-dlt")
@@ -75,7 +71,6 @@ public class TransactionMetrics {
                 .increment();
     }
 
-    // empty when nothing waits
     private static long seconds(Optional<Double> age) {
         return age.map(Math::round).orElse(0L);
     }

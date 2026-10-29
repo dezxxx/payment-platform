@@ -146,42 +146,42 @@ class WalletServiceTest {
     }
 
     @Test
-    @DisplayName("given the user's ACTIVE wallet, when taking it for an operation, then the entity is returned")
-    void givesWalletForOperation() {
+    @DisplayName("given the user's ACTIVE wallet, when getting the active wallet, then the entity is returned")
+    void givesActiveWallet() {
         // given
         WalletEntity wallet = new WalletEntity();
         wallet.setStatus(WalletStatus.ACTIVE);
         when(walletRepository.findActive(WALLET_UID, USER_UID)).thenReturn(Optional.of(wallet));
 
         // when
-        WalletEntity result = walletService.getWalletForOperation(WALLET_UID, USER_UID);
+        WalletEntity result = walletService.getActiveWallet(WALLET_UID, USER_UID);
 
         // then
         assertThat(result).isSameAs(wallet);
     }
 
     @Test
-    @DisplayName("given no active wallet of this user, when taking it for an operation, then WALLET_NOT_FOUND")
-    void refusesMissingWalletForOperation() {
+    @DisplayName("given no active wallet of this user, when getting the active wallet, then WALLET_NOT_FOUND")
+    void refusesMissingActiveWallet() {
         // given
         when(walletRepository.findActive(WALLET_UID, USER_UID)).thenReturn(Optional.empty());
 
         // when / then
-        assertThatThrownBy(() -> walletService.getWalletForOperation(WALLET_UID, USER_UID))
+        assertThatThrownBy(() -> walletService.getActiveWallet(WALLET_UID, USER_UID))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.WALLET_NOT_FOUND);
     }
 
     @Test
-    @DisplayName("given the user's ACTIVE wallet, when taking it for a debit, then it is read FOR UPDATE and returned")
-    void givesWalletForDebit() {
+    @DisplayName("given the user's ACTIVE wallet, when locking it, then it is read with a lock and returned")
+    void locksActiveWallet() {
         // given
         WalletEntity wallet = new WalletEntity();
         wallet.setStatus(WalletStatus.ACTIVE);
         when(walletRepository.findActiveForUpdate(WALLET_UID, USER_UID)).thenReturn(Optional.of(wallet));
 
         // when
-        WalletEntity result = walletService.getWalletForDebit(WALLET_UID, USER_UID);
+        WalletEntity result = walletService.lockActiveWallet(WALLET_UID, USER_UID);
 
         // then
         assertThat(result).isSameAs(wallet);
@@ -189,20 +189,20 @@ class WalletServiceTest {
     }
 
     @Test
-    @DisplayName("given no active wallet of this user, when taking it for a debit, then WALLET_NOT_FOUND")
-    void refusesMissingWalletForDebit() {
+    @DisplayName("given no active wallet of this user, when locking it, then WALLET_NOT_FOUND")
+    void refusesToLockMissingWallet() {
         // given
         when(walletRepository.findActiveForUpdate(WALLET_UID, USER_UID)).thenReturn(Optional.empty());
 
         // when / then
-        assertThatThrownBy(() -> walletService.getWalletForDebit(WALLET_UID, USER_UID))
+        assertThatThrownBy(() -> walletService.lockActiveWallet(WALLET_UID, USER_UID))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.WALLET_NOT_FOUND);
     }
 
     @Test
     @DisplayName("given two ACTIVE USD wallets of the user, when taking them for a transfer, then the source is returned")
-    void givesTransferSource() {
+    void givesActiveSameCurrencyWallet() {
         // given
         WalletEntity source = wallet(WALLET_UID, "USD");
         WalletEntity target = wallet(TARGET_UID, "USD");
@@ -210,34 +210,34 @@ class WalletServiceTest {
                 .thenReturn(List.of(target, source));
 
         // when
-        WalletEntity result = walletService.getTransferSource(WALLET_UID, TARGET_UID, USER_UID);
+        WalletEntity result = walletService.getActiveSameCurrencyWallet(WALLET_UID, TARGET_UID, USER_UID);
 
         // then
         assertThat(result).isSameAs(source);
     }
 
     @Test
-    @DisplayName("given the target not found, when taking the wallets for a transfer debit, then WALLET_NOT_FOUND")
+    @DisplayName("given the target not found, when locking the same-currency wallets, then WALLET_NOT_FOUND")
     void refusesTransferWithoutTarget() {
         // given
         when(walletRepository.findAllActiveForUpdate(List.of(WALLET_UID, TARGET_UID), USER_UID))
                 .thenReturn(List.of(wallet(WALLET_UID, "USD")));
 
         // when / then
-        assertThatThrownBy(() -> walletService.getTransferSourceForDebit(WALLET_UID, TARGET_UID, USER_UID))
+        assertThatThrownBy(() -> walletService.lockActiveSameCurrencyWallets(WALLET_UID, TARGET_UID, USER_UID))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.WALLET_NOT_FOUND);
     }
 
     @Test
-    @DisplayName("given a USD and an EUR wallet, when taking them for a transfer debit, then CURRENCY_MISMATCH")
+    @DisplayName("given a USD and an EUR wallet, when locking the same-currency wallets, then CURRENCY_MISMATCH")
     void refusesTransferBetweenCurrencies() {
         // given
         when(walletRepository.findAllActiveForUpdate(List.of(WALLET_UID, TARGET_UID), USER_UID))
                 .thenReturn(List.of(wallet(WALLET_UID, "USD"), wallet(TARGET_UID, "EUR")));
 
         // when / then
-        assertThatThrownBy(() -> walletService.getTransferSourceForDebit(WALLET_UID, TARGET_UID, USER_UID))
+        assertThatThrownBy(() -> walletService.lockActiveSameCurrencyWallets(WALLET_UID, TARGET_UID, USER_UID))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.CURRENCY_MISMATCH);
     }

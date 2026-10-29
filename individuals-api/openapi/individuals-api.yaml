@@ -335,7 +335,7 @@ paths:
     post:
       tags: [transactions]
       operationId: initDeposit
-      summary: Compute the terms of a deposit; nothing is written
+      summary: Compute the terms of a deposit and issue a signed offerToken valid for 5 minutes; nothing is written
       security:
         - bearerAuth: []
       requestBody:
@@ -380,8 +380,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/TransactionNotFound"
-        "409":
-          $ref: "#/components/responses/RequestIdConflict"
         "500":
           $ref: "#/components/responses/InternalServerError"
         "503":
@@ -391,7 +389,7 @@ paths:
     post:
       tags: [transactions]
       operationId: initWithdrawal
-      summary: Compute the terms of a withdrawal; nothing is written
+      summary: Compute the terms of a withdrawal and issue a signed offerToken valid for 5 minutes; nothing is written
       security:
         - bearerAuth: []
       requestBody:
@@ -436,8 +434,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/TransactionNotFound"
-        "409":
-          $ref: "#/components/responses/RequestIdConflict"
         "500":
           $ref: "#/components/responses/InternalServerError"
         "503":
@@ -447,7 +443,7 @@ paths:
     post:
       tags: [transactions]
       operationId: initTransfer
-      summary: Compute the terms of a transfer between two wallets of the current user; nothing is written
+      summary: Compute the terms of a transfer between two wallets of the current user and issue a signed offerToken valid for 5 minutes; nothing is written
       security:
         - bearerAuth: []
       requestBody:
@@ -492,8 +488,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/TransactionNotFound"
-        "409":
-          $ref: "#/components/responses/RequestIdConflict"
         "500":
           $ref: "#/components/responses/InternalServerError"
         "503":
@@ -871,7 +865,7 @@ components:
 
     TransactionInitResponse:
       type: object
-      required: [amount, fee, total, requestId]
+      required: [amount, fee, total, expiresAt, offerToken]
       properties:
         amount:
           type: number
@@ -882,62 +876,36 @@ components:
         total:
           type: number
           example: 101.00
-        requestId:
+        expiresAt:
           type: string
-          format: uuid
-          description: Send it back in confirm; a repeated confirm with it never charges twice
+          format: date-time
+          example: "2026-10-29T12:05:00Z"
+        offerToken:
+          type: string
 
     DepositConfirmRequest:
       type: object
-      required: [requestId, walletUid, amount]
+      required: [offerToken]
       properties:
-        requestId:
+        offerToken:
           type: string
-          format: uuid
-        walletUid:
-          type: string
-          format: uuid
-        amount:
-          type: number
-          minimum: 0
-          exclusiveMinimum: true
-          example: 100.00
+          minLength: 1
 
     WithdrawalConfirmRequest:
       type: object
-      required: [requestId, walletUid, amount]
+      required: [offerToken]
       properties:
-        requestId:
+        offerToken:
           type: string
-          format: uuid
-        walletUid:
-          type: string
-          format: uuid
-        amount:
-          type: number
-          minimum: 0
-          exclusiveMinimum: true
-          example: 50.00
+          minLength: 1
 
     TransferConfirmRequest:
       type: object
-      description: The two wallets must differ
-      required: [requestId, walletUid, targetWalletUid, amount]
+      required: [offerToken]
       properties:
-        requestId:
+        offerToken:
           type: string
-          format: uuid
-        walletUid:
-          type: string
-          format: uuid
-        targetWalletUid:
-          type: string
-          format: uuid
-        amount:
-          type: number
-          minimum: 0
-          exclusiveMinimum: true
-          example: 25.00
+          minLength: 1
 
     TransactionConfirmResponse:
       type: object
@@ -1149,7 +1117,7 @@ components:
           schema:
             $ref: "#/components/schemas/TransactionInitResponse"
     Confirmed:
-      description: Transaction confirmed; a repeated confirm with the same requestId answers the same transaction
+      description: Transaction confirmed; a repeated confirm with the same offerToken returns the same transaction
       content:
         application/json:
           schema:
@@ -1192,6 +1160,26 @@ components:
                 status: 400
                 error: CURRENCY_MISMATCH
                 message: The wallets have different currencies
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+            offerTokenInvalid:
+              summary: The offerToken is forged, of another user or of another operation
+              value:
+                timestamp: "2026-10-29T12:34:56Z"
+                path: /api/v1/transactions/withdrawal/confirm
+                status: 400
+                error: OFFER_TOKEN_INVALID
+                message: The offer token is invalid
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+            offerExpired:
+              summary: The offer was not confirmed within 5 minutes; call init again
+              value:
+                timestamp: "2026-10-29T12:34:56Z"
+                path: /api/v1/transactions/withdrawal/confirm
+                status: 400
+                error: OFFER_EXPIRED
+                message: The offer token is expired
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
                 details: []
             walletNotActive:
@@ -1250,26 +1238,10 @@ components:
                 message: Transaction not found
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
                 details: []
-    RequestIdConflict:
-      description: The requestId was already used for another operation
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-          examples:
-            conflict:
-              value:
-                timestamp: "2026-10-26T12:34:56Z"
-                path: /api/v1/transactions/withdrawal/confirm
-                status: 409
-                error: REQUEST_ID_CONFLICT
-                message: requestId already used for another operation
-                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
-                details: []
     ConfirmUnavailable:
       description: |
         transaction-service did not answer. The operation may already be
-        committed: repeat the confirm with the same requestId, or check the
+        committed: repeat the confirm with the same offerToken, or check the
         transaction's status; it is never charged twice.
       content:
         application/json:

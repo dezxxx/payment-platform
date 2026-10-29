@@ -24,11 +24,11 @@
     { "key": "tries", "value": "0", "description": "Counter of the status polling while a transaction is PENDING." },
     { "key": "ivanMainWallet", "value": "" },
     { "key": "ivanSavingsWallet", "value": "" },
-    { "key": "ivanDepositRequestId", "value": "" },
+    { "key": "ivanDepositOfferToken", "value": "" },
     { "key": "ivanDepositId", "value": "" },
-    { "key": "ivanWithdrawalRequestId", "value": "" },
+    { "key": "ivanWithdrawalOfferToken", "value": "" },
     { "key": "ivanWithdrawalId", "value": "" },
-    { "key": "ivanTransferRequestId", "value": "" },
+    { "key": "ivanTransferOfferToken", "value": "" },
     { "key": "ivanTransferId", "value": "" }
   ],
   "item": [
@@ -805,7 +805,12 @@
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const t = pm.response.json();",
                   "pm.test('fee 0, total = amount', () => { pm.expect(t.amount).to.eql(1000); pm.expect(t.fee).to.eql(0); pm.expect(t.total).to.eql(1000); });",
-                  "pm.collectionVariables.set('ivanDepositRequestId', t.requestId);"
+                  "pm.collectionVariables.set('ivanDepositOfferToken', t.offerToken);",
+                  "pm.test('an offerToken for confirm, valid for 5 minutes', () => {",
+                  "  pm.expect(t.offerToken).to.match(/^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/);",
+                  "  const left = (new Date(t.expiresAt) - Date.now()) / 1000;",
+                  "  pm.expect(left).to.be.within(240, 301);",
+                  "});"
                 ]
               }
             }
@@ -884,7 +889,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{ivanDepositRequestId}}\",\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 1000\n}"
+              "raw": "{\n  \"offerToken\": \"{{ivanDepositOfferToken}}\"\n}"
             }
           }
         },
@@ -990,7 +995,7 @@
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const t = pm.response.json();",
                   "pm.test('fee 1.00, total 101.00', () => { pm.expect(t.fee).to.eql(1); pm.expect(t.total).to.eql(101); });",
-                  "pm.collectionVariables.set('ivanWithdrawalRequestId', t.requestId);"
+                  "pm.collectionVariables.set('ivanWithdrawalOfferToken', t.offerToken);"
                 ]
               }
             }
@@ -1067,7 +1072,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{ivanWithdrawalRequestId}}\",\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 100\n}"
+              "raw": "{\n  \"offerToken\": \"{{ivanWithdrawalOfferToken}}\"\n}"
             }
           }
         },
@@ -1173,7 +1178,7 @@
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const t = pm.response.json();",
                   "pm.test('fee 1.00, total 201.00', () => { pm.expect(t.fee).to.eql(1); pm.expect(t.total).to.eql(201); });",
-                  "pm.collectionVariables.set('ivanTransferRequestId', t.requestId);"
+                  "pm.collectionVariables.set('ivanTransferOfferToken', t.offerToken);"
                 ]
               }
             }
@@ -1252,12 +1257,12 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{ivanTransferRequestId}}\",\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"targetWalletUid\": \"{{ivanSavingsWallet}}\",\n  \"amount\": 200\n}"
+              "raw": "{\n  \"offerToken\": \"{{ivanTransferOfferToken}}\"\n}"
             }
           }
         },
         {
-          "name": "Ivan - transfer confirm again, the same requestId: the same transaction, no second charge",
+          "name": "Ivan - transfer confirm again, the same offerToken: the same transaction, no second charge",
           "event": [
             {
               "listen": "test",
@@ -1297,9 +1302,9 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{ivanTransferRequestId}}\",\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"targetWalletUid\": \"{{ivanSavingsWallet}}\",\n  \"amount\": 200\n}"
+              "raw": "{\n  \"offerToken\": \"{{ivanTransferOfferToken}}\"\n}"
             },
-            "description": "What a client does when the confirm answer was lost (503): repeat with the same requestId."
+            "description": "What a client does when the confirm answer was lost (503): repeat with the same offerToken."
           }
         },
         {
@@ -1673,6 +1678,53 @@
               "raw": "{\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 10\n}"
             }
           }
+        },
+        {
+          "name": "Anna - confirm Ivan's deposit offerToken (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
+                  "pm.test('OFFER_TOKEN_INVALID', () => pm.expect(body.error).to.eql('OFFER_TOKEN_INVALID'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{annaAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "deposit",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"offerToken\": \"{{ivanDepositOfferToken}}\"\n}"
+            }
+          }
         }
       ]
     },
@@ -1901,17 +1953,17 @@
           }
         },
         {
-          "name": "Deposit confirm - the requestId again with another amount (409)",
+          "name": "Deposit confirm - offerToken with a changed signature (400)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('409', () => pm.response.to.have.status(409));",
+                  "pm.test('400', () => pm.response.to.have.status(400));",
                   "const body = pm.response.json();",
                   "pm.test('our error shape', () => pm.expect(body).to.have.all.keys('timestamp', 'path', 'status', 'error', 'message', 'traceId', 'details'));",
-                  "pm.test('REQUEST_ID_CONFLICT', () => pm.expect(body.error).to.eql('REQUEST_ID_CONFLICT'));"
+                  "pm.test('OFFER_TOKEN_INVALID', () => pm.expect(body.error).to.eql('OFFER_TOKEN_INVALID'));"
                 ]
               }
             }
@@ -1943,7 +1995,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{ivanDepositRequestId}}\",\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"amount\": 5\n}"
+              "raw": "{\n  \"offerToken\": \"{{ivanDepositOfferToken}}x\"\n}"
             }
           }
         },

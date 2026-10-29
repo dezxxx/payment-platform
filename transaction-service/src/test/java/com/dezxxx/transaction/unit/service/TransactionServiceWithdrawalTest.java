@@ -15,6 +15,7 @@ import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
 import com.dezxxx.transaction.api.model.WithdrawalConfirmRequestDto;
 import com.dezxxx.transaction.api.model.WithdrawalInitRequestDto;
 import com.dezxxx.transaction.config.FeeProperties;
+import com.dezxxx.transaction.config.OfferTokenProperties;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionEventEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
@@ -27,10 +28,17 @@ import com.dezxxx.transaction.repository.TransactionEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
+import com.dezxxx.transaction.token.OfferTerms;
+import com.dezxxx.transaction.token.OfferTokenSigner;
 import com.dezxxx.transaction.validation.DateRangeValidator;
+import com.dezxxx.transaction.validation.OfferTokenValidator;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,10 +64,15 @@ class TransactionServiceWithdrawalTest {
 
     private static final BigDecimal AMOUNT = new BigDecimal("100.00");
 
-    // 1 % of 100.00
     private static final BigDecimal FEE = new BigDecimal("1.00");
 
     private static final BigDecimal TOTAL = new BigDecimal("101.00");
+
+    private static final String OFFER_TOKEN = "payload.signature";
+
+    private static final Instant NOW = Instant.parse("2026-10-29T12:00:00Z");
+
+    private static final Instant EXPIRES_AT = NOW.plus(Duration.ofMinutes(5));
 
     private static final FeeProperties FEES =
             new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.01"), new BigDecimal("0.005"));
@@ -85,52 +98,68 @@ class TransactionServiceWithdrawalTest {
     @Mock
     private Propagator propagator;
 
+    @Mock
+    private OfferTokenSigner offerTokenSigner;
+
+    @Mock
+    private OfferTokenValidator offerTokenValidator;
+
     private TransactionService transactionService;
 
     @BeforeEach
     void setUp() {
         transactionService = new TransactionService(transactionRepository, transactionEventRepository, walletService,
-                FEES, transactionMapper, dateRangeValidator, tracer, propagator);
+                FEES, transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner,
+                offerTokenValidator, new OfferTokenProperties("secret", Duration.ofMinutes(5)),
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
-    @DisplayName("given exactly amount + fee on the wallet, when init, then the terms with fee 1.00, nothing written")
+    @DisplayName("given exactly amount + fee on the wallet, when init, then a signed offer with fee 1.00, nothing written")
     void initsWithdrawal() {
         // given
-        when(walletService.getWalletForOperation(WALLET_UID, USER_UID)).thenReturn(wallet(TOTAL));
-        TransactionInitResponseDto terms = new TransactionInitResponseDto();
-        when(transactionMapper.toInitResponse(eq(AMOUNT), eq(FEE), any())).thenReturn(terms);
+        when(walletService.getActiveWallet(WALLET_UID, USER_UID)).thenReturn(wallet(TOTAL));
+        when(offerTokenSigner.issue(any())).thenReturn(OFFER_TOKEN);
+        TransactionInitResponseDto offer = new TransactionInitResponseDto();
+        when(transactionMapper.toInitResponse(AMOUNT, FEE, EXPIRES_AT, OFFER_TOKEN)).thenReturn(offer);
 
         // when
         TransactionInitResponseDto result = transactionService.initWithdrawal(USER_UID, initRequest());
 
         // then
-        assertThat(result).isSameAs(terms);
+        assertThat(result).isSameAs(offer);
+        ArgumentCaptor<OfferTerms> terms = ArgumentCaptor.forClass(OfferTerms.class);
+        verify(offerTokenSigner).issue(terms.capture());
+        assertThat(terms.getValue().type()).isEqualTo(TransactionPaymentType.WITHDRAWAL);
+        assertThat(terms.getValue().targetWalletUid()).isNull();
+        assertThat(terms.getValue().fee()).isEqualTo(FEE);
         verifyNoInteractions(transactionRepository, transactionEventRepository);
     }
 
     @Test
-    @DisplayName("given the amount but not the fee on the wallet, when init, then INSUFFICIENT_FUNDS and no terms")
+    @DisplayName("given the amount but not the fee on the wallet, when init, then INSUFFICIENT_FUNDS and no offer")
     void initRefusesWithoutFee() {
         // given
-        when(walletService.getWalletForOperation(WALLET_UID, USER_UID)).thenReturn(wallet(new BigDecimal("100.99")));
+        when(walletService.getActiveWallet(WALLET_UID, USER_UID)).thenReturn(wallet(new BigDecimal("100.99")));
 
         // when / then
         assertThatThrownBy(() -> transactionService.initWithdrawal(USER_UID, initRequest()))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INSUFFICIENT_FUNDS);
-        verifyNoInteractions(transactionMapper);
+        verifyNoInteractions(offerTokenSigner, transactionMapper);
     }
 
     @Test
-    @DisplayName("given a free requestId and enough funds, when confirm, then lock, debit amount + fee, fee, WithdrawalRequested, PENDING")
+    @DisplayName("given a valid offer and enough funds, when confirm, then claim with the fee, lock, debit amount + fee,"
+            + " WithdrawalRequested, PENDING")
     void confirmsWithdrawal() {
         // given
+        givenOffer(EXPIRES_AT);
         WalletEntity wallet = wallet(TOTAL);
         TransactionEventEntity event = new TransactionEventEntity();
         TransactionConfirmResponseDto answer = new TransactionConfirmResponseDto();
         givenClaimed();
-        when(walletService.getWalletForDebit(WALLET_UID, USER_UID)).thenReturn(wallet);
+        when(walletService.lockActiveWallet(WALLET_UID, USER_UID)).thenReturn(wallet);
         when(transactionMapper.toRequestedPayload(any(), eq(USER_UID), eq(wallet), eq(AMOUNT))).thenReturn("{}");
         when(transactionMapper.toTransactionEvent(any(), eq(USER_UID), eq("WithdrawalRequested"), eq("{}"), eq(null)))
                 .thenReturn(event);
@@ -142,27 +171,47 @@ class TransactionServiceWithdrawalTest {
         // then
         assertThat(result).isSameAs(answer);
         ArgumentCaptor<UUID> transactionId = ArgumentCaptor.forClass(UUID.class);
-        InOrder order = inOrder(walletService, transactionRepository, transactionEventRepository);
-        order.verify(walletService).getWalletForDebit(WALLET_UID, USER_UID);
+        InOrder order = inOrder(transactionRepository, walletService, transactionEventRepository);
+        order.verify(transactionRepository).claimWithdrawalRequestId(transactionId.capture(), eq(USER_UID),
+                eq(WALLET_UID), eq(AMOUNT), eq(FEE), eq(REQUEST_ID));
+        order.verify(walletService).lockActiveWallet(WALLET_UID, USER_UID);
         order.verify(walletService).debit(WALLET_UID, USER_UID, TOTAL);
-        order.verify(transactionRepository).updateFee(transactionId.capture(), eq(USER_UID), eq(FEE));
         order.verify(transactionEventRepository).saveAndFlush(event);
         verify(transactionMapper).toConfirmResponse(transactionId.getValue(), TransactionStatus.PENDING);
     }
 
     @Test
-    @DisplayName("given a balance spent after init, when confirm, then INSUFFICIENT_FUNDS: no debit, no fee, no event")
+    @DisplayName("given a fee changed in the settings after init, when confirm, then the fee from the token is debited")
+    void debitsFeeFromToken() {
+        // given
+        transactionService = new TransactionService(transactionRepository, transactionEventRepository, walletService,
+                new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.05"), BigDecimal.ZERO), transactionMapper,
+                dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
+                new OfferTokenProperties("secret", Duration.ofMinutes(5)), Clock.fixed(NOW, ZoneOffset.UTC));
+        givenOffer(EXPIRES_AT);
+        givenClaimed();
+        when(walletService.lockActiveWallet(WALLET_UID, USER_UID)).thenReturn(wallet(TOTAL));
+
+        // when
+        transactionService.confirmWithdrawal(USER_UID, confirmRequest());
+
+        // then
+        verify(walletService).debit(WALLET_UID, USER_UID, TOTAL);
+    }
+
+    @Test
+    @DisplayName("given a balance spent after init, when confirm, then INSUFFICIENT_FUNDS: no debit, no event")
     void confirmRefusesWithoutFunds() {
         // given
+        givenOffer(EXPIRES_AT);
         givenClaimed();
-        when(walletService.getWalletForDebit(WALLET_UID, USER_UID)).thenReturn(wallet(new BigDecimal("50.00")));
+        when(walletService.lockActiveWallet(WALLET_UID, USER_UID)).thenReturn(wallet(new BigDecimal("50.00")));
 
         // when / then
         assertThatThrownBy(() -> transactionService.confirmWithdrawal(USER_UID, confirmRequest()))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INSUFFICIENT_FUNDS);
         verify(walletService, never()).debit(any(), any(), any());
-        verify(transactionRepository, never()).updateFee(any(), any(), any());
         verifyNoInteractions(transactionEventRepository);
     }
 
@@ -170,8 +219,9 @@ class TransactionServiceWithdrawalTest {
     @DisplayName("given a claimed requestId and a wallet that is not active, when confirm, then WALLET_NOT_ACTIVE, no debit")
     void confirmRefusesInactiveWallet() {
         // given
+        givenOffer(EXPIRES_AT);
         givenClaimed();
-        when(walletService.getWalletForDebit(WALLET_UID, USER_UID))
+        when(walletService.lockActiveWallet(WALLET_UID, USER_UID))
                 .thenThrow(new TransactionServiceException(ErrorCode.WALLET_NOT_ACTIVE));
 
         // when / then
@@ -183,13 +233,27 @@ class TransactionServiceWithdrawalTest {
     }
 
     @Test
-    @DisplayName("given the requestId of the same withdrawal, when confirm repeats, then its transaction, no second debit")
+    @DisplayName("given a free requestId and an expired offer, when confirm, then OFFER_EXPIRED: no lock, no debit")
+    void refusesExpiredOffer() {
+        // given
+        givenOffer(NOW.minus(Duration.ofSeconds(1)));
+        givenClaimed();
+
+        // when / then
+        assertThatThrownBy(() -> transactionService.confirmWithdrawal(USER_UID, confirmRequest()))
+                .isInstanceOf(TransactionServiceException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.OFFER_EXPIRED);
+        verifyNoInteractions(walletService, transactionEventRepository);
+    }
+
+    @Test
+    @DisplayName("given a taken requestId, when confirm repeats, then its transaction, no second debit")
     void repeatsConfirm() {
         // given
-        when(transactionRepository.claimWithdrawalRequestId(any(), any(), any(), any(), any()))
+        givenOffer(EXPIRES_AT);
+        when(transactionRepository.claimWithdrawalRequestId(any(), any(), any(), any(), any(), any()))
                 .thenReturn(Optional.empty());
-        when(transactionRepository.findByUserUidAndRequestId(USER_UID, REQUEST_ID))
-                .thenReturn(Optional.of(existing(TransactionPaymentType.WITHDRAWAL)));
+        when(transactionRepository.findByUserUidAndRequestId(USER_UID, REQUEST_ID)).thenReturn(Optional.of(existing()));
         TransactionConfirmResponseDto answer = new TransactionConfirmResponseDto();
         when(transactionMapper.toConfirmResponse(EXISTING_UID, TransactionStatus.PENDING)).thenReturn(answer);
 
@@ -202,24 +266,28 @@ class TransactionServiceWithdrawalTest {
     }
 
     @Test
-    @DisplayName("given the requestId of a deposit, when confirm a withdrawal with it, then REQUEST_ID_CONFLICT")
-    void refusesRequestIdOfAnotherType() {
+    @DisplayName("given a token that fails the validator, when confirm, then OFFER_TOKEN_INVALID and nothing touched")
+    void refusesInvalidToken() {
         // given
-        when(transactionRepository.claimWithdrawalRequestId(any(), any(), any(), any(), any()))
-                .thenReturn(Optional.empty());
-        when(transactionRepository.findByUserUidAndRequestId(USER_UID, REQUEST_ID))
-                .thenReturn(Optional.of(existing(TransactionPaymentType.DEPOSIT)));
+        when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.WITHDRAWAL))
+                .thenThrow(new TransactionServiceException(ErrorCode.OFFER_TOKEN_INVALID));
 
         // when / then
         assertThatThrownBy(() -> transactionService.confirmWithdrawal(USER_UID, confirmRequest()))
                 .isInstanceOf(TransactionServiceException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.REQUEST_ID_CONFLICT);
-        verifyNoInteractions(walletService, transactionEventRepository);
+                .extracting("errorCode").isEqualTo(ErrorCode.OFFER_TOKEN_INVALID);
+        verifyNoInteractions(transactionRepository, walletService, transactionEventRepository);
+    }
+
+    private void givenOffer(Instant expiresAt) {
+        when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.WITHDRAWAL))
+                .thenReturn(new OfferTerms(REQUEST_ID, USER_UID, TransactionPaymentType.WITHDRAWAL, WALLET_UID, null,
+                        AMOUNT, FEE, expiresAt));
     }
 
     private void givenClaimed() {
         when(transactionRepository.claimWithdrawalRequestId(any(), eq(USER_UID), eq(WALLET_UID), eq(AMOUNT),
-                eq(REQUEST_ID))).thenAnswer(call -> Optional.of(call.getArgument(0)));
+                eq(FEE), eq(REQUEST_ID))).thenAnswer(call -> Optional.of(call.getArgument(0)));
     }
 
     private static WalletEntity wallet(BigDecimal balance) {
@@ -229,12 +297,9 @@ class TransactionServiceWithdrawalTest {
         return wallet;
     }
 
-    private static TransactionEntity existing(TransactionPaymentType type) {
+    private static TransactionEntity existing() {
         TransactionEntity transaction = new TransactionEntity();
         transaction.setUid(EXISTING_UID);
-        transaction.setType(type);
-        transaction.setWalletUid(WALLET_UID);
-        transaction.setAmount(AMOUNT);
         transaction.setStatus(TransactionStatus.PENDING);
         return transaction;
     }
@@ -244,6 +309,6 @@ class TransactionServiceWithdrawalTest {
     }
 
     private static WithdrawalConfirmRequestDto confirmRequest() {
-        return new WithdrawalConfirmRequestDto().requestId(REQUEST_ID).walletUid(WALLET_UID).amount(AMOUNT);
+        return new WithdrawalConfirmRequestDto().offerToken(OFFER_TOKEN);
     }
 }

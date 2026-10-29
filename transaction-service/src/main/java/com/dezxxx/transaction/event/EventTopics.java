@@ -1,6 +1,5 @@
 package com.dezxxx.transaction.event;
 
-// the Kafka contract next to its classes: one topic per event, the same names on both sides
 public final class EventTopics {
 
     public static final String DEPOSIT_REQUESTED = "deposit-requested";

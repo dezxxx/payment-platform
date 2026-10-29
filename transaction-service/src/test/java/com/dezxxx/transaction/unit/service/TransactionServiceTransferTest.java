@@ -15,6 +15,7 @@ import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
 import com.dezxxx.transaction.api.model.TransferConfirmRequestDto;
 import com.dezxxx.transaction.api.model.TransferInitRequestDto;
 import com.dezxxx.transaction.config.FeeProperties;
+import com.dezxxx.transaction.config.OfferTokenProperties;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
@@ -26,16 +27,24 @@ import com.dezxxx.transaction.repository.TransactionEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
+import com.dezxxx.transaction.token.OfferTerms;
+import com.dezxxx.transaction.token.OfferTokenSigner;
 import com.dezxxx.transaction.validation.DateRangeValidator;
+import com.dezxxx.transaction.validation.OfferTokenValidator;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -56,10 +65,15 @@ class TransactionServiceTransferTest {
 
     private static final BigDecimal AMOUNT = new BigDecimal("100.00");
 
-    // 0.5 % of 100.00
     private static final BigDecimal FEE = new BigDecimal("0.50");
 
     private static final BigDecimal TOTAL = new BigDecimal("100.50");
+
+    private static final String OFFER_TOKEN = "payload.signature";
+
+    private static final Instant NOW = Instant.parse("2026-10-29T12:00:00Z");
+
+    private static final Instant EXPIRES_AT = NOW.plus(Duration.ofMinutes(5));
 
     private static final FeeProperties FEES =
             new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.01"), new BigDecimal("0.005"));
@@ -85,52 +99,68 @@ class TransactionServiceTransferTest {
     @Mock
     private Propagator propagator;
 
+    @Mock
+    private OfferTokenSigner offerTokenSigner;
+
+    @Mock
+    private OfferTokenValidator offerTokenValidator;
+
     private TransactionService transactionService;
 
     @BeforeEach
     void setUp() {
         transactionService = new TransactionService(transactionRepository, transactionEventRepository, walletService,
-                FEES, transactionMapper, dateRangeValidator, tracer, propagator);
+                FEES, transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner,
+                offerTokenValidator, new OfferTokenProperties("secret", Duration.ofMinutes(5)),
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
-    @DisplayName("given exactly amount + fee on the source, when init, then the terms with fee 0.50, nothing written")
+    @DisplayName("given exactly amount + fee on the source, when init, then a signed offer for both wallets with fee 0.50,"
+            + " nothing written")
     void initsTransfer() {
         // given
-        when(walletService.getTransferSource(WALLET_UID, TARGET_UID, USER_UID)).thenReturn(wallet(TOTAL));
-        TransactionInitResponseDto terms = new TransactionInitResponseDto();
-        when(transactionMapper.toInitResponse(eq(AMOUNT), eq(FEE), any())).thenReturn(terms);
+        when(walletService.getActiveSameCurrencyWallet(WALLET_UID, TARGET_UID, USER_UID)).thenReturn(wallet(TOTAL));
+        when(offerTokenSigner.issue(any())).thenReturn(OFFER_TOKEN);
+        TransactionInitResponseDto offer = new TransactionInitResponseDto();
+        when(transactionMapper.toInitResponse(AMOUNT, FEE, EXPIRES_AT, OFFER_TOKEN)).thenReturn(offer);
 
         // when
         TransactionInitResponseDto result = transactionService.initTransfer(USER_UID, initRequest());
 
         // then
-        assertThat(result).isSameAs(terms);
+        assertThat(result).isSameAs(offer);
+        ArgumentCaptor<OfferTerms> terms = ArgumentCaptor.forClass(OfferTerms.class);
+        verify(offerTokenSigner).issue(terms.capture());
+        assertThat(terms.getValue().type()).isEqualTo(TransactionPaymentType.TRANSFER);
+        assertThat(terms.getValue().walletUid()).isEqualTo(WALLET_UID);
+        assertThat(terms.getValue().targetWalletUid()).isEqualTo(TARGET_UID);
         verifyNoInteractions(transactionRepository, transactionEventRepository);
     }
 
     @Test
-    @DisplayName("given wallets of different currencies, when init, then CURRENCY_MISMATCH and no terms")
+    @DisplayName("given wallets of different currencies, when init, then CURRENCY_MISMATCH and no offer")
     void initRefusesOtherCurrency() {
         // given
-        when(walletService.getTransferSource(WALLET_UID, TARGET_UID, USER_UID))
+        when(walletService.getActiveSameCurrencyWallet(WALLET_UID, TARGET_UID, USER_UID))
                 .thenThrow(new TransactionServiceException(ErrorCode.CURRENCY_MISMATCH));
 
         // when / then
         assertThatThrownBy(() -> transactionService.initTransfer(USER_UID, initRequest()))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.CURRENCY_MISMATCH);
-        verifyNoInteractions(transactionMapper);
+        verifyNoInteractions(offerTokenSigner, transactionMapper);
     }
 
     @Test
-    @DisplayName("given a free requestId and enough funds, when confirm, then both locked, amount + fee debited,"
-            + " amount credited, COMPLETED with the fee, no event")
+    @DisplayName("given a valid offer and enough funds, when confirm, then claim with the fee, both locked,"
+            + " amount + fee debited, amount credited, COMPLETED, no event")
     void confirmsTransfer() {
         // given
+        givenOffer(EXPIRES_AT);
         TransactionConfirmResponseDto answer = new TransactionConfirmResponseDto();
         givenClaimed();
-        when(walletService.getTransferSourceForDebit(WALLET_UID, TARGET_UID, USER_UID)).thenReturn(wallet(TOTAL));
+        when(walletService.lockActiveSameCurrencyWallets(WALLET_UID, TARGET_UID, USER_UID)).thenReturn(wallet(TOTAL));
         when(transactionMapper.toConfirmResponse(any(), eq(TransactionStatus.COMPLETED))).thenReturn(answer);
 
         // when
@@ -138,11 +168,13 @@ class TransactionServiceTransferTest {
 
         // then
         assertThat(result).isSameAs(answer);
-        InOrder order = inOrder(walletService, transactionRepository);
-        order.verify(walletService).getTransferSourceForDebit(WALLET_UID, TARGET_UID, USER_UID);
+        InOrder order = inOrder(transactionRepository, walletService);
+        order.verify(transactionRepository).claimTransferRequestId(any(), eq(USER_UID), eq(WALLET_UID),
+                eq(TARGET_UID), eq(AMOUNT), eq(FEE), eq(REQUEST_ID));
+        order.verify(walletService).lockActiveSameCurrencyWallets(WALLET_UID, TARGET_UID, USER_UID);
         order.verify(walletService).debit(WALLET_UID, USER_UID, TOTAL);
         order.verify(walletService).credit(TARGET_UID, USER_UID, AMOUNT);
-        order.verify(transactionRepository).completeTransfer(any(), eq(USER_UID), eq(FEE), any());
+        order.verify(transactionRepository).completeTransfer(any(), eq(USER_UID), any());
         verifyNoInteractions(transactionEventRepository);
     }
 
@@ -150,8 +182,9 @@ class TransactionServiceTransferTest {
     @DisplayName("given the amount but not the fee on the source, when confirm, then INSUFFICIENT_FUNDS: nothing moves")
     void confirmRefusesWithoutFee() {
         // given
+        givenOffer(EXPIRES_AT);
         givenClaimed();
-        when(walletService.getTransferSourceForDebit(WALLET_UID, TARGET_UID, USER_UID))
+        when(walletService.lockActiveSameCurrencyWallets(WALLET_UID, TARGET_UID, USER_UID))
                 .thenReturn(wallet(new BigDecimal("100.49")));
 
         // when / then
@@ -160,17 +193,32 @@ class TransactionServiceTransferTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.INSUFFICIENT_FUNDS);
         verify(walletService, never()).debit(any(), any(), any());
         verify(walletService, never()).credit(any(), any(), any());
-        verify(transactionRepository, never()).completeTransfer(any(), any(), any(), any());
+        verify(transactionRepository, never()).completeTransfer(any(), any(), any());
     }
 
     @Test
-    @DisplayName("given the requestId of the same transfer, when confirm repeats, then its transaction, no second transfer")
+    @DisplayName("given a free requestId and an expired offer, when confirm, then OFFER_EXPIRED: nothing moves")
+    void refusesExpiredOffer() {
+        // given
+        givenOffer(NOW.minus(Duration.ofSeconds(1)));
+        givenClaimed();
+
+        // when / then
+        assertThatThrownBy(() -> transactionService.confirmTransfer(USER_UID, confirmRequest()))
+                .isInstanceOf(TransactionServiceException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.OFFER_EXPIRED);
+        verifyNoInteractions(walletService);
+        verify(transactionRepository, never()).completeTransfer(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("given a taken requestId, when confirm repeats, then its transaction, no second transfer")
     void repeatsConfirm() {
         // given
-        when(transactionRepository.claimTransferRequestId(any(), any(), any(), any(), any(), any()))
+        givenOffer(EXPIRES_AT);
+        when(transactionRepository.claimTransferRequestId(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Optional.empty());
-        when(transactionRepository.findByUserUidAndRequestId(USER_UID, REQUEST_ID))
-                .thenReturn(Optional.of(existing(TARGET_UID)));
+        when(transactionRepository.findByUserUidAndRequestId(USER_UID, REQUEST_ID)).thenReturn(Optional.of(existing()));
         TransactionConfirmResponseDto answer = new TransactionConfirmResponseDto();
         when(transactionMapper.toConfirmResponse(EXISTING_UID, TransactionStatus.COMPLETED)).thenReturn(answer);
 
@@ -183,24 +231,28 @@ class TransactionServiceTransferTest {
     }
 
     @Test
-    @DisplayName("given the requestId of a transfer to another wallet, when confirm, then REQUEST_ID_CONFLICT")
-    void refusesRequestIdOfAnotherTarget() {
+    @DisplayName("given a token that fails the validator, when confirm, then OFFER_TOKEN_INVALID and nothing touched")
+    void refusesInvalidToken() {
         // given
-        when(transactionRepository.claimTransferRequestId(any(), any(), any(), any(), any(), any()))
-                .thenReturn(Optional.empty());
-        when(transactionRepository.findByUserUidAndRequestId(USER_UID, REQUEST_ID))
-                .thenReturn(Optional.of(existing(UUID.randomUUID())));
+        when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.TRANSFER))
+                .thenThrow(new TransactionServiceException(ErrorCode.OFFER_TOKEN_INVALID));
 
         // when / then
         assertThatThrownBy(() -> transactionService.confirmTransfer(USER_UID, confirmRequest()))
                 .isInstanceOf(TransactionServiceException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.REQUEST_ID_CONFLICT);
-        verifyNoInteractions(walletService);
+                .extracting("errorCode").isEqualTo(ErrorCode.OFFER_TOKEN_INVALID);
+        verifyNoInteractions(transactionRepository, walletService);
+    }
+
+    private void givenOffer(Instant expiresAt) {
+        when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.TRANSFER))
+                .thenReturn(new OfferTerms(REQUEST_ID, USER_UID, TransactionPaymentType.TRANSFER, WALLET_UID,
+                        TARGET_UID, AMOUNT, FEE, expiresAt));
     }
 
     private void givenClaimed() {
         when(transactionRepository.claimTransferRequestId(any(), eq(USER_UID), eq(WALLET_UID), eq(TARGET_UID),
-                eq(AMOUNT), eq(REQUEST_ID))).thenAnswer(call -> Optional.of(call.getArgument(0)));
+                eq(AMOUNT), eq(FEE), eq(REQUEST_ID))).thenAnswer(call -> Optional.of(call.getArgument(0)));
     }
 
     private static WalletEntity wallet(BigDecimal balance) {
@@ -210,13 +262,9 @@ class TransactionServiceTransferTest {
         return wallet;
     }
 
-    private static TransactionEntity existing(UUID targetWalletUid) {
+    private static TransactionEntity existing() {
         TransactionEntity transaction = new TransactionEntity();
         transaction.setUid(EXISTING_UID);
-        transaction.setType(TransactionPaymentType.TRANSFER);
-        transaction.setWalletUid(WALLET_UID);
-        transaction.setTargetWalletUid(targetWalletUid);
-        transaction.setAmount(AMOUNT);
         transaction.setStatus(TransactionStatus.COMPLETED);
         return transaction;
     }
@@ -226,7 +274,6 @@ class TransactionServiceTransferTest {
     }
 
     private static TransferConfirmRequestDto confirmRequest() {
-        return new TransferConfirmRequestDto().requestId(REQUEST_ID).walletUid(WALLET_UID)
-                .targetWalletUid(TARGET_UID).amount(AMOUNT);
+        return new TransferConfirmRequestDto().offerToken(OFFER_TOKEN);
     }
 }

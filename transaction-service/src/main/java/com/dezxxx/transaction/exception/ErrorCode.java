@@ -20,6 +20,10 @@ public enum ErrorCode {
 
     CURRENCY_MISMATCH(HttpStatus.BAD_REQUEST, "The wallets have different currencies"),
 
+    OFFER_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "The offer token is invalid"),
+
+    OFFER_EXPIRED(HttpStatus.BAD_REQUEST, "The offer token is expired"),
+
     WALLET_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet type not found"),
 
     WALLET_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet not found"),
@@ -27,8 +31,6 @@ public enum ErrorCode {
     TRANSACTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Transaction not found"),
 
     NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found"),
-
-    REQUEST_ID_CONFLICT(HttpStatus.CONFLICT, "requestId already used for another operation"),
 
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "HTTP method is not supported for this path"),
 

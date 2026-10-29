@@ -9,7 +9,6 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-// who sent the request: the verified token in the controller, its user_uid in the service
 public final class CurrentUser {
 
     private CurrentUser() {

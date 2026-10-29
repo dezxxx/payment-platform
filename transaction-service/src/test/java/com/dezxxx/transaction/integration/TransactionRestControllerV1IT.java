@@ -8,6 +8,8 @@ import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
 import com.dezxxx.transaction.api.model.TransactionStatusDto;
 import com.dezxxx.transaction.integration.support.IntegrationTest;
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -20,14 +22,16 @@ class TransactionRestControllerV1IT extends IntegrationTest {
     private static final BigDecimal AMOUNT = new BigDecimal("100.00");
 
     @Test
-    @DisplayName("given the user's wallet, when init, then 200 with amount, fee 0, total and a requestId, nothing written")
+    @DisplayName("given the user's wallet, when init, then 200 with amount, fee 0, total, an offerToken valid for"
+            + " 5 minutes, nothing written")
     void initsDeposit() {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
+        Instant before = Instant.now();
 
         // when
-        TransactionInitResponseDto terms = post(user, "/api/v1/transactions/deposit/init",
+        TransactionInitResponseDto offer = post(user, "/api/v1/transactions/deposit/init",
                 new DepositInitRequestDto().walletUid(wallet).amount(AMOUNT))
                 .expectStatus().isOk()
                 .expectBody(TransactionInitResponseDto.class)
@@ -35,10 +39,12 @@ class TransactionRestControllerV1IT extends IntegrationTest {
                 .getResponseBody();
 
         // then
-        assertThat(terms.getAmount()).isEqualByComparingTo("100.00");
-        assertThat(terms.getFee()).isEqualByComparingTo("0");
-        assertThat(terms.getTotal()).isEqualByComparingTo("100.00");
-        assertThat(terms.getRequestId()).isNotNull();
+        assertThat(offer.getAmount()).isEqualByComparingTo("100.00");
+        assertThat(offer.getFee()).isEqualByComparingTo("0");
+        assertThat(offer.getTotal()).isEqualByComparingTo("100.00");
+        assertThat(offer.getOfferToken()).contains(".");
+        assertThat(offer.getExpiresAt().toInstant())
+                .isBetween(before.plus(Duration.ofMinutes(5)), Instant.now().plus(Duration.ofMinutes(5)));
         assertThat(transactions(user)).isZero();
     }
 
@@ -69,30 +75,29 @@ class TransactionRestControllerV1IT extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("given a zero amount, when confirm, then 400 VALIDATION_ERROR and nothing written")
-    void confirmRefusesZeroAmount() {
+    @DisplayName("given an empty offerToken, when confirm, then 400 VALIDATION_ERROR and nothing written")
+    void confirmRefusesEmptyToken() {
         // given
         UUID user = UUID.randomUUID();
-        UUID wallet = createWallet(user);
 
         // when / then
-        confirm(user, UUID.randomUUID(), wallet, BigDecimal.ZERO)
+        confirmDeposit(user, "")
                 .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.error").isEqualTo("VALIDATION_ERROR");
+                .jsonPath("$.error").isEqualTo("VALIDATION_ERROR")
+                .jsonPath("$.details[0]").value(detail -> assertThat((String) detail).startsWith("offerToken:"));
         assertThat(transactions(user)).isZero();
     }
 
     @Test
-    @DisplayName("given the terms, when confirm, then 200 PENDING, the transaction and its DepositRequested in one shard")
+    @DisplayName("given the offer, when confirm, then 200 PENDING, the transaction and its DepositRequested in one shard")
     void confirmsDeposit() {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
-        UUID requestId = UUID.randomUUID();
 
         // when
-        TransactionConfirmResponseDto confirmed = confirmed(user, requestId, wallet, AMOUNT);
+        TransactionConfirmResponseDto confirmed = confirmed(user, wallet, AMOUNT);
 
         // then
         assertThat(confirmed.getStatus()).isEqualTo(TransactionStatusDto.PENDING);
@@ -100,7 +105,8 @@ class TransactionRestControllerV1IT extends IntegrationTest {
                 "SELECT type::text AS type, status, wallet_uid, amount, fee, request_id FROM transactions"
                         + " WHERE uid = ? AND user_uid = ?", confirmed.getTransactionId(), user);
         assertThat(transaction).containsEntry("type", "DEPOSIT").containsEntry("status", "PENDING")
-                .containsEntry("wallet_uid", wallet).containsEntry("request_id", requestId);
+                .containsEntry("wallet_uid", wallet);
+        assertThat(transaction.get("request_id")).isNotNull();
         assertThat((BigDecimal) transaction.get("amount")).isEqualByComparingTo("100.00");
         assertThat((BigDecimal) transaction.get("fee")).isEqualByComparingTo("0");
 
@@ -120,16 +126,16 @@ class TransactionRestControllerV1IT extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("given a confirmed deposit, when confirm repeats with the same requestId, then 200 with the same transaction, nothing new")
+    @DisplayName("given a confirmed deposit, when confirm repeats with the same offerToken, then 200 with the same"
+            + " transaction, nothing new")
     void repeatedConfirmReturnsSameTransaction() {
         // given
         UUID user = UUID.randomUUID();
-        UUID wallet = createWallet(user);
-        UUID requestId = UUID.randomUUID();
-        TransactionConfirmResponseDto first = confirmed(user, requestId, wallet, AMOUNT);
+        String offerToken = depositOffer(user, createWallet(user), AMOUNT);
+        TransactionConfirmResponseDto first = ok(confirmDeposit(user, offerToken));
 
         // when
-        TransactionConfirmResponseDto second = confirmed(user, requestId, wallet, new BigDecimal("100"));
+        TransactionConfirmResponseDto second = ok(confirmDeposit(user, offerToken));
 
         // then
         assertThat(second).isEqualTo(first);
@@ -138,39 +144,54 @@ class TransactionRestControllerV1IT extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("given a confirmed deposit, when its requestId comes with another amount, then 409 REQUEST_ID_CONFLICT")
-    void confirmRefusesReusedRequestId() {
+    @DisplayName("given the payload of one offer with the signature of another, when confirm, then 400"
+            + " OFFER_TOKEN_INVALID and nothing written")
+    void confirmRefusesForgedToken() {
         // given
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
-        UUID requestId = UUID.randomUUID();
-        confirmed(user, requestId, wallet, AMOUNT);
+        String small = depositOffer(user, wallet, new BigDecimal("1.00"));
+        String large = depositOffer(user, wallet, AMOUNT);
+        String forged = large.substring(0, large.indexOf('.')) + small.substring(small.indexOf('.'));
 
         // when / then
-        confirm(user, requestId, wallet, new BigDecimal("200.00"))
-                .expectStatus().isEqualTo(409)
+        confirmDeposit(user, forged)
+                .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.error").isEqualTo("REQUEST_ID_CONFLICT");
-        assertThat(transactions(user)).isEqualTo(1);
+                .jsonPath("$.error").isEqualTo("OFFER_TOKEN_INVALID");
+        assertThat(transactions(user)).isZero();
     }
 
     @Test
-    @DisplayName("given an unknown wallet, when confirm, then 404, nothing written and the requestId stays free")
-    void confirmRollsBackUnknownWallet() {
+    @DisplayName("given another user's offerToken, when confirm, then 400 OFFER_TOKEN_INVALID and nothing written")
+    void confirmRefusesForeignToken() {
+        // given
+        UUID owner = UUID.randomUUID();
+        UUID stranger = UUID.randomUUID();
+        String offerToken = depositOffer(owner, createWallet(owner), AMOUNT);
+
+        // when / then
+        confirmDeposit(stranger, offerToken)
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("OFFER_TOKEN_INVALID");
+        assertThat(transactions(owner)).isZero();
+        assertThat(transactions(stranger)).isZero();
+    }
+
+    @Test
+    @DisplayName("given a deposit offerToken, when sent to the withdrawal confirm, then 400 OFFER_TOKEN_INVALID")
+    void confirmRefusesTokenOfOtherType() {
         // given
         UUID user = UUID.randomUUID();
-        UUID wallet = createWallet(user);
-        UUID requestId = UUID.randomUUID();
+        String offerToken = depositOffer(user, createWallet(user), AMOUNT);
 
-        // when
-        confirm(user, requestId, UUID.randomUUID(), AMOUNT)
-                .expectStatus().isNotFound()
+        // when / then
+        confirmWithdrawal(user, offerToken)
+                .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.error").isEqualTo("WALLET_NOT_FOUND");
-
-        // then
+                .jsonPath("$.error").isEqualTo("OFFER_TOKEN_INVALID");
         assertThat(transactions(user)).isZero();
-        assertThat(confirmed(user, requestId, wallet, AMOUNT).getStatus()).isEqualTo(TransactionStatusDto.PENDING);
     }
 
     private static int rows(JdbcTemplate shard, UUID user) {

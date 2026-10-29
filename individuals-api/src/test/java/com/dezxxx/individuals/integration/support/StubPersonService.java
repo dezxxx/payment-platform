@@ -17,7 +17,6 @@ import reactor.netty.http.server.HttpServerRequest;
 import reactor.netty.http.server.HttpServerResponse;
 import reactor.netty.http.server.HttpServer;
 
-// keeps the last created individual's user, so /me can read it back and PATCH can change it
 public final class StubPersonService {
 
     private static final String INDIVIDUALS_PATH = "/api/v1/individuals";

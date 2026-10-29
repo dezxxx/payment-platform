@@ -12,7 +12,6 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-// the user is always the token's, never one the client names
 @Slf4j
 @Service
 @RequiredArgsConstructor

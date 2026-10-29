@@ -16,8 +16,6 @@ import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.util.backoff.FixedBackOff;
 
-// the topics of the Kafka contract, and what happens to a message the consumer cannot process.
-// Scheduling is on for TransactionKafkaProducer and TransactionMetrics
 @Configuration
 @EnableScheduling
 @EnableConfigurationProperties(KafkaEventProperties.class)

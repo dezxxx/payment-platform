@@ -1,20 +1,11 @@
 package com.dezxxx.transaction.service;
 
-import com.dezxxx.transaction.api.model.DepositConfirmRequestDto;
-import com.dezxxx.transaction.api.model.DepositInitRequestDto;
-import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
-import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
-import com.dezxxx.transaction.api.model.TransactionStatusDto;
-import com.dezxxx.transaction.api.model.TransactionStatusResponseDto;
-import com.dezxxx.transaction.api.model.TransactionTypeDto;
-import com.dezxxx.transaction.api.model.TransferConfirmRequestDto;
-import com.dezxxx.transaction.api.model.TransferInitRequestDto;
-import com.dezxxx.transaction.api.model.WithdrawalConfirmRequestDto;
-import com.dezxxx.transaction.api.model.WithdrawalInitRequestDto;
+import com.dezxxx.transaction.api.model.*;
 import com.dezxxx.transaction.config.FeeProperties;
-import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
+import com.dezxxx.transaction.config.OfferTokenProperties;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionEventType;
+import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
@@ -23,20 +14,14 @@ import com.dezxxx.transaction.mapper.TransactionMapper;
 import com.dezxxx.transaction.repository.TransactionEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.repository.TransactionSpecifications;
+import com.dezxxx.transaction.token.OfferTerms;
+import com.dezxxx.transaction.token.OfferTokenSigner;
 import com.dezxxx.transaction.validation.DateRangeValidator;
+import com.dezxxx.transaction.validation.OfferTokenValidator;
 import io.micrometer.observation.annotation.Observed;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -45,6 +30,16 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -70,35 +65,35 @@ public class TransactionService {
     private final DateRangeValidator dateRangeValidator;
     private final Tracer tracer;
     private final Propagator propagator;
+    private final OfferTokenSigner offerTokenSigner;
+    private final OfferTokenValidator offerTokenValidator;
+    private final OfferTokenProperties offerTokenProperties;
+    private final Clock clock;
 
     @Observed(name = OPERATIONS, contextualName = "transactionService.initDeposit", lowCardinalityKeyValues = {"operation", "initDeposit"})
     public TransactionInitResponseDto initDeposit(UUID userUid, DepositInitRequestDto request) {
-        walletService.getWalletForOperation(request.getWalletUid(), userUid);
+        walletService.getActiveWallet(request.getWalletUid(), userUid);
         BigDecimal fee = fee(TransactionPaymentType.DEPOSIT, request.getAmount());
-
-        // nothing is stored: confirm checks everything again
-        UUID requestId = UUID.randomUUID();
-        log.info("Deposit terms for wallet {} of user {}: requestId {}", request.getWalletUid(), userUid, requestId);
-        return transactionMapper.toInitResponse(request.getAmount(), fee, requestId);
+        return issueOffer(userUid, TransactionPaymentType.DEPOSIT, request.getWalletUid(), request.getAmount(), fee);
     }
 
     @Transactional
     @Observed(name = OPERATIONS, contextualName = "transactionService.confirmDeposit", lowCardinalityKeyValues = {"operation", "confirmDeposit"})
     public TransactionConfirmResponseDto confirmDeposit(UUID userUid, DepositConfirmRequestDto request) {
+        OfferTerms terms = offerTokenValidator.validate(request.getOfferToken(), userUid,
+                TransactionPaymentType.DEPOSIT);
         UUID transactionId = UUID.randomUUID();
-        boolean claimed = transactionRepository.claimDepositRequestId(transactionId, userUid, request.getWalletUid(),
-                request.getAmount(), request.getRequestId()).isPresent();
+        boolean claimed = transactionRepository.claimDepositRequestId(transactionId, userUid, terms.walletUid(),
+                terms.amount(), terms.fee(), terms.requestId()).isPresent();
         if (!claimed) {
-            return repeatedConfirm(userUid, request.getRequestId(), TransactionPaymentType.DEPOSIT,
-                    request.getWalletUid(), request.getAmount());
+            return repeatedConfirm(userUid, terms.requestId());
         }
 
         // an exception from here on rolls back the claim: the requestId is free again
-        WalletEntity wallet = walletService.getWalletForOperation(request.getWalletUid(), userUid);
-        BigDecimal fee = fee(TransactionPaymentType.DEPOSIT, request.getAmount());
-        transactionRepository.updateFee(transactionId, userUid, fee);
+        requireNotExpired(terms);
+        WalletEntity wallet = walletService.getActiveWallet(terms.walletUid(), userUid);
         saveEvent(transactionId, userUid, TransactionEventType.DEPOSIT_REQUESTED,
-                transactionMapper.toRequestedPayload(transactionId, userUid, wallet, request.getAmount()));
+                transactionMapper.toRequestedPayload(transactionId, userUid, wallet, terms.amount()));
 
         log.info("Deposit {} of user {} is PENDING", transactionId, userUid);
         return transactionMapper.toConfirmResponse(transactionId, TransactionStatus.PENDING);
@@ -106,37 +101,32 @@ public class TransactionService {
 
     @Observed(name = OPERATIONS, contextualName = "transactionService.initWithdrawal", lowCardinalityKeyValues = {"operation", "initWithdrawal"})
     public TransactionInitResponseDto initWithdrawal(UUID userUid, WithdrawalInitRequestDto request) {
-        WalletEntity wallet = walletService.getWalletForOperation(request.getWalletUid(), userUid);
+        WalletEntity wallet = walletService.getActiveWallet(request.getWalletUid(), userUid);
         BigDecimal fee = fee(TransactionPaymentType.WITHDRAWAL, request.getAmount());
         requireFunds(wallet, request.getAmount().add(fee));
-
-        // nothing is stored: confirm checks everything again
-        UUID requestId = UUID.randomUUID();
-        log.info("Withdrawal terms for wallet {} of user {}: requestId {}", request.getWalletUid(), userUid, requestId);
-        return transactionMapper.toInitResponse(request.getAmount(), fee, requestId);
+        return issueOffer(userUid, TransactionPaymentType.WITHDRAWAL, request.getWalletUid(), request.getAmount(), fee);
     }
 
-    // the debit is a reserve: the provider's answer completes it, or a failure returns it
     @Transactional
     @Observed(name = OPERATIONS, contextualName = "transactionService.confirmWithdrawal", lowCardinalityKeyValues = {"operation", "confirmWithdrawal"})
     public TransactionConfirmResponseDto confirmWithdrawal(UUID userUid, WithdrawalConfirmRequestDto request) {
+        OfferTerms terms = offerTokenValidator.validate(request.getOfferToken(), userUid,
+                TransactionPaymentType.WITHDRAWAL);
         UUID transactionId = UUID.randomUUID();
         boolean claimed = transactionRepository.claimWithdrawalRequestId(transactionId, userUid,
-                request.getWalletUid(), request.getAmount(), request.getRequestId()).isPresent();
+                terms.walletUid(), terms.amount(), terms.fee(), terms.requestId()).isPresent();
         if (!claimed) {
-            return repeatedConfirm(userUid, request.getRequestId(), TransactionPaymentType.WITHDRAWAL,
-                    request.getWalletUid(), request.getAmount());
+            return repeatedConfirm(userUid, terms.requestId());
         }
 
         // an exception from here on rolls back the claim and the debit: the requestId is free again
-        WalletEntity wallet = walletService.getWalletForDebit(request.getWalletUid(), userUid);
-        BigDecimal fee = fee(TransactionPaymentType.WITHDRAWAL, request.getAmount());
-        BigDecimal total = request.getAmount().add(fee);
+        requireNotExpired(terms);
+        WalletEntity wallet = walletService.lockActiveWallet(terms.walletUid(), userUid);
+        BigDecimal total = terms.amount().add(terms.fee());
         requireFunds(wallet, total);
-        walletService.debit(request.getWalletUid(), userUid, total);
-        transactionRepository.updateFee(transactionId, userUid, fee);
+        walletService.debit(terms.walletUid(), userUid, total);
         saveEvent(transactionId, userUid, TransactionEventType.WITHDRAWAL_REQUESTED,
-                transactionMapper.toRequestedPayload(transactionId, userUid, wallet, request.getAmount()));
+                transactionMapper.toRequestedPayload(transactionId, userUid, wallet, terms.amount()));
 
         log.info("Withdrawal {} of user {} is PENDING, {} reserved", transactionId, userUid, total);
         return transactionMapper.toConfirmResponse(transactionId, TransactionStatus.PENDING);
@@ -144,46 +134,41 @@ public class TransactionService {
 
     @Observed(name = OPERATIONS, contextualName = "transactionService.initTransfer", lowCardinalityKeyValues = {"operation", "initTransfer"})
     public TransactionInitResponseDto initTransfer(UUID userUid, TransferInitRequestDto request) {
-        WalletEntity source = walletService.getTransferSource(request.getWalletUid(), request.getTargetWalletUid(),
-                userUid);
+        WalletEntity source = walletService.getActiveSameCurrencyWallet(request.getWalletUid(),
+                request.getTargetWalletUid(), userUid);
         BigDecimal fee = fee(TransactionPaymentType.TRANSFER, request.getAmount());
         requireFunds(source, request.getAmount().add(fee));
-
-        // nothing is stored: confirm checks everything again
-        UUID requestId = UUID.randomUUID();
-        log.info("Transfer terms from wallet {} to wallet {} of user {}: requestId {}", request.getWalletUid(),
-                request.getTargetWalletUid(), userUid, requestId);
-        return transactionMapper.toInitResponse(request.getAmount(), fee, requestId);
+        return issueOffer(userUid, TransactionPaymentType.TRANSFER, request.getWalletUid(),
+                request.getTargetWalletUid(), request.getAmount(), fee);
     }
 
-    // no provider and no Kafka: both wallets are in the user's shard, the whole transfer is one database transaction
     @Transactional
     @Observed(name = OPERATIONS, contextualName = "transactionService.confirmTransfer", lowCardinalityKeyValues = {"operation", "confirmTransfer"})
     public TransactionConfirmResponseDto confirmTransfer(UUID userUid, TransferConfirmRequestDto request) {
+        OfferTerms terms = offerTokenValidator.validate(request.getOfferToken(), userUid,
+                TransactionPaymentType.TRANSFER);
         UUID transactionId = UUID.randomUUID();
-        boolean claimed = transactionRepository.claimTransferRequestId(transactionId, userUid, request.getWalletUid(),
-                request.getTargetWalletUid(), request.getAmount(), request.getRequestId()).isPresent();
+        boolean claimed = transactionRepository.claimTransferRequestId(transactionId, userUid, terms.walletUid(),
+                terms.targetWalletUid(), terms.amount(), terms.fee(), terms.requestId()).isPresent();
         if (!claimed) {
-            return repeatedConfirm(userUid, request.getRequestId(), TransactionPaymentType.TRANSFER,
-                    request.getWalletUid(), request.getTargetWalletUid(), request.getAmount());
+            return repeatedConfirm(userUid, terms.requestId());
         }
 
         // an exception from here on rolls back the claim, the debit and the credit: the requestId is free again
-        WalletEntity source = walletService.getTransferSourceForDebit(request.getWalletUid(),
-                request.getTargetWalletUid(), userUid);
-        BigDecimal fee = fee(TransactionPaymentType.TRANSFER, request.getAmount());
-        BigDecimal total = request.getAmount().add(fee);
+        requireNotExpired(terms);
+        WalletEntity source = walletService.lockActiveSameCurrencyWallets(terms.walletUid(),
+                terms.targetWalletUid(), userUid);
+        BigDecimal total = terms.amount().add(terms.fee());
         requireFunds(source, total);
-        walletService.debit(request.getWalletUid(), userUid, total);
-        walletService.credit(request.getTargetWalletUid(), userUid, request.getAmount());
-        transactionRepository.completeTransfer(transactionId, userUid, fee, Instant.now());
+        walletService.debit(terms.walletUid(), userUid, total);
+        walletService.credit(terms.targetWalletUid(), userUid, terms.amount());
+        transactionRepository.completeTransfer(transactionId, userUid, Instant.now());
 
         log.info("Transfer {} of user {} is COMPLETED: {} from wallet {} to wallet {}, fee {}", transactionId,
-                userUid, request.getAmount(), request.getWalletUid(), request.getTargetWalletUid(), fee);
+                userUid, terms.amount(), terms.walletUid(), terms.targetWalletUid(), terms.fee());
         return transactionMapper.toConfirmResponse(transactionId, TransactionStatus.COMPLETED);
     }
 
-    // user_uid in the condition: one shard, and another user's transaction is simply not found
     @Observed(name = OPERATIONS, contextualName = "transactionService.getStatus", lowCardinalityKeyValues = {"operation", "getStatus"})
     public TransactionStatusResponseDto getTransactionStatus(UUID userUid, UUID transactionId) {
         TransactionEntity transaction = transactionRepository.findByUidAndUserUid(transactionId, userUid)
@@ -192,7 +177,6 @@ public class TransactionService {
         return transactionMapper.toStatusResponse(transaction);
     }
 
-    // only the filters given become conditions; a slice reads one page without counting all the rows
     @Observed(name = OPERATIONS, contextualName = "transactionService.search", lowCardinalityKeyValues = {"operation", "search"})
     public List<TransactionStatusResponseDto> searchTransactions(UUID userUid, UUID walletUid, TransactionTypeDto type,
                                                                  TransactionStatusDto status, OffsetDateTime dateFrom,
@@ -212,7 +196,6 @@ public class TransactionService {
     }
 
     // the provider's answer: the status changes only from PENDING, so a repeated message moves no money twice.
-    // An exception rolls everything back and the consumer retries, then sends the message to the DLT
     @Transactional
     @Observed(name = OPERATIONS, contextualName = "transactionService.finalize", lowCardinalityKeyValues = {"operation", "finalize"})
     public void finalizeTransaction(UUID transactionId, UUID userUid, TransactionStatus outcome,
@@ -230,7 +213,6 @@ public class TransactionService {
         log.info("Transaction {} of user {} is {}", transactionId, userUid, outcome);
     }
 
-    // a completed deposit credits the amount; a failed withdrawal returns what was debited
     private void moveMoney(TransactionEntity transaction, TransactionStatus outcome) {
         TransactionPaymentType type = transaction.getType();
         if (type == TransactionPaymentType.DEPOSIT && outcome == TransactionStatus.COMPLETED) {
@@ -241,31 +223,13 @@ public class TransactionService {
         }
     }
 
-    // the same request again answers with its transaction; another operation under the requestId is a conflict
-    private TransactionConfirmResponseDto repeatedConfirm(UUID userUid, UUID requestId,
-                                                          TransactionPaymentType type, UUID walletUid,
-                                                          BigDecimal amount) {
-        return repeatedConfirm(userUid, requestId, type, walletUid, null, amount);
-    }
-
-    // targetWalletUid is null for a deposit and a withdrawal
-    private TransactionConfirmResponseDto repeatedConfirm(UUID userUid, UUID requestId,
-                                                          TransactionPaymentType type, UUID walletUid,
-                                                          UUID targetWalletUid, BigDecimal amount) {
+    private TransactionConfirmResponseDto repeatedConfirm(UUID userUid, UUID requestId) {
         TransactionEntity existing = transactionRepository.findByUserUidAndRequestId(userUid, requestId)
                 .orElseThrow(() -> new IllegalStateException("requestId " + requestId + " is taken but not found"));
-        boolean sameRequest = existing.getType() == type
-                && existing.getWalletUid().equals(walletUid)
-                && Objects.equals(existing.getTargetWalletUid(), targetWalletUid)
-                && existing.getAmount().compareTo(amount) == 0;
-        if (!sameRequest) {
-            throw new TransactionServiceException(ErrorCode.REQUEST_ID_CONFLICT);
-        }
         log.info("Repeated confirm of transaction {} of user {}", existing.getUid(), userUid);
         return transactionMapper.toConfirmResponse(existing.getUid(), existing.getStatus());
     }
 
-    // a share of the amount from transaction.fee, rounded to cents
     private BigDecimal fee(TransactionPaymentType type, BigDecimal amount) {
         BigDecimal rate = switch (type) {
             case DEPOSIT -> feeProperties.deposit();
@@ -275,11 +239,32 @@ public class TransactionService {
         return amount.multiply(rate).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
     }
 
-    // amount + fee, the init terms and the confirm debit alike
     private void requireFunds(WalletEntity wallet, BigDecimal total) {
         if (wallet.getBalance().compareTo(total) < 0) {
             throw new TransactionServiceException(ErrorCode.INSUFFICIENT_FUNDS);
         }
+    }
+
+    private void requireNotExpired(OfferTerms terms) {
+        if (terms.expiresAt().isBefore(Instant.now(clock))) {
+            throw new TransactionServiceException(ErrorCode.OFFER_EXPIRED);
+        }
+    }
+
+    private TransactionInitResponseDto issueOffer(UUID userUid, TransactionPaymentType type, UUID walletUid,
+                                                  BigDecimal amount, BigDecimal fee) {
+        return issueOffer(userUid, type, walletUid, null, amount, fee);
+    }
+
+    private TransactionInitResponseDto issueOffer(UUID userUid, TransactionPaymentType type, UUID walletUid,
+                                                  UUID targetWalletUid, BigDecimal amount, BigDecimal fee) {
+        Instant expiresAt = Instant.now(clock).plus(offerTokenProperties.ttl());
+        OfferTerms terms = new OfferTerms(UUID.randomUUID(), userUid, type, walletUid, targetWalletUid,
+                amount, fee, expiresAt);
+        String offerToken = offerTokenSigner.issue(terms);
+        log.info("{} offer for wallet {} of user {}: requestId {}, valid until {}",
+                type, walletUid, userUid, terms.requestId(), expiresAt);
+        return transactionMapper.toInitResponse(amount, fee, expiresAt, offerToken);
     }
 
     private void saveEvent(UUID transactionId, UUID userUid, String eventType, String payload) {
@@ -287,7 +272,6 @@ public class TransactionService {
                 transactionMapper.toTransactionEvent(transactionId, userUid, eventType, payload, traceparent()));
     }
 
-    // W3C trace context: the provider and the consumer continue this trace
     private String traceparent() {
         Span span = tracer.currentSpan();
         if (span == null) {
@@ -297,4 +281,5 @@ public class TransactionService {
         propagator.inject(span.context(), headers, Map::put);
         return headers.get(TRACEPARENT);
     }
+
 }

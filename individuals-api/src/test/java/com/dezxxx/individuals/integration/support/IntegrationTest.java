@@ -42,7 +42,6 @@ public abstract class IntegrationTest {
 
     protected static final StubOtlpCollector OTLP_COLLECTOR = new StubOtlpCollector();
 
-    // short, so the timeout test does not wait the real 5 s
     protected static final String TRANSACTION_SERVICE_TIMEOUT = "1s";
 
     static {

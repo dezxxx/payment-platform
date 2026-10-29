@@ -100,7 +100,6 @@ public class UserService {
         return tokenService.refresh(refreshToken);
     }
 
-    // the profile comes from person-service, its owner; the token only says who logged in and what they may do
     public Mono<CurrentUserResponseDto> currentUser(Jwt jwt) {
         return Mono.defer(() -> {
             UUID userUid = KeycloakClaims.requireUserUid(jwt);

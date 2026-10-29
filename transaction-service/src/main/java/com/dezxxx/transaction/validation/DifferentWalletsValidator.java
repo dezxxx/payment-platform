@@ -7,7 +7,6 @@ public class DifferentWalletsValidator implements ConstraintValidator<DifferentW
 
     private static final String TARGET_FIELD = "targetWalletUid";
 
-    // a missing wallet is reported by @NotNull, not here
     @Override
     public boolean isValid(TransferWallets request, ConstraintValidatorContext context) {
         if (request == null || request.getWalletUid() == null || request.getTargetWalletUid() == null) {

@@ -33,7 +33,6 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-// every call carries X-User-Uid = the token's user_uid; the bodies are the client's classes, passed as they are
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -41,17 +40,17 @@ public class TransactionClient {
 
     private static final String TRANSACTION_SERVICE = "transaction-service";
 
-    // the client's mistakes and refusals; anything else from a 4xx means we sent a wrong request
     private static final Set<ErrorCode> PASSED_THROUGH = EnumSet.of(
             ErrorCode.VALIDATION_ERROR,
             ErrorCode.INSUFFICIENT_FUNDS,
             ErrorCode.CURRENCY_MISMATCH,
+            ErrorCode.OFFER_TOKEN_INVALID,
+            ErrorCode.OFFER_EXPIRED,
             ErrorCode.WALLET_NOT_ACTIVE,
             ErrorCode.WALLET_TYPE_NOT_ACTIVE,
             ErrorCode.WALLET_NOT_FOUND,
             ErrorCode.WALLET_TYPE_NOT_FOUND,
-            ErrorCode.TRANSACTION_NOT_FOUND,
-            ErrorCode.REQUEST_ID_CONFLICT);
+            ErrorCode.TRANSACTION_NOT_FOUND);
 
     private final WalletsApi walletsApi;
     private final TransactionsApi transactionsApi;

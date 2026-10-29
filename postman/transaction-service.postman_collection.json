@@ -269,9 +269,13 @@
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const t = pm.response.json();",
-                  "pm.collectionVariables.set('depositRequestId', t.requestId);",
+                  "pm.collectionVariables.set('depositOfferToken', t.offerToken);",
                   "pm.test('fee 0, total = amount', () => { pm.expect(t.amount).to.eql(1000); pm.expect(t.fee).to.eql(0); pm.expect(t.total).to.eql(1000); });",
-                  "pm.test('a requestId for confirm', () => pm.expect(t.requestId).to.match(/^[0-9a-f-]{36}$/));"
+                  "pm.test('an offerToken for confirm, valid for 5 minutes', () => {",
+                  "  pm.expect(t.offerToken).to.match(/^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/);",
+                  "  const left = (new Date(t.expiresAt) - Date.now()) / 1000;",
+                  "  pm.expect(left).to.be.within(240, 301);",
+                  "});"
                 ]
               }
             }
@@ -326,12 +330,12 @@
             "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{depositRequestId}}\",\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 1000\n}"
+              "raw": "{\n  \"offerToken\": \"{{depositOfferToken}}\"\n}"
             }
           }
         },
         {
-          "name": "Deposit confirm again, the same requestId - the same transaction, no second deposit",
+          "name": "Deposit confirm again, the same offerToken - the same transaction, no second deposit",
           "event": [
             {
               "listen": "test",
@@ -359,7 +363,7 @@
             "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{depositRequestId}}\",\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 1000\n}"
+              "raw": "{\n  \"offerToken\": \"{{depositOfferToken}}\"\n}"
             }
           }
         },
@@ -441,7 +445,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.collectionVariables.set('declinedRequestId', pm.response.json().requestId);"
+                  "pm.collectionVariables.set('declinedOfferToken', pm.response.json().offerToken);"
                 ]
               }
             }
@@ -494,7 +498,7 @@
             "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{declinedRequestId}}\",\n  \"walletUid\": \"{{savingsWallet}}\",\n  \"amount\": 20000\n}"
+              "raw": "{\n  \"offerToken\": \"{{declinedOfferToken}}\"\n}"
             }
           }
         },
@@ -582,7 +586,7 @@
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const t = pm.response.json();",
-                  "pm.collectionVariables.set('withdrawalRequestId', t.requestId);",
+                  "pm.collectionVariables.set('withdrawalOfferToken', t.offerToken);",
                   "pm.test('fee 1.00, total 101.00', () => { pm.expect(t.fee).to.eql(1); pm.expect(t.total).to.eql(101); });"
                 ]
               }
@@ -638,7 +642,7 @@
             "url": "{{baseUrl}}/api/v1/transactions/withdrawal/confirm",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{withdrawalRequestId}}\",\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 100\n}"
+              "raw": "{\n  \"offerToken\": \"{{withdrawalOfferToken}}\"\n}"
             }
           }
         },
@@ -751,7 +755,7 @@
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const t = pm.response.json();",
-                  "pm.collectionVariables.set('transferRequestId', t.requestId);",
+                  "pm.collectionVariables.set('transferOfferToken', t.offerToken);",
                   "pm.test('fee 1.00, total 201.00', () => { pm.expect(t.fee).to.eql(1); pm.expect(t.total).to.eql(201); });"
                 ]
               }
@@ -807,7 +811,7 @@
             "url": "{{baseUrl}}/api/v1/transactions/transfer/confirm",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{transferRequestId}}\",\n  \"walletUid\": \"{{mainWallet}}\",\n  \"targetWalletUid\": \"{{savingsWallet}}\",\n  \"amount\": 200\n}"
+              "raw": "{\n  \"offerToken\": \"{{transferOfferToken}}\"\n}"
             }
           }
         },
@@ -1644,6 +1648,120 @@
           }
         },
         {
+          "name": "400 - offerToken with a changed signature",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error OFFER_TOKEN_INVALID', () => pm.expect(p.error).to.eql('OFFER_TOKEN_INVALID'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"offerToken\": \"{{depositOfferToken}}x\"\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - Ivan's offerToken confirmed by Anna",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error OFFER_TOKEN_INVALID', () => pm.expect(p.error).to.eql('OFFER_TOKEN_INVALID'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{annaUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"offerToken\": \"{{depositOfferToken}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "400 - the deposit offerToken sent to the withdrawal confirm",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test('error OFFER_TOKEN_INVALID', () => pm.expect(p.error).to.eql('OFFER_TOKEN_INVALID'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transactions/withdrawal/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"offerToken\": \"{{depositOfferToken}}\"\n}"
+            }
+          }
+        },
+        {
           "name": "404 - Ivan's wallet asked by Anna",
           "event": [
             {
@@ -1712,7 +1830,7 @@
           }
         },
         {
-          "name": "404 - deposit confirm to a wallet that does not exist, nothing written",
+          "name": "404 - deposit init to a wallet that does not exist, no offer",
           "event": [
             {
               "listen": "test",
@@ -1742,10 +1860,10 @@
                 "value": "{{ivanUserUid}}"
               }
             ],
-            "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
+            "url": "{{baseUrl}}/api/v1/transactions/deposit/init",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{$guid}}\",\n  \"walletUid\": \"00000000-0000-0000-0000-000000000000\",\n  \"amount\": 10\n}"
+              "raw": "{\n  \"walletUid\": \"00000000-0000-0000-0000-000000000000\",\n  \"amount\": 10\n}"
             }
           }
         },
@@ -1815,44 +1933,6 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/transactions/{{transferId}}/status"
-          }
-        },
-        {
-          "name": "409 - the deposit requestId again with another amount",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('409', () => pm.response.to.have.status(409));",
-                  "const p = pm.response.json();",
-                  "pm.test('error REQUEST_ID_CONFLICT', () => pm.expect(p.error).to.eql('REQUEST_ID_CONFLICT'));",
-                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
-                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
-                  "  pm.expect(p.status).to.eql(409);",
-                  "});"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-User-Uid",
-                "value": "{{ivanUserUid}}"
-              }
-            ],
-            "url": "{{baseUrl}}/api/v1/transactions/deposit/confirm",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{depositRequestId}}\",\n  \"walletUid\": \"{{mainWallet}}\",\n  \"amount\": 5\n}"
-            }
           }
         },
         {
@@ -2050,7 +2130,7 @@
       "value": ""
     },
     {
-      "key": "depositRequestId",
+      "key": "depositOfferToken",
       "value": ""
     },
     {
@@ -2058,7 +2138,7 @@
       "value": ""
     },
     {
-      "key": "declinedRequestId",
+      "key": "declinedOfferToken",
       "value": ""
     },
     {
@@ -2066,7 +2146,7 @@
       "value": ""
     },
     {
-      "key": "withdrawalRequestId",
+      "key": "withdrawalOfferToken",
       "value": ""
     },
     {
@@ -2074,7 +2154,7 @@
       "value": ""
     },
     {
-      "key": "transferRequestId",
+      "key": "transferOfferToken",
       "value": ""
     },
     {

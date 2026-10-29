@@ -10,7 +10,7 @@ Container_Ext(keycloak, "Keycloak", "identity provider", "Accounts, tokens, sign
 Container_Ext(personService, "person-service", "Spring Boot MVC", "Holds individuals; transaction-service never calls it")
 
 System_Boundary(ts, "transaction-service") {
-    Container(app, "transaction-service", "Spring Boot MVC, Java 25, ShardingSphere-JDBC", "Wallets and transactions: init computes the terms, confirm creates the transaction; TransactionKafkaProducer publishes events, TransactionKafkaConsumer finalizes")
+    Container(app, "transaction-service", "Spring Boot MVC, Java 25, ShardingSphere-JDBC", "Wallets and transactions: init issues a signed offer valid for 5 minutes, confirm checks it and creates the transaction; TransactionKafkaProducer publishes events, TransactionKafkaConsumer finalizes")
     ContainerDb(shard0, "PostgreSQL shard_0", "wallets, transactions, transaction_events", "Users with hash(user_uid) % 2 = 0")
     ContainerDb(shard1, "PostgreSQL shard_1", "wallets, transactions, transaction_events", "Users with hash(user_uid) % 2 = 1")
 }
@@ -19,7 +19,7 @@ Container_Ext(kafka, "Kafka", "Apache Kafka 4, KRaft, one broker", "Event bus fo
 Container_Ext(schemaRegistry, "Schema Registry", "Confluent", "Avro schemas of the events, compatibility checks")
 System_Ext(provider, "Fake Payment Provider", "Imitates an external payment provider; answers *Requested with *Completed or *Failed")
 
-Container_Ext(nexus, "Nexus", "Maven repository", "Holds transaction-service-client")
+Container_Ext(nexus, "Nexus", "Maven repository", "Holds transaction-service-client and transaction-service-events")
 Container_Ext(prometheus, "Prometheus", "metrics", "Scrapes /actuator/prometheus")
 Container_Ext(alloy, "Alloy", "telemetry agent", "Receives traces, reads logs, sends them to Tempo and Loki")
 Container_Ext(tempo, "Tempo", "trace store", "Traces: init, confirm, send to Kafka, finalization")
@@ -39,6 +39,7 @@ Rel(provider, kafka, "*Completed / *Failed", "Avro")
 Rel(app, schemaRegistry, "registers and reads schemas", "HTTP")
 Rel(provider, schemaRegistry, "registers and reads schemas", "HTTP")
 Rel(nexus, individualsApi, "client import", "Maven")
+Rel(nexus, provider, "event classes import (transaction-service-events)", "Maven")
 Rel(prometheus, app, "scrapes metrics", "HTTP")
 Rel(app, alloy, "traces", "OTLP")
 Rel(alloy, app, "reads JSON logs from stdout", "Docker")
