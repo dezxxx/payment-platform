@@ -149,6 +149,8 @@ Avro classes of the events come from `.avsc` files in a later step.
 - [x] The diagrams match the code: the search compares `type` as text and reads `size + 1` rows
       (a `Slice`), the confirm locks read `wallets` alone and the currency after the lock
 - [x] transaction-service in the configuration map of the root `CONTEXT.md`
+- [x] `transaction-service-client` in individuals-api, by the container diagram: the client beans,
+      `/api/v1/wallets` and `/api/v1/transactions` with the user from the token (individuals-api `CONTEXT.md`)
 - [x] The offer token links init and confirm (the teacher's review of 2026-10-27): `OfferTerms`,
       `OfferTokenSigner`, `OfferTokenValidator`, `OFFER_TOKEN_INVALID` and `OFFER_EXPIRED` instead of
       `409 REQUEST_ID_CONFLICT`; the contract, the sequence and component diagrams, unit tests of the signer
@@ -157,8 +159,6 @@ Avro classes of the events come from `.avsc` files in a later step.
 
 ### Next
 
-- [ ] `transaction-service-client` in individuals-api, by the container diagram: the client beans,
-      `/api/v1/wallets` and `/api/v1/transactions` with the user from the token
 - [ ] Query time per shard: `pg_stat_statements` is not loaded in the shards, the dashboard shows
       the service-side time; a full route counter needs the ShardingSphere Java agent
 - [ ] Grafana legends read like Java names (`@Observed` operation tags in camelCase)

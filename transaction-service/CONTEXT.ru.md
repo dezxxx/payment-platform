@@ -147,6 +147,8 @@ Avro-классы событий — из файлов `.avsc`, на следу�
 - [x] Диаграммы совпадают с кодом: поиск сравнивает `type` как текст и читает `size + 1` строк (`Slice`),
       блокировки confirm читают только `wallets`, а валюту — после блокировки
 - [x] transaction-service в карте конфигурации корневого `CONTEXT.ru.md`
+- [x] `transaction-service-client` в individuals-api, по диаграмме контейнеров: бины клиента,
+      `/api/v1/wallets` и `/api/v1/transactions` с пользователем из токена (`CONTEXT.ru.md` individuals-api)
 - [x] Offer token связывает init и confirm (ревью учителя 2026-10-27): `OfferTerms`, `OfferTokenSigner`,
       `OfferTokenValidator`, `OFFER_TOKEN_INVALID` и `OFFER_EXPIRED` вместо `409 REQUEST_ID_CONFLICT`;
       контракт, sequence- и компонентная диаграммы, unit-тесты signer на настоящем HMAC, интеграционные тесты
@@ -155,8 +157,6 @@ Avro-классы событий — из файлов `.avsc`, на следу�
 
 ### Дальше
 
-- [ ] `transaction-service-client` в individuals-api, по диаграмме контейнеров: бины клиента,
-      `/api/v1/wallets` и `/api/v1/transactions` с пользователем из токена
 - [ ] Время запросов по шардам: `pg_stat_statements` в шардах не загружен, дашборд показывает
       время со стороны сервиса; счётчику full route нужен Java agent ShardingSphere
 - [ ] Подписи в легендах Grafana выглядят как Java-имена (теги operation у `@Observed` в camelCase)

@@ -437,7 +437,9 @@ flowchart TB
 
 `.env` подставляется в сам compose-файл. В контейнер он **не** попадает — туда
 попадает только блок `environment:`. Именно поэтому individuals-api перечисляет
-`KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID` и `KEYCLOAK_CLIENT_SECRET` явно.
+`KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID` и `KEYCLOAK_CLIENT_SECRET` явно, а
+transaction-service — свой `TRANSACTION_OFFER_SECRET`, ключ, которым
+подписываются офферы init.
 
 ### Время работы — кто с кем говорит
 
@@ -446,6 +448,7 @@ flowchart LR
     CL(["клиент"]) -->|8081| API["individuals-api"]
     API -->|8080| KC["keycloak"]
     API -.->|8082 — модуль 2| PS["person-service"]
+    API -->|8084 X-User-Uid| TS
     KC -->|5432| KCDB[("keycloak-postgres")]
     PSDB[("person-postgres")]
     API -->|4318 OTLP push| TEMPO["tempo"]
@@ -461,9 +464,10 @@ flowchart LR
     PROM -->|scrape 8086| FPP
 ```
 
-У transaction-service (модуль 3) пока нет своего клиента: individuals-api будет
-вызывать его на 8084 с пользователем из токена, как показывает его диаграмма
-контейнеров. С платёжным провайдером он говорит только через Kafka.
+transaction-service (модуль 3) вызывается из individuals-api на 8084 с
+пользователем из токена в `X-User-Uid`; `offerToken` из init проходит через individuals-api
+нетронутым и возвращается в confirm, проверить его может только
+transaction-service. С платёжным провайдером он говорит только через Kafka.
 
 Две противоположные механики, и их легко перепутать. **Prometheus тянет** — он
 сам ходит к приложению по расписанию, поэтому адрес приложения живёт в

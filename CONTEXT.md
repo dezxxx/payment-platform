@@ -441,7 +441,8 @@ flowchart TB
 `.env` is substituted into the compose file itself. It does **not** reach the
 container - only the `environment:` block does. That is why individuals-api
 lists `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID` and `KEYCLOAK_CLIENT_SECRET`
-explicitly.
+explicitly, and transaction-service its `TRANSACTION_OFFER_SECRET`, the key
+that signs the offers of init.
 
 ### Run time - who talks to whom
 
@@ -450,6 +451,7 @@ flowchart LR
     CL(["client"]) -->|8081| API["individuals-api"]
     API -->|8080| KC["keycloak"]
     API -.->|8082 - module 2| PS["person-service"]
+    API -->|8084 X-User-Uid| TS
     KC -->|5432| KCDB[("keycloak-postgres")]
     PSDB[("person-postgres")]
     API -->|4318 OTLP push| TEMPO["tempo"]
@@ -465,9 +467,10 @@ flowchart LR
     PROM -->|scrape 8086| FPP
 ```
 
-transaction-service (module 3) has no client of its own yet: individuals-api
-will call it on 8084 with the user from the token, as its container diagram
-shows. It talks to the payment provider only through Kafka.
+transaction-service (module 3) is called by individuals-api on 8084 with the
+user from the token in `X-User-Uid`; the `offerToken` of init travels through
+individuals-api untouched and back in confirm, only transaction-service can
+check it. transaction-service talks to the payment provider only through Kafka.
 
 Two opposite mechanics, and they are easy to confuse. **Prometheus pulls** -
 it walks to the application on a schedule, so the application's address lives
