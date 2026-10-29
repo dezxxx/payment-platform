@@ -63,3 +63,6 @@ docs/quests/
 # Russian diagrams of transaction-service: kept on disk for study, the repository has English only.
 transaction-service/diagrams-c4/uml/ru/
 transaction-service/diagrams-c4/png/ru/
+
+# Deviations of module 3 as sent for the design review: kept on disk, CONTEXT holds them.
+transaction-service/deviations-from-spec.ru.md
