@@ -20,14 +20,15 @@ import com.dezxxx.transaction.repository.WalletRepository;
 import com.dezxxx.transaction.repository.WalletTypeRepository;
 import com.dezxxx.transaction.service.WalletService;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -52,8 +53,12 @@ class WalletServiceTest {
     @Mock
     private WalletMapper walletMapper;
 
-    @InjectMocks
     private WalletService walletService;
+
+    @BeforeEach
+    void setUp() {
+        walletService = new WalletService(walletRepository, walletTypeRepository, walletMapper, Clock.systemUTC());
+    }
 
     @Test
     @DisplayName("given an active wallet type, when creating, then the wallet is ACTIVE with balance 0 and saved at once")

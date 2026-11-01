@@ -1,4 +1,4 @@
-package com.dezxxx.provider.client;
+package com.dezxxx.provider.kafka;
 
 import com.dezxxx.provider.service.PaymentService;
 import com.dezxxx.transaction.event.DepositRequested;

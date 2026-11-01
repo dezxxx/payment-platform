@@ -16,7 +16,7 @@ and no bank is called: the answer depends only on the amount.
 | Decision | Value |
 |---|---|
 | Module | its own Gradle build and container (`fake-payment-provider`, port 8086), package `com.dezxxx.provider`; Spring MVC only for health and `/actuator/prometheus`, the work is Kafka |
-| Classes | `client/PaymentKafkaConsumer` → `service/PaymentService` → `client/PaymentKafkaProducer`; `metrics/PaymentMetrics`; `config/KafkaConfig`, `config/ProviderProperties` |
+| Classes | `kafka/PaymentKafkaConsumer` → `service/PaymentService` → `kafka/PaymentKafkaProducer`; `metrics/PaymentMetrics`; `config/KafkaConfig`, `config/ProviderProperties` |
 | Contract | the `transaction-service-events` jar from Nexus: the Avro classes, `EventTopics`, `TrustedEvents`. The provider never defines an event of its own |
 | Answer | amount up to `provider.approval-limit` (10000) → `DepositCompleted` / `WithdrawalCompleted`; above → `DepositFailed` "Not enough funds on the card" / `WithdrawalFailed` "The bank refused the payout". Every answer carries `transactionId` and `userId` from the request |
 | Delivery | read and answer in one Kafka transaction (`transaction-id-prefix`): the offset is committed with the answer, so a crash never leaves an answer without its offset or the other way round. Exactly-once Kafka → Kafka; `read_committed` consumer |

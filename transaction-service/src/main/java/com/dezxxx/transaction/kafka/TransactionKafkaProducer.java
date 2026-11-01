@@ -1,15 +1,16 @@
-package com.dezxxx.transaction.client;
+package com.dezxxx.transaction.kafka;
 
 import com.dezxxx.transaction.config.KafkaEventProperties;
-import com.dezxxx.transaction.entity.transaction.TransactionEventEntity;
-import com.dezxxx.transaction.entity.transaction.TransactionEventType;
+import com.dezxxx.transaction.entity.transaction.OutboxEventEntity;
+import com.dezxxx.transaction.entity.transaction.OutboxEventType;
 import com.dezxxx.transaction.event.EventTopics;
 import com.dezxxx.transaction.mapper.TransactionMapper;
 import com.dezxxx.transaction.metrics.TransactionMetrics;
-import com.dezxxx.transaction.repository.TransactionEventRepository;
+import com.dezxxx.transaction.repository.OutboxEventRepository;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -19,11 +20,12 @@ import java.util.concurrent.TimeoutException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.avro.specific.SpecificRecord;
+import org.apache.kafka.common.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-// sends the unsent rows of transaction_events to Kafka. sent_at is set only after the broker acknowledges,
+// sends the unsent rows of outbox_events to Kafka. sent_at is set only after the broker acknowledges,
 // so a failure leaves the row for the next run: at-least-once, the consumer side ignores a repeat
 @Slf4j
 @Component
@@ -34,17 +36,18 @@ public class TransactionKafkaProducer {
 
     private static final Duration SEND_TIMEOUT = Duration.ofSeconds(10);
 
-    private final TransactionEventRepository transactionEventRepository;
+    private final OutboxEventRepository outboxEventRepository;
     private final TransactionMapper transactionMapper;
     private final KafkaTemplate<Object, Object> kafkaTemplate;
     private final KafkaEventProperties kafkaEventProperties;
     private final Tracer tracer;
     private final Propagator propagator;
     private final TransactionMetrics transactionMetrics;
+    private final Clock clock;
 
     @Scheduled(fixedDelayString = "${transaction.kafka.send-interval}")
     public void sendUnsent() {
-        for (TransactionEventEntity event : transactionEventRepository.findUnsent(kafkaEventProperties.batchSize())) {
+        for (OutboxEventEntity event : outboxEventRepository.findUnsent(kafkaEventProperties.batchSize())) {
             if (!send(event)) {
                 return;
             }
@@ -53,7 +56,7 @@ public class TransactionKafkaProducer {
 
     // "try": the span scope is opened only to be closed
     @SuppressWarnings("try")
-    private boolean send(TransactionEventEntity event) {
+    private boolean send(OutboxEventEntity event) {
         SpecificRecord record;
         try {
             record = transactionMapper.toRequestedEvent(event);
@@ -66,14 +69,14 @@ public class TransactionKafkaProducer {
         try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
             kafkaTemplate.send(topic(event.getEventType()), event.getTransactionUid().toString(), record)
                     .get(SEND_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-            transactionEventRepository.markSent(event.getUid(), event.getUserUid(), Instant.now());
+            outboxEventRepository.markSent(event.getUid(), event.getUserUid(), Instant.now(clock));
             log.info("Sent {} of transaction {}", event.getEventType(), event.getTransactionUid());
             return true;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             span.error(ex);
             return false;
-        } catch (ExecutionException | TimeoutException ex) {
+        } catch (ExecutionException | TimeoutException | KafkaException ex) {
             span.error(ex);
             transactionMetrics.sendFailed();
             log.error("Kafka did not acknowledge {} of transaction {}, sent_at stays NULL until the next run",
@@ -93,8 +96,8 @@ public class TransactionKafkaProducer {
 
     private String topic(String eventType) {
         return switch (eventType) {
-            case TransactionEventType.DEPOSIT_REQUESTED -> EventTopics.DEPOSIT_REQUESTED;
-            case TransactionEventType.WITHDRAWAL_REQUESTED -> EventTopics.WITHDRAWAL_REQUESTED;
+            case OutboxEventType.DEPOSIT_REQUESTED -> EventTopics.DEPOSIT_REQUESTED;
+            case OutboxEventType.WITHDRAWAL_REQUESTED -> EventTopics.WITHDRAWAL_REQUESTED;
             default -> throw new IllegalStateException("No topic for event type " + eventType);
         };
     }

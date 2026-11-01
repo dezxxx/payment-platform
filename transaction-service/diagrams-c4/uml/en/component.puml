@@ -4,8 +4,8 @@
 title transaction-service — component diagram (C4, level 3)
 
 Container_Ext(individualsApi, "individuals-api", "Spring Boot WebFlux", "Calls transaction-service through transaction-service-client, user_uid from the token")
-ContainerDb(shard0, "PostgreSQL shard_0", "wallets, transactions, transaction_events", "hash(user_uid) % 2 = 0")
-ContainerDb(shard1, "PostgreSQL shard_1", "wallets, transactions, transaction_events", "hash(user_uid) % 2 = 1")
+ContainerDb(shard0, "PostgreSQL shard_0", "wallets, transactions, outbox_events", "hash(user_uid) % 2 = 0")
+ContainerDb(shard1, "PostgreSQL shard_1", "wallets, transactions, outbox_events", "hash(user_uid) % 2 = 1")
 Container_Ext(kafka, "Kafka", "KRaft", "deposit / withdrawal events")
 Container_Ext(schemaRegistry, "Schema Registry", "Confluent", "Avro schemas of the events")
 Container_Ext(observability, "Prometheus / Alloy", "metrics, traces, logs", "Observability stack")
@@ -22,10 +22,10 @@ Container_Boundary(app, "transaction-service") {
     Component(migrations, "ShardMigrations", "Flyway", "Migrates each shard directly before the DataSource starts")
     Component(walletService, "WalletService", "Spring service", "Wallet checks, Debit / Credit under a FOR NO KEY UPDATE lock")
     Component(mappers, "WalletMapper, TransactionMapper", "manual mapping", "Generated DTOs <-> entities")
-    Component(repositories, "WalletRepository, WalletTypeRepository, TransactionRepository, TransactionEventRepository", "Spring Data JPA", "Wallets, wallet types, transactions, outgoing events")
+    Component(repositories, "WalletRepository, WalletTypeRepository, TransactionRepository, OutboxEventRepository", "Spring Data JPA", "Wallets, wallet types, transactions, the outbox")
     Component(sharding, "ShardingSphere-JDBC", "JDBC driver", "Routes SQL to the shard by user_uid")
-    Component(publisher, "TransactionKafkaProducer", "@Scheduled, KafkaTemplate, Avro", "Sends unsent rows of transaction_events to Kafka with traceparent; marks a row sent only after the broker acknowledges, retries on failure")
-    Component(consumer, "TransactionKafkaConsumer", "@KafkaListener, Avro", "Receives *Completed / *Failed and hands them to TransactionService; failure -> retry -> DLT")
+    Component(publisher, "TransactionKafkaProducer", "@Scheduled, KafkaTemplate, Avro", "Outbox relay: sends unsent rows of outbox_events to Kafka with traceparent; marks a row sent only after the broker acknowledges, retries on failure")
+    Component(consumer, "TransactionKafkaConsumer", "@KafkaListener, Avro", "Receives *Completed / *Failed and hands them to TransactionService; a repeat changes 0 rows (WHERE status = PENDING); failure -> retry -> DLT")
 }
 
 Rel(individualsApi, walletController, "REST /api/v1/wallets", "HTTP, JSON")

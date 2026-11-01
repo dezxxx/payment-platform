@@ -212,7 +212,7 @@ sourceSets {
         java.srcDir(openApiGenerateClient.map { generatedClientDir.get().dir("src/main/java") })
         // the client models carry @DifferentWallets, so it travels with them
         java.srcDir("src/main/java")
-        // client/api and client/model only: the service's own Kafka classes live in client too.
+        // client/api and client/model only
         // Only the files of @DifferentWallets: the rest of validation needs the service's own classes
         java.include("com/dezxxx/transaction/client/api/**", "com/dezxxx/transaction/client/model/**",
             "com/dezxxx/transaction/validation/DifferentWallets.java",

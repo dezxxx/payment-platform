@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.dezxxx.transaction.metrics.TransactionMetrics;
-import com.dezxxx.transaction.repository.TransactionEventRepository;
+import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -21,7 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class TransactionMetricsTest {
 
     @Mock
-    private TransactionEventRepository transactionEventRepository;
+    private OutboxEventRepository outboxEventRepository;
 
     @Mock
     private TransactionRepository transactionRepository;
@@ -33,15 +33,15 @@ class TransactionMetricsTest {
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
-        metrics = new TransactionMetrics(registry, transactionEventRepository, transactionRepository);
+        metrics = new TransactionMetrics(registry, outboxEventRepository, transactionRepository);
     }
 
     @Test
     @DisplayName("given unsent events and PENDING transactions, when refreshed, then the gauges show counts and ages in whole seconds")
     void refreshesGauges() {
         // given
-        when(transactionEventRepository.countUnsent()).thenReturn(3L);
-        when(transactionEventRepository.findOldestUnsentAgeSeconds()).thenReturn(Optional.of(120.4));
+        when(outboxEventRepository.countUnsent()).thenReturn(3L);
+        when(outboxEventRepository.findOldestUnsentAgeSeconds()).thenReturn(Optional.of(120.4));
         when(transactionRepository.countPending()).thenReturn(5L);
         when(transactionRepository.findOldestPendingAgeSeconds()).thenReturn(Optional.of(600.6));
 
@@ -49,8 +49,8 @@ class TransactionMetricsTest {
         metrics.refresh();
 
         // then
-        assertThat(gauge("transaction.events.unsent")).isEqualTo(3);
-        assertThat(gauge("transaction.events.unsent.oldest")).isEqualTo(120);
+        assertThat(gauge("outbox.events.unsent")).isEqualTo(3);
+        assertThat(gauge("outbox.events.unsent.oldest")).isEqualTo(120);
         assertThat(gauge("transaction.pending")).isEqualTo(5);
         assertThat(gauge("transaction.pending.oldest")).isEqualTo(601);
     }
@@ -59,15 +59,15 @@ class TransactionMetricsTest {
     @DisplayName("given nothing waits, when refreshed, then every gauge is 0")
     void zeroWhenNothingWaits() {
         // given
-        when(transactionEventRepository.findOldestUnsentAgeSeconds()).thenReturn(Optional.empty());
+        when(outboxEventRepository.findOldestUnsentAgeSeconds()).thenReturn(Optional.empty());
         when(transactionRepository.findOldestPendingAgeSeconds()).thenReturn(Optional.empty());
 
         // when
         metrics.refresh();
 
         // then
-        assertThat(gauge("transaction.events.unsent")).isZero();
-        assertThat(gauge("transaction.events.unsent.oldest")).isZero();
+        assertThat(gauge("outbox.events.unsent")).isZero();
+        assertThat(gauge("outbox.events.unsent.oldest")).isZero();
         assertThat(gauge("transaction.pending")).isZero();
         assertThat(gauge("transaction.pending.oldest")).isZero();
     }
@@ -80,7 +80,7 @@ class TransactionMetricsTest {
         metrics.sendFailed();
 
         // then
-        assertThat(registry.get("transaction.events.send.failures").counter().count()).isEqualTo(2);
+        assertThat(registry.get("outbox.events.send.failures").counter().count()).isEqualTo(2);
     }
 
     @Test

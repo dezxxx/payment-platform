@@ -11,8 +11,8 @@ Container_Ext(personService, "person-service", "Spring Boot MVC", "Holds individ
 
 System_Boundary(ts, "transaction-service") {
     Container(app, "transaction-service", "Spring Boot MVC, Java 25, ShardingSphere-JDBC", "Wallets and transactions: init issues a signed offer valid for 5 minutes, confirm checks it and creates the transaction; TransactionKafkaProducer publishes events, TransactionKafkaConsumer finalizes")
-    ContainerDb(shard0, "PostgreSQL shard_0", "wallets, transactions, transaction_events", "Users with hash(user_uid) % 2 = 0")
-    ContainerDb(shard1, "PostgreSQL shard_1", "wallets, transactions, transaction_events", "Users with hash(user_uid) % 2 = 1")
+    ContainerDb(shard0, "PostgreSQL shard_0", "wallets, transactions, outbox_events", "Users with hash(user_uid) % 2 = 0")
+    ContainerDb(shard1, "PostgreSQL shard_1", "wallets, transactions, outbox_events", "Users with hash(user_uid) % 2 = 1")
 }
 
 Container_Ext(kafka, "Kafka", "Apache Kafka 4, KRaft, one broker", "Event bus for deposit / withdrawal")
@@ -32,7 +32,7 @@ Rel(individualsApi, personService, "individual's profile", "REST")
 Rel(individualsApi, app, "REST /api/v1/wallets, /api/v1/transactions, user_uid from the token", "transaction-service-client")
 Rel(app, shard0, "reads and writes", "JDBC via ShardingSphere")
 Rel(app, shard1, "reads and writes", "JDBC via ShardingSphere")
-Rel(app, kafka, "DepositRequested, WithdrawalRequested (from transaction_events)", "Avro")
+Rel(app, kafka, "DepositRequested, WithdrawalRequested (from outbox_events)", "Avro")
 Rel(kafka, app, "DepositCompleted / Failed, WithdrawalCompleted / Failed (with userId)", "Avro, consumer group")
 Rel(kafka, provider, "*Requested", "Avro")
 Rel(provider, kafka, "*Completed / *Failed", "Avro")

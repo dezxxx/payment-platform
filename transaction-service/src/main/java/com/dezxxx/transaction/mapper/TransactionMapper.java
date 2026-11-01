@@ -5,9 +5,9 @@ import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
 import com.dezxxx.transaction.api.model.TransactionStatusDto;
 import com.dezxxx.transaction.api.model.TransactionStatusResponseDto;
 import com.dezxxx.transaction.api.model.TransactionTypeDto;
+import com.dezxxx.transaction.entity.transaction.OutboxEventEntity;
+import com.dezxxx.transaction.entity.transaction.OutboxEventType;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
-import com.dezxxx.transaction.entity.transaction.TransactionEventEntity;
-import com.dezxxx.transaction.entity.transaction.TransactionEventType;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.entity.wallet.WalletEntity;
@@ -82,9 +82,9 @@ public class TransactionMapper {
                 wallet.getWalletType().getCurrencyCode()));
     }
 
-    public TransactionEventEntity toTransactionEvent(UUID transactionId, UUID userUid, String eventType,
-                                                     String payload, String traceparent) {
-        TransactionEventEntity event = new TransactionEventEntity();
+    public OutboxEventEntity toOutboxEvent(UUID transactionId, UUID userUid, String eventType,
+                                           String payload, String traceparent) {
+        OutboxEventEntity event = new OutboxEventEntity();
         event.setTransactionUid(transactionId);
         event.setUserUid(userUid);
         event.setEventType(eventType);
@@ -93,18 +93,18 @@ public class TransactionMapper {
         return event;
     }
 
-    public SpecificRecord toRequestedEvent(TransactionEventEntity event) {
+    public SpecificRecord toRequestedEvent(OutboxEventEntity event) {
         RequestedPayload payload = jsonMapper.readValue(event.getPayload(), RequestedPayload.class);
         BigDecimal amount = payload.amount().setScale(MONEY_SCALE, RoundingMode.UNNECESSARY);
         return switch (event.getEventType()) {
-            case TransactionEventType.DEPOSIT_REQUESTED -> DepositRequested.newBuilder()
+            case OutboxEventType.DEPOSIT_REQUESTED -> DepositRequested.newBuilder()
                     .setTransactionId(payload.transactionId())
                     .setUserId(payload.userId())
                     .setWalletUid(payload.walletUid())
                     .setAmount(amount)
                     .setCurrency(payload.currency())
                     .build();
-            case TransactionEventType.WITHDRAWAL_REQUESTED -> WithdrawalRequested.newBuilder()
+            case OutboxEventType.WITHDRAWAL_REQUESTED -> WithdrawalRequested.newBuilder()
                     .setTransactionId(payload.transactionId())
                     .setUserId(payload.userId())
                     .setWalletUid(payload.walletUid())

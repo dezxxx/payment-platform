@@ -146,7 +146,7 @@ public abstract class IntegrationTest {
     }
 
     protected int events(UUID user) {
-        return jdbc.queryForObject("SELECT count(*) FROM transaction_events WHERE user_uid = ?", Integer.class, user);
+        return jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE user_uid = ?", Integer.class, user);
     }
 
     protected BigDecimal balance(UUID wallet, UUID user) {

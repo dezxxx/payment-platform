@@ -2078,7 +2078,7 @@
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const m = pm.response.text();",
                   "pm.test('operations timed', () => pm.expect(m).to.include('transaction_operations'));",
-                  "pm.test('outbox gauges', () => { pm.expect(m).to.include('transaction_events_unsent'); pm.expect(m).to.include('transaction_pending'); });"
+                  "pm.test('outbox gauges', () => { pm.expect(m).to.include('outbox_events_unsent'); pm.expect(m).to.include('transaction_pending'); });"
                 ]
               }
             }

@@ -16,15 +16,15 @@ import com.dezxxx.transaction.api.model.WithdrawalConfirmRequestDto;
 import com.dezxxx.transaction.api.model.WithdrawalInitRequestDto;
 import com.dezxxx.transaction.config.FeeProperties;
 import com.dezxxx.transaction.config.OfferTokenProperties;
+import com.dezxxx.transaction.entity.transaction.OutboxEventEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
-import com.dezxxx.transaction.entity.transaction.TransactionEventEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
-import com.dezxxx.transaction.repository.TransactionEventRepository;
+import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
@@ -81,7 +81,7 @@ class TransactionServiceWithdrawalTest {
     private TransactionRepository transactionRepository;
 
     @Mock
-    private TransactionEventRepository transactionEventRepository;
+    private OutboxEventRepository outboxEventRepository;
 
     @Mock
     private WalletService walletService;
@@ -108,7 +108,7 @@ class TransactionServiceWithdrawalTest {
 
     @BeforeEach
     void setUp() {
-        transactionService = new TransactionService(transactionRepository, transactionEventRepository, walletService,
+        transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
                 FEES, transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner,
                 offerTokenValidator, new OfferTokenProperties("secret", Duration.ofMinutes(5)),
                 Clock.fixed(NOW, ZoneOffset.UTC));
@@ -133,7 +133,7 @@ class TransactionServiceWithdrawalTest {
         assertThat(terms.getValue().type()).isEqualTo(TransactionPaymentType.WITHDRAWAL);
         assertThat(terms.getValue().targetWalletUid()).isNull();
         assertThat(terms.getValue().fee()).isEqualTo(FEE);
-        verifyNoInteractions(transactionRepository, transactionEventRepository);
+        verifyNoInteractions(transactionRepository, outboxEventRepository);
     }
 
     @Test
@@ -156,12 +156,12 @@ class TransactionServiceWithdrawalTest {
         // given
         givenOffer(EXPIRES_AT);
         WalletEntity wallet = wallet(TOTAL);
-        TransactionEventEntity event = new TransactionEventEntity();
+        OutboxEventEntity event = new OutboxEventEntity();
         TransactionConfirmResponseDto answer = new TransactionConfirmResponseDto();
         givenClaimed();
         when(walletService.lockActiveWallet(WALLET_UID, USER_UID)).thenReturn(wallet);
         when(transactionMapper.toRequestedPayload(any(), eq(USER_UID), eq(wallet), eq(AMOUNT))).thenReturn("{}");
-        when(transactionMapper.toTransactionEvent(any(), eq(USER_UID), eq("WithdrawalRequested"), eq("{}"), eq(null)))
+        when(transactionMapper.toOutboxEvent(any(), eq(USER_UID), eq("WithdrawalRequested"), eq("{}"), eq(null)))
                 .thenReturn(event);
         when(transactionMapper.toConfirmResponse(any(), eq(TransactionStatus.PENDING))).thenReturn(answer);
 
@@ -171,12 +171,12 @@ class TransactionServiceWithdrawalTest {
         // then
         assertThat(result).isSameAs(answer);
         ArgumentCaptor<UUID> transactionId = ArgumentCaptor.forClass(UUID.class);
-        InOrder order = inOrder(transactionRepository, walletService, transactionEventRepository);
+        InOrder order = inOrder(transactionRepository, walletService, outboxEventRepository);
         order.verify(transactionRepository).claimWithdrawalRequestId(transactionId.capture(), eq(USER_UID),
                 eq(WALLET_UID), eq(AMOUNT), eq(FEE), eq(REQUEST_ID));
         order.verify(walletService).lockActiveWallet(WALLET_UID, USER_UID);
         order.verify(walletService).debit(WALLET_UID, USER_UID, TOTAL);
-        order.verify(transactionEventRepository).saveAndFlush(event);
+        order.verify(outboxEventRepository).saveAndFlush(event);
         verify(transactionMapper).toConfirmResponse(transactionId.getValue(), TransactionStatus.PENDING);
     }
 
@@ -184,7 +184,7 @@ class TransactionServiceWithdrawalTest {
     @DisplayName("given a fee changed in the settings after init, when confirm, then the fee from the token is debited")
     void debitsFeeFromToken() {
         // given
-        transactionService = new TransactionService(transactionRepository, transactionEventRepository, walletService,
+        transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
                 new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.05"), BigDecimal.ZERO), transactionMapper,
                 dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
                 new OfferTokenProperties("secret", Duration.ofMinutes(5)), Clock.fixed(NOW, ZoneOffset.UTC));
@@ -212,7 +212,7 @@ class TransactionServiceWithdrawalTest {
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INSUFFICIENT_FUNDS);
         verify(walletService, never()).debit(any(), any(), any());
-        verifyNoInteractions(transactionEventRepository);
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test
@@ -229,7 +229,7 @@ class TransactionServiceWithdrawalTest {
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.WALLET_NOT_ACTIVE);
         verify(walletService, never()).debit(any(), any(), any());
-        verifyNoInteractions(transactionEventRepository);
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test
@@ -243,7 +243,7 @@ class TransactionServiceWithdrawalTest {
         assertThatThrownBy(() -> transactionService.confirmWithdrawal(USER_UID, confirmRequest()))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.OFFER_EXPIRED);
-        verifyNoInteractions(walletService, transactionEventRepository);
+        verifyNoInteractions(walletService, outboxEventRepository);
     }
 
     @Test
@@ -262,7 +262,7 @@ class TransactionServiceWithdrawalTest {
 
         // then
         assertThat(result).isSameAs(answer);
-        verifyNoInteractions(walletService, transactionEventRepository);
+        verifyNoInteractions(walletService, outboxEventRepository);
     }
 
     @Test
@@ -276,7 +276,7 @@ class TransactionServiceWithdrawalTest {
         assertThatThrownBy(() -> transactionService.confirmWithdrawal(USER_UID, confirmRequest()))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.OFFER_TOKEN_INVALID);
-        verifyNoInteractions(transactionRepository, walletService, transactionEventRepository);
+        verifyNoInteractions(transactionRepository, walletService, outboxEventRepository);
     }
 
     private void givenOffer(Instant expiresAt) {

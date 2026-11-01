@@ -60,7 +60,7 @@ else
                     TS -> DB: ROLLBACK
                     TS --> Client: 404 / 400
                 else
-                    TS -> DB: INSERT transaction_events (DepositRequested, sent_at NULL)
+                    TS -> DB: INSERT outbox_events (DepositRequested, sent_at NULL)
                     TS -> DB: COMMIT
                     TS --> Client: 200 PENDING, transactionId
                 end
@@ -72,7 +72,7 @@ note right of DB: any DB error → ROLLBACK, 500
 
 == async: outbox → provider ==
 loop @Scheduled
-    Pub -> DB: SELECT transaction_events WHERE sent_at IS NULL (both shards)
+    Pub -> DB: SELECT outbox_events WHERE sent_at IS NULL (both shards)
     Pub -> Kafka: DepositRequested (key = transactionId)
     alt ack
         Pub -> DB: UPDATE sent_at = now()
@@ -97,8 +97,11 @@ end
 alt ok
     TS -> DB: COMMIT
     Cons -> Kafka: commit offset
-else exception
+else not found (TransactionServiceException)
     TS -> DB: ROLLBACK
-    Cons -> Kafka: retries → DLT
+    Cons -> Kafka: DLT at once, no retries
+else DB error (a shard is down)
+    TS -> DB: ROLLBACK
+    Cons -> Kafka: retries 20 × 30 s (about 20 min) → DLT
 end
 @enduml

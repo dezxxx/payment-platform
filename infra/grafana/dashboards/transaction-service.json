@@ -1,7 +1,7 @@
 {
   "uid": "transaction-service",
   "title": "transaction-service",
-  "description": "Wallets and transactions: HTTP traffic, service operations, the transaction_events backlog, PENDING transactions, Kafka lag and dead letters, the provider's answers and the logs.",
+  "description": "Wallets and transactions: HTTP traffic, service operations, the outbox_events backlog, PENDING transactions, Kafka lag and dead letters, the provider's answers and the logs.",
   "tags": [
     "payment-platform"
   ],
@@ -154,7 +154,7 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Events waiting in transaction_events",
+      "title": "Events waiting in outbox_events",
       "description": "Rows Kafka has not acknowledged yet, both shards together. TransactionKafkaProducer sends every second, so it stays near 0 while Kafka is up.",
       "datasource": {
         "type": "prometheus",
@@ -178,7 +178,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "transaction_events_unsent{job=\"transaction-service\"}",
+          "expr": "outbox_events_unsent{job=\"transaction-service\"}",
           "legendFormat": "unsent"
         }
       ]
@@ -187,7 +187,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "Oldest unsent event, age",
-      "description": "How long the oldest unsent event has been waiting. Alert TransactionEventsNotSent above 60 s for a minute.",
+      "description": "How long the oldest unsent event has been waiting. Alert OutboxEventsNotSent above 60 s for a minute.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -210,7 +210,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "transaction_events_unsent_oldest_seconds{job=\"transaction-service\"}",
+          "expr": "outbox_events_unsent_oldest_seconds{job=\"transaction-service\"}",
           "legendFormat": "oldest unsent"
         }
       ]
@@ -343,7 +343,7 @@
         },
         {
           "refId": "B",
-          "expr": "sum(increase(transaction_events_send_failures_total{job=\"transaction-service\"}[5m]))",
+          "expr": "sum(increase(outbox_events_send_failures_total{job=\"transaction-service\"}[5m]))",
           "legendFormat": "failed sends"
         }
       ]
@@ -741,7 +741,7 @@
       "id": 20,
       "type": "timeseries",
       "title": "Rows per table, by shard",
-      "description": "Live rows of wallets, transactions and transaction_events in each shard: how evenly the users are split.",
+      "description": "Live rows of wallets, transactions and outbox_events in each shard: how evenly the users are split.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -764,7 +764,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (shard, relname) (pg_stat_user_tables_n_live_tup{job=\"transaction-shards\", relname=~\"wallets|transactions|transaction_events\"})",
+          "expr": "sum by (shard, relname) (pg_stat_user_tables_n_live_tup{job=\"transaction-shards\", relname=~\"wallets|transactions|outbox_events\"})",
           "legendFormat": "{{shard}} {{relname}}"
         }
       ]

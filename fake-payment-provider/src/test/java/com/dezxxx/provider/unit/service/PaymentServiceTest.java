@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 
-import com.dezxxx.provider.client.PaymentKafkaProducer;
+import com.dezxxx.provider.kafka.PaymentKafkaProducer;
 import com.dezxxx.provider.config.ProviderProperties;
 import com.dezxxx.provider.metrics.PaymentMetrics;
 import com.dezxxx.provider.service.PaymentService;

@@ -1,6 +1,6 @@
 package com.dezxxx.transaction.metrics;
 
-import com.dezxxx.transaction.repository.TransactionEventRepository;
+import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
@@ -16,7 +16,7 @@ public class TransactionMetrics {
     private static final String SECONDS = "seconds";
 
     private final MeterRegistry registry;
-    private final TransactionEventRepository transactionEventRepository;
+    private final OutboxEventRepository outboxEventRepository;
     private final TransactionRepository transactionRepository;
 
     // refresh() fills them, a scrape only reads them
@@ -27,15 +27,15 @@ public class TransactionMetrics {
 
     private final Counter sendFailures;
 
-    public TransactionMetrics(MeterRegistry registry, TransactionEventRepository transactionEventRepository,
+    public TransactionMetrics(MeterRegistry registry, OutboxEventRepository outboxEventRepository,
                               TransactionRepository transactionRepository) {
         this.registry = registry;
-        this.transactionEventRepository = transactionEventRepository;
+        this.outboxEventRepository = outboxEventRepository;
         this.transactionRepository = transactionRepository;
-        Gauge.builder("transaction.events.unsent", unsentEvents, AtomicLong::get)
-                .description("Events in transaction_events Kafka has not acknowledged yet")
+        Gauge.builder("outbox.events.unsent", unsentEvents, AtomicLong::get)
+                .description("Events in outbox_events Kafka has not acknowledged yet")
                 .register(registry);
-        Gauge.builder("transaction.events.unsent.oldest", oldestUnsentSeconds, AtomicLong::get)
+        Gauge.builder("outbox.events.unsent.oldest", oldestUnsentSeconds, AtomicLong::get)
                 .description("How long the oldest unsent event has been waiting, 0 when there is none")
                 .baseUnit(SECONDS)
                 .register(registry);
@@ -46,15 +46,15 @@ public class TransactionMetrics {
                 .description("How long the oldest PENDING transaction has been waiting, 0 when there is none")
                 .baseUnit(SECONDS)
                 .register(registry);
-        this.sendFailures = Counter.builder("transaction.events.send.failures")
+        this.sendFailures = Counter.builder("outbox.events.send.failures")
                 .description("Sends Kafka did not acknowledge; the event stays unsent for the next run")
                 .register(registry);
     }
 
     @Scheduled(fixedDelayString = "${transaction.metrics.refresh-interval}")
     public void refresh() {
-        unsentEvents.set(transactionEventRepository.countUnsent());
-        oldestUnsentSeconds.set(seconds(transactionEventRepository.findOldestUnsentAgeSeconds()));
+        unsentEvents.set(outboxEventRepository.countUnsent());
+        oldestUnsentSeconds.set(seconds(outboxEventRepository.findOldestUnsentAgeSeconds()));
         pendingTransactions.set(transactionRepository.countPending());
         oldestPendingSeconds.set(seconds(transactionRepository.findOldestPendingAgeSeconds()));
     }

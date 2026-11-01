@@ -1,6 +1,6 @@
 package com.dezxxx.provider.service;
 
-import com.dezxxx.provider.client.PaymentKafkaProducer;
+import com.dezxxx.provider.kafka.PaymentKafkaProducer;
 import com.dezxxx.provider.config.ProviderProperties;
 import com.dezxxx.provider.metrics.PaymentMetrics;
 import com.dezxxx.transaction.event.DepositCompleted;

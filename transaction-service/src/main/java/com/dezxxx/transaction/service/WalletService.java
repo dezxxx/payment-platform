@@ -11,6 +11,7 @@ import com.dezxxx.transaction.mapper.WalletMapper;
 import com.dezxxx.transaction.repository.WalletRepository;
 import com.dezxxx.transaction.repository.WalletTypeRepository;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -34,6 +35,7 @@ public class WalletService {
     private final WalletRepository walletRepository;
     private final WalletTypeRepository walletTypeRepository;
     private final WalletMapper walletMapper;
+    private final Clock clock;
 
     @Transactional
     @Observed(name = OPERATIONS, contextualName = "walletService.create", lowCardinalityKeyValues = {"operation", "create"})
@@ -77,7 +79,7 @@ public class WalletService {
 
     @Transactional
     public void credit(UUID walletUid, UUID userUid, BigDecimal amount) {
-        int updated = walletRepository.credit(walletUid, userUid, amount, Instant.now());
+        int updated = walletRepository.credit(walletUid, userUid, amount, Instant.now(clock));
         if (updated == 0) {
             throw new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND);
         }
@@ -86,7 +88,7 @@ public class WalletService {
 
     @Transactional
     public void debit(UUID walletUid, UUID userUid, BigDecimal amount) {
-        int updated = walletRepository.debit(walletUid, userUid, amount, Instant.now());
+        int updated = walletRepository.debit(walletUid, userUid, amount, Instant.now(clock));
         if (updated == 0) {
             throw new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND);
         }

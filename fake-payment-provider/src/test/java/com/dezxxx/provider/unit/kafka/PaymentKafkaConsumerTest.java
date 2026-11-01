@@ -1,8 +1,8 @@
-package com.dezxxx.provider.unit.client;
+package com.dezxxx.provider.unit.kafka;
 
 import static org.mockito.Mockito.verify;
 
-import com.dezxxx.provider.client.PaymentKafkaConsumer;
+import com.dezxxx.provider.kafka.PaymentKafkaConsumer;
 import com.dezxxx.provider.service.PaymentService;
 import com.dezxxx.transaction.event.DepositRequested;
 import com.dezxxx.transaction.event.WithdrawalRequested;

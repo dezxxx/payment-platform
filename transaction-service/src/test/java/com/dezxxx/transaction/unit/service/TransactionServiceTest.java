@@ -16,15 +16,15 @@ import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
 import com.dezxxx.transaction.config.FeeProperties;
 import com.dezxxx.transaction.config.OfferTokenProperties;
+import com.dezxxx.transaction.entity.transaction.OutboxEventEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
-import com.dezxxx.transaction.entity.transaction.TransactionEventEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
-import com.dezxxx.transaction.repository.TransactionEventRepository;
+import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
@@ -83,7 +83,7 @@ class TransactionServiceTest {
     private TransactionRepository transactionRepository;
 
     @Mock
-    private TransactionEventRepository transactionEventRepository;
+    private OutboxEventRepository outboxEventRepository;
 
     @Mock
     private WalletService walletService;
@@ -134,7 +134,7 @@ class TransactionServiceTest {
                 .isEqualTo(new OfferTerms(null, USER_UID, TransactionPaymentType.DEPOSIT, WALLET_UID, null, AMOUNT,
                         new BigDecimal("0.00"), NOW.plus(Duration.ofMinutes(5))));
         verify(walletService).getActiveWallet(WALLET_UID, USER_UID);
-        verifyNoInteractions(transactionRepository, transactionEventRepository);
+        verifyNoInteractions(transactionRepository, outboxEventRepository);
     }
 
     @Test
@@ -172,14 +172,14 @@ class TransactionServiceTest {
         // given
         givenOffer(NOW.plus(Duration.ofMinutes(5)));
         WalletEntity wallet = new WalletEntity();
-        TransactionEventEntity event = new TransactionEventEntity();
+        OutboxEventEntity event = new OutboxEventEntity();
         TransactionConfirmResponseDto answer = new TransactionConfirmResponseDto();
         when(transactionRepository.claimDepositRequestId(any(), eq(USER_UID), eq(WALLET_UID), eq(AMOUNT),
                 eq(TOKEN_FEE), eq(REQUEST_ID))).thenAnswer(call -> Optional.of(call.getArgument(0)));
         when(walletService.getActiveWallet(WALLET_UID, USER_UID)).thenReturn(wallet);
         when(transactionMapper.toRequestedPayload(any(), eq(USER_UID), eq(wallet), eq(AMOUNT))).thenReturn("{}");
         givenTraceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
-        when(transactionMapper.toTransactionEvent(any(), eq(USER_UID), eq("DepositRequested"), eq("{}"),
+        when(transactionMapper.toOutboxEvent(any(), eq(USER_UID), eq("DepositRequested"), eq("{}"),
                 eq("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"))).thenReturn(event);
         when(transactionMapper.toConfirmResponse(any(), eq(TransactionStatus.PENDING))).thenReturn(answer);
 
@@ -192,7 +192,7 @@ class TransactionServiceTest {
         verify(transactionRepository).claimDepositRequestId(transactionId.capture(), eq(USER_UID), eq(WALLET_UID),
                 eq(AMOUNT), eq(TOKEN_FEE), eq(REQUEST_ID));
         verify(transactionMapper).toConfirmResponse(transactionId.getValue(), TransactionStatus.PENDING);
-        verify(transactionEventRepository).saveAndFlush(event);
+        verify(outboxEventRepository).saveAndFlush(event);
     }
 
     @Test
@@ -209,7 +209,7 @@ class TransactionServiceTest {
         transactionService.confirmDeposit(USER_UID, confirmRequest());
 
         // then
-        verify(transactionMapper).toTransactionEvent(any(), eq(USER_UID), eq("DepositRequested"), eq("{}"), eq(null));
+        verify(transactionMapper).toOutboxEvent(any(), eq(USER_UID), eq("DepositRequested"), eq("{}"), eq(null));
         verifyNoInteractions(propagator);
     }
 
@@ -230,7 +230,7 @@ class TransactionServiceTest {
 
         // then
         assertThat(result).isSameAs(answer);
-        verifyNoInteractions(walletService, transactionEventRepository);
+        verifyNoInteractions(walletService, outboxEventRepository);
     }
 
     @Test
@@ -245,7 +245,7 @@ class TransactionServiceTest {
         assertThatThrownBy(() -> transactionService.confirmDeposit(USER_UID, confirmRequest()))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.OFFER_EXPIRED);
-        verifyNoInteractions(walletService, transactionEventRepository);
+        verifyNoInteractions(walletService, outboxEventRepository);
     }
 
     @Test
@@ -276,7 +276,7 @@ class TransactionServiceTest {
         assertThatThrownBy(() -> transactionService.confirmDeposit(USER_UID, confirmRequest()))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.OFFER_TOKEN_INVALID);
-        verifyNoInteractions(transactionRepository, walletService, transactionEventRepository);
+        verifyNoInteractions(transactionRepository, walletService, outboxEventRepository);
     }
 
     @Test
@@ -293,11 +293,11 @@ class TransactionServiceTest {
         assertThatThrownBy(() -> transactionService.confirmDeposit(USER_UID, confirmRequest()))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.WALLET_NOT_FOUND);
-        verifyNoInteractions(transactionEventRepository);
+        verifyNoInteractions(outboxEventRepository);
     }
 
     private TransactionService service(FeeProperties fees) {
-        return new TransactionService(transactionRepository, transactionEventRepository, walletService, fees,
+        return new TransactionService(transactionRepository, outboxEventRepository, walletService, fees,
                 transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
                 OFFER, CLOCK);
     }

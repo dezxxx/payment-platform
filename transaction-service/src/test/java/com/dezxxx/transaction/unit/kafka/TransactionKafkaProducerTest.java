@@ -1,4 +1,4 @@
-package com.dezxxx.transaction.unit.client;
+package com.dezxxx.transaction.unit.kafka;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -9,21 +9,23 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.dezxxx.transaction.client.TransactionKafkaProducer;
 import com.dezxxx.transaction.config.KafkaEventProperties;
-import com.dezxxx.transaction.entity.transaction.TransactionEventEntity;
+import com.dezxxx.transaction.entity.transaction.OutboxEventEntity;
 import com.dezxxx.transaction.event.DepositRequested;
+import com.dezxxx.transaction.kafka.TransactionKafkaProducer;
 import com.dezxxx.transaction.mapper.TransactionMapper;
 import com.dezxxx.transaction.metrics.TransactionMetrics;
-import com.dezxxx.transaction.repository.TransactionEventRepository;
+import com.dezxxx.transaction.repository.OutboxEventRepository;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import org.apache.kafka.common.errors.SerializationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,7 +47,7 @@ class TransactionKafkaProducerTest {
     private static final String TRACEPARENT = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
 
     @Mock
-    private TransactionEventRepository transactionEventRepository;
+    private OutboxEventRepository outboxEventRepository;
 
     @Mock
     private TransactionMapper transactionMapper;
@@ -66,8 +68,8 @@ class TransactionKafkaProducerTest {
 
     @BeforeEach
     void setUp() {
-        producer = new TransactionKafkaProducer(transactionEventRepository, transactionMapper, kafkaTemplate,
-                PROPERTIES, tracer, propagator, transactionMetrics);
+        producer = new TransactionKafkaProducer(outboxEventRepository, transactionMapper, kafkaTemplate,
+                PROPERTIES, tracer, propagator, transactionMetrics, Clock.systemUTC());
         Span.Builder builder = mock(Span.Builder.class, RETURNS_SELF);
         Span span = mock(Span.class);
         when(builder.start()).thenReturn(span);
@@ -80,8 +82,8 @@ class TransactionKafkaProducerTest {
     @DisplayName("given two unsent events, when the producer runs, then both go to deposit-requested and are marked sent")
     void sendsAndMarks() {
         // given
-        TransactionEventEntity first = event();
-        TransactionEventEntity second = event();
+        OutboxEventEntity first = event();
+        OutboxEventEntity second = event();
         givenUnsent(first, second);
         when(kafkaTemplate.send(anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
@@ -91,16 +93,16 @@ class TransactionKafkaProducerTest {
         // then
         verify(kafkaTemplate).send(eq("deposit-requested"), eq(first.getTransactionUid().toString()), any());
         verify(kafkaTemplate).send(eq("deposit-requested"), eq(second.getTransactionUid().toString()), any());
-        verify(transactionEventRepository).markSent(eq(first.getUid()), eq(first.getUserUid()), any());
-        verify(transactionEventRepository).markSent(eq(second.getUid()), eq(second.getUserUid()), any());
+        verify(outboxEventRepository).markSent(eq(first.getUid()), eq(first.getUserUid()), any());
+        verify(outboxEventRepository).markSent(eq(second.getUid()), eq(second.getUserUid()), any());
     }
 
     @Test
     @DisplayName("given Kafka does not acknowledge, when the producer runs, then sent_at stays NULL, the failure counted and the batch stops")
     void brokerFailureStopsBatch() {
         // given
-        TransactionEventEntity first = event();
-        TransactionEventEntity second = event();
+        OutboxEventEntity first = event();
+        OutboxEventEntity second = event();
         givenUnsent(first, second);
         when(kafkaTemplate.send(anyString(), anyString(), any()))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
@@ -109,7 +111,27 @@ class TransactionKafkaProducerTest {
         producer.sendUnsent();
 
         // then
-        verify(transactionEventRepository, never()).markSent(any(), any(), any());
+        verify(outboxEventRepository, never()).markSent(any(), any(), any());
+        verify(kafkaTemplate, never()).send(anyString(), eq(second.getTransactionUid().toString()), any());
+        verify(transactionMetrics).sendFailed();
+    }
+
+    @Test
+    @DisplayName("given send throws at once (Schema Registry down), when the producer runs, then sent_at stays NULL,"
+            + " the failure counted and the batch stops")
+    void synchronousSendFailureStopsBatch() {
+        // given
+        OutboxEventEntity first = event();
+        OutboxEventEntity second = event();
+        givenUnsent(first, second);
+        when(kafkaTemplate.send(anyString(), anyString(), any()))
+                .thenThrow(new SerializationException("Schema Registry is not reachable"));
+
+        // when
+        producer.sendUnsent();
+
+        // then
+        verify(outboxEventRepository, never()).markSent(any(), any(), any());
         verify(kafkaTemplate, never()).send(anyString(), eq(second.getTransactionUid().toString()), any());
         verify(transactionMetrics).sendFailed();
     }
@@ -118,9 +140,9 @@ class TransactionKafkaProducerTest {
     @DisplayName("given a row that cannot be mapped, when the producer runs, then it stays unsent and the next one goes")
     void skipsUnmappableRow() {
         // given
-        TransactionEventEntity broken = event();
-        TransactionEventEntity good = event();
-        when(transactionEventRepository.findUnsent(100)).thenReturn(List.of(broken, good));
+        OutboxEventEntity broken = event();
+        OutboxEventEntity good = event();
+        when(outboxEventRepository.findUnsent(100)).thenReturn(List.of(broken, good));
         when(transactionMapper.toRequestedEvent(broken)).thenThrow(new IllegalStateException("bad payload"));
         when(transactionMapper.toRequestedEvent(good)).thenReturn(new DepositRequested());
         when(kafkaTemplate.send(anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
@@ -129,17 +151,17 @@ class TransactionKafkaProducerTest {
         producer.sendUnsent();
 
         // then
-        verify(transactionEventRepository, never()).markSent(eq(broken.getUid()), any(), any());
-        verify(transactionEventRepository).markSent(eq(good.getUid()), eq(good.getUserUid()), any());
+        verify(outboxEventRepository, never()).markSent(eq(broken.getUid()), any(), any());
+        verify(outboxEventRepository).markSent(eq(good.getUid()), eq(good.getUserUid()), any());
     }
 
-    private void givenUnsent(TransactionEventEntity... events) {
-        when(transactionEventRepository.findUnsent(100)).thenReturn(List.of(events));
+    private void givenUnsent(OutboxEventEntity... events) {
+        when(outboxEventRepository.findUnsent(100)).thenReturn(List.of(events));
         when(transactionMapper.toRequestedEvent(any())).thenReturn(new DepositRequested());
     }
 
-    private static TransactionEventEntity event() {
-        TransactionEventEntity event = new TransactionEventEntity();
+    private static OutboxEventEntity event() {
+        OutboxEventEntity event = new OutboxEventEntity();
         event.setUid(UUID.randomUUID());
         event.setTransactionUid(UUID.randomUUID());
         event.setUserUid(UUID.randomUUID());

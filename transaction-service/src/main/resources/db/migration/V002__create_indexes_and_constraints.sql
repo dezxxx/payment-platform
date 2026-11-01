@@ -9,4 +9,4 @@ CREATE INDEX idx_wallets_user_uid ON wallets (user_uid);
 CREATE INDEX idx_transactions_user_created ON transactions (user_uid, created_at);
 
 -- the producer reads only unsent events, oldest first
-CREATE INDEX idx_transaction_events_unsent ON transaction_events (created_at) WHERE sent_at IS NULL;
+CREATE INDEX idx_outbox_events_unsent ON outbox_events (created_at) WHERE sent_at IS NULL;

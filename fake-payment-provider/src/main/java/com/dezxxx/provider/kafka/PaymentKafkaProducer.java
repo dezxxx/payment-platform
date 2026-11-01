@@ -1,4 +1,4 @@
-package com.dezxxx.provider.client;
+package com.dezxxx.provider.kafka;
 
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;

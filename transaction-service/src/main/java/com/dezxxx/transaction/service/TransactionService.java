@@ -3,15 +3,15 @@ package com.dezxxx.transaction.service;
 import com.dezxxx.transaction.api.model.*;
 import com.dezxxx.transaction.config.FeeProperties;
 import com.dezxxx.transaction.config.OfferTokenProperties;
+import com.dezxxx.transaction.entity.transaction.OutboxEventType;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
-import com.dezxxx.transaction.entity.transaction.TransactionEventType;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
-import com.dezxxx.transaction.repository.TransactionEventRepository;
+import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.repository.TransactionSpecifications;
 import com.dezxxx.transaction.token.OfferTerms;
@@ -58,7 +58,7 @@ public class TransactionService {
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.asc("uid"));
 
     private final TransactionRepository transactionRepository;
-    private final TransactionEventRepository transactionEventRepository;
+    private final OutboxEventRepository outboxEventRepository;
     private final WalletService walletService;
     private final FeeProperties feeProperties;
     private final TransactionMapper transactionMapper;
@@ -92,7 +92,7 @@ public class TransactionService {
         // an exception from here on rolls back the claim: the requestId is free again
         requireNotExpired(terms);
         WalletEntity wallet = walletService.getActiveWallet(terms.walletUid(), userUid);
-        saveEvent(transactionId, userUid, TransactionEventType.DEPOSIT_REQUESTED,
+        saveEvent(transactionId, userUid, OutboxEventType.DEPOSIT_REQUESTED,
                 transactionMapper.toRequestedPayload(transactionId, userUid, wallet, terms.amount()));
 
         log.info("Deposit {} of user {} is PENDING", transactionId, userUid);
@@ -125,7 +125,7 @@ public class TransactionService {
         BigDecimal total = terms.amount().add(terms.fee());
         requireFunds(wallet, total);
         walletService.debit(terms.walletUid(), userUid, total);
-        saveEvent(transactionId, userUid, TransactionEventType.WITHDRAWAL_REQUESTED,
+        saveEvent(transactionId, userUid, OutboxEventType.WITHDRAWAL_REQUESTED,
                 transactionMapper.toRequestedPayload(transactionId, userUid, wallet, terms.amount()));
 
         log.info("Withdrawal {} of user {} is PENDING, {} reserved", transactionId, userUid, total);
@@ -162,7 +162,7 @@ public class TransactionService {
         requireFunds(source, total);
         walletService.debit(terms.walletUid(), userUid, total);
         walletService.credit(terms.targetWalletUid(), userUid, terms.amount());
-        transactionRepository.completeTransfer(transactionId, userUid, Instant.now());
+        transactionRepository.completeTransfer(transactionId, userUid, Instant.now(clock));
 
         log.info("Transfer {} of user {} is COMPLETED: {} from wallet {} to wallet {}, fee {}", transactionId,
                 userUid, terms.amount(), terms.walletUid(), terms.targetWalletUid(), terms.fee());
@@ -201,7 +201,7 @@ public class TransactionService {
     public void finalizeTransaction(UUID transactionId, UUID userUid, TransactionStatus outcome,
                                     String failureReason) {
         int updated = transactionRepository.finishPending(transactionId, userUid, outcome, failureReason,
-                Instant.now());
+                Instant.now(clock));
         TransactionEntity transaction = transactionRepository.findByUidAndUserUid(transactionId, userUid)
                 .orElseThrow(() -> new TransactionServiceException(ErrorCode.TRANSACTION_NOT_FOUND));
         if (updated == 0) {
@@ -268,8 +268,8 @@ public class TransactionService {
     }
 
     private void saveEvent(UUID transactionId, UUID userUid, String eventType, String payload) {
-        transactionEventRepository.saveAndFlush(
-                transactionMapper.toTransactionEvent(transactionId, userUid, eventType, payload, traceparent()));
+        outboxEventRepository.saveAndFlush(
+                transactionMapper.toOutboxEvent(transactionId, userUid, eventType, payload, traceparent()));
     }
 
     private String traceparent() {

@@ -16,7 +16,7 @@
 | Решение | Значение |
 |---|---|
 | Модуль | своя сборка Gradle и контейнер (`fake-payment-provider`, порт 8086), пакет `com.dezxxx.provider`; Spring MVC только для health и `/actuator/prometheus`, работа идёт через Kafka |
-| Классы | `client/PaymentKafkaConsumer` → `service/PaymentService` → `client/PaymentKafkaProducer`; `metrics/PaymentMetrics`; `config/KafkaConfig`, `config/ProviderProperties` |
+| Классы | `kafka/PaymentKafkaConsumer` → `service/PaymentService` → `kafka/PaymentKafkaProducer`; `metrics/PaymentMetrics`; `config/KafkaConfig`, `config/ProviderProperties` |
 | Контракт | jar `transaction-service-events` из Nexus: Avro-классы, `EventTopics`, `TrustedEvents`. Своих событий провайдер не объявляет |
 | Ответ | сумма до `provider.approval-limit` (10000) → `DepositCompleted` / `WithdrawalCompleted`; больше → `DepositFailed` "Not enough funds on the card" / `WithdrawalFailed` "The bank refused the payout". Каждый ответ несёт `transactionId` и `userId` из запроса |
 | Доставка | чтение и ответ в одной транзакции Kafka (`transaction-id-prefix`): offset фиксируется вместе с ответом, поэтому падение не оставит ответ без offset-а и наоборот. Exactly-once Kafka → Kafka; консьюмер `read_committed` |

@@ -67,8 +67,11 @@ transaction:
     partitions: 4
     send-interval: 1s
     batch-size: 100
-    retry-interval: 1s
-    retry-attempts: 3
+    # a provider answer waits for a shard that is down about 20 min: each attempt may wait up to 30 s
+    # for a connection, then 30 s pause. The pause sleeps the consumer thread, keep it well below
+    # max.poll.interval.ms (5 min) or Kafka gives the partitions to another consumer
+    retry-interval: 30s
+    retry-attempts: 20
   metrics:
     # how often the backlog and PENDING gauges read the shards; a scrape itself never queries the database
     refresh-interval: 15s

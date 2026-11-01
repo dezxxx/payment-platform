@@ -44,7 +44,7 @@ CREATE TABLE transactions (
     request_id UUID NOT NULL
 );
 
-CREATE TABLE transaction_events (
+CREATE TABLE outbox_events (
     uid UUID PRIMARY KEY,
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     transaction_uid UUID NOT NULL REFERENCES transactions (uid),

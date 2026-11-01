@@ -75,7 +75,7 @@ else
                     TS --> Client: 400 INSUFFICIENT_FUNDS
                 else
                     TS -> DB: UPDATE wallets balance − (amount + fee)
-                    TS -> DB: INSERT transaction_events (WithdrawalRequested, sent_at NULL)
+                    TS -> DB: INSERT outbox_events (WithdrawalRequested, sent_at NULL)
                     TS -> DB: COMMIT
                     TS --> Client: 200 PENDING, transactionId
                 end
@@ -87,7 +87,7 @@ note right of DB: any DB error (incl. a lock timeout) → ROLLBACK, 500
 
 == async: outbox → provider ==
 loop @Scheduled
-    Pub -> DB: SELECT transaction_events WHERE sent_at IS NULL (both shards)
+    Pub -> DB: SELECT outbox_events WHERE sent_at IS NULL (both shards)
     Pub -> Kafka: WithdrawalRequested (key = transactionId)
     alt ack
         Pub -> DB: UPDATE sent_at = now()
@@ -112,8 +112,11 @@ end
 alt ok
     TS -> DB: COMMIT
     Cons -> Kafka: commit offset
-else exception
+else not found (TransactionServiceException)
     TS -> DB: ROLLBACK
-    Cons -> Kafka: retries → DLT
+    Cons -> Kafka: DLT at once, no retries
+else DB error (a shard is down)
+    TS -> DB: ROLLBACK
+    Cons -> Kafka: retries 20 × 30 s (about 20 min) → DLT
 end
 @enduml

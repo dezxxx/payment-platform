@@ -1,4 +1,4 @@
-package com.dezxxx.transaction.client;
+package com.dezxxx.transaction.kafka;
 
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.event.DepositCompleted;

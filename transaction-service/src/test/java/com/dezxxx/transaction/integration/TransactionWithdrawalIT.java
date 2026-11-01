@@ -92,7 +92,7 @@ class TransactionWithdrawalIT extends IntegrationTest {
 
         Map<String, Object> event = jdbc.queryForMap(
                 "SELECT event_type, payload->>'amount' AS amount, payload->>'currency' AS currency"
-                        + " FROM transaction_events WHERE transaction_uid = ? AND user_uid = ?",
+                        + " FROM outbox_events WHERE transaction_uid = ? AND user_uid = ?",
                 confirmed.getTransactionId(), user);
         assertThat(event).containsEntry("event_type", "WithdrawalRequested")
                 .containsEntry("amount", "100.00")

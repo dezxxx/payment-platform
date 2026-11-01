@@ -1,13 +1,13 @@
-package com.dezxxx.transaction.unit.client;
+package com.dezxxx.transaction.unit.kafka;
 
 import static org.mockito.Mockito.verify;
 
-import com.dezxxx.transaction.client.TransactionKafkaConsumer;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.event.DepositCompleted;
 import com.dezxxx.transaction.event.DepositFailed;
 import com.dezxxx.transaction.event.WithdrawalCompleted;
 import com.dezxxx.transaction.event.WithdrawalFailed;
+import com.dezxxx.transaction.kafka.TransactionKafkaConsumer;
 import com.dezxxx.transaction.service.TransactionService;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;

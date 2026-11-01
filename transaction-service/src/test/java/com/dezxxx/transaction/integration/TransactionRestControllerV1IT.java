@@ -113,7 +113,7 @@ class TransactionRestControllerV1IT extends IntegrationTest {
         Map<String, Object> event = jdbc.queryForMap(
                 "SELECT event_type, payload->>'transactionId' AS transaction_id, payload->>'userId' AS user_id,"
                         + " payload->>'currency' AS currency, payload->>'amount' AS amount, traceparent"
-                        + " FROM transaction_events WHERE transaction_uid = ? AND user_uid = ?",
+                        + " FROM outbox_events WHERE transaction_uid = ? AND user_uid = ?",
                 confirmed.getTransactionId(), user);
         assertThat(event).containsEntry("event_type", "DepositRequested")
                 .containsEntry("transaction_id", confirmed.getTransactionId().toString())

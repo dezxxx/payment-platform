@@ -8,8 +8,8 @@ import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
 import com.dezxxx.transaction.api.model.TransactionStatusDto;
 import com.dezxxx.transaction.api.model.TransactionStatusResponseDto;
 import com.dezxxx.transaction.api.model.TransactionTypeDto;
+import com.dezxxx.transaction.entity.transaction.OutboxEventEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
-import com.dezxxx.transaction.entity.transaction.TransactionEventEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.entity.wallet.WalletEntity;
@@ -94,7 +94,7 @@ class TransactionMapperTest {
     @DisplayName("given a DepositRequested row with a whole amount, when mapping to Avro, then its fields and two decimals")
     void mapsRowToDepositRequested() {
         // given
-        TransactionEventEntity row = transactionMapper.toTransactionEvent(TRANSACTION_UID, USER_UID,
+        OutboxEventEntity row = transactionMapper.toOutboxEvent(TRANSACTION_UID, USER_UID,
                 "DepositRequested", "{\"transactionId\":\"" + TRANSACTION_UID + "\",\"userId\":\"" + USER_UID
                         + "\",\"walletUid\":\"" + WALLET_UID + "\",\"amount\":100,\"currency\":\"USD\"}", null);
 
@@ -125,7 +125,7 @@ class TransactionMapperTest {
 
         // when
         SpecificRecord record = transactionMapper.toRequestedEvent(
-                transactionMapper.toTransactionEvent(TRANSACTION_UID, USER_UID, "DepositRequested", payload, null));
+                transactionMapper.toOutboxEvent(TRANSACTION_UID, USER_UID, "DepositRequested", payload, null));
 
         // then
         assertThat(((DepositRequested) record).getAmount()).isEqualTo(new BigDecimal("0.10"));
@@ -136,7 +136,7 @@ class TransactionMapperTest {
     @DisplayName("given an unknown event type, when mapping to Avro, then an exception: no event to send")
     void refusesUnknownEventType() {
         // given
-        TransactionEventEntity row = transactionMapper.toTransactionEvent(TRANSACTION_UID, USER_UID,
+        OutboxEventEntity row = transactionMapper.toOutboxEvent(TRANSACTION_UID, USER_UID,
                 "Unknown", "{\"amount\":1}", null);
 
         // when / then
@@ -149,7 +149,7 @@ class TransactionMapperTest {
     @DisplayName("given the event data, when mapping to an entity, then it is unsent")
     void mapsEvent() {
         // when
-        TransactionEventEntity event = transactionMapper.toTransactionEvent(TRANSACTION_UID, USER_UID,
+        OutboxEventEntity event = transactionMapper.toOutboxEvent(TRANSACTION_UID, USER_UID,
                 "DepositRequested", "{}", "00-trace-span-01");
 
         // then

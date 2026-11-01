@@ -2,6 +2,7 @@ package com.dezxxx.transaction.config;
 
 import com.dezxxx.transaction.event.EventTopics;
 import com.dezxxx.transaction.event.TrustedEvents;
+import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.metrics.TransactionMetrics;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.TopicPartition;
@@ -43,8 +44,9 @@ public class KafkaConfig {
                 topic(EventTopics.WITHDRAWAL_FAILED + DLT_SUFFIX, properties));
     }
 
-    // a failure is retried with a pause; when the retries run out the message goes to <topic>-dlt.
-    // A message that cannot be deserialized goes there at once: retrying would not help
+    // a failure (a shard that is down) is retried with a pause; when the retries run out the message goes
+    // to <topic>-dlt. A TransactionServiceException (an unknown transaction) and a message that cannot be
+    // deserialized go there at once: retrying would not help and would hold the partition
     @Bean
     public DefaultErrorHandler kafkaErrorHandler(KafkaOperations<Object, Object> kafkaTemplate,
                                                  KafkaEventProperties properties,
@@ -53,10 +55,12 @@ public class KafkaConfig {
                 (consumerRecord, exception) -> new TopicPartition(consumerRecord.topic() + DLT_SUFFIX, -1));
         FixedBackOff backOff = new FixedBackOff(properties.retryInterval().toMillis(), properties.retryAttempts());
         // counted after the publish: a failed publish throws, the message is retried and not counted twice
-        return new DefaultErrorHandler((consumerRecord, exception) -> {
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler((consumerRecord, exception) -> {
             deadLetters.accept(consumerRecord, exception);
             transactionMetrics.deadLettered(consumerRecord.topic());
         }, backOff);
+        errorHandler.addNotRetryableExceptions(TransactionServiceException.class);
+        return errorHandler;
     }
 
     private NewTopic topic(String name, KafkaEventProperties properties) {

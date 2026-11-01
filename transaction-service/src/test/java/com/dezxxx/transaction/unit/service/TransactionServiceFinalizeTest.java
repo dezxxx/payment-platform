@@ -17,7 +17,7 @@ import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
-import com.dezxxx.transaction.repository.TransactionEventRepository;
+import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
@@ -54,7 +54,7 @@ class TransactionServiceFinalizeTest {
     private TransactionRepository transactionRepository;
 
     @Mock
-    private TransactionEventRepository transactionEventRepository;
+    private OutboxEventRepository outboxEventRepository;
 
     @Mock
     private WalletService walletService;
@@ -81,7 +81,7 @@ class TransactionServiceFinalizeTest {
 
     @BeforeEach
     void setUp() {
-        transactionService = new TransactionService(transactionRepository, transactionEventRepository, walletService,
+        transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
                 new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.01"), new BigDecimal("0.005")),
                 transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
                 new OfferTokenProperties("secret", Duration.ofMinutes(5)), Clock.systemUTC());
@@ -155,7 +155,7 @@ class TransactionServiceFinalizeTest {
     }
 
     @Test
-    @DisplayName("given an unknown transaction, when its answer comes, then TRANSACTION_NOT_FOUND for a retry and the DLT")
+    @DisplayName("given an unknown transaction, when its answer comes, then TRANSACTION_NOT_FOUND, which the error handler sends to the DLT")
     void unknownTransactionThrows() {
         // given
         when(transactionRepository.finishPending(eq(TRANSACTION_UID), eq(USER_UID), eq(TransactionStatus.COMPLETED),

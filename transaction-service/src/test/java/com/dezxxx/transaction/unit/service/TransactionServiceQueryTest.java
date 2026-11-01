@@ -14,7 +14,7 @@ import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
-import com.dezxxx.transaction.repository.TransactionEventRepository;
+import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
@@ -58,7 +58,7 @@ class TransactionServiceQueryTest {
     private TransactionRepository transactionRepository;
 
     @Mock
-    private TransactionEventRepository transactionEventRepository;
+    private OutboxEventRepository outboxEventRepository;
 
     @Mock
     private WalletService walletService;
@@ -85,7 +85,7 @@ class TransactionServiceQueryTest {
 
     @BeforeEach
     void setUp() {
-        transactionService = new TransactionService(transactionRepository, transactionEventRepository, walletService,
+        transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
                 FEES, transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
                 new OfferTokenProperties("secret", Duration.ofMinutes(5)), Clock.systemUTC());
     }

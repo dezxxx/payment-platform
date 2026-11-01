@@ -55,7 +55,7 @@ public interface TransactionRepository extends JpaRepository<TransactionEntity, 
             + " and t.status = com.dezxxx.transaction.entity.transaction.TransactionStatus.PENDING")
     int finishPending(UUID uid, UUID userUid, TransactionStatus status, String failureReason, Instant modifiedAt);
 
-    // for TransactionMetrics, both shards: native with an alias, as in TransactionEventRepository
+    // for TransactionMetrics, both shards: native with an alias, as in OutboxEventRepository
     @Query(value = "SELECT count(*) AS pending FROM transactions WHERE status = 'PENDING'", nativeQuery = true)
     long countPending();
 

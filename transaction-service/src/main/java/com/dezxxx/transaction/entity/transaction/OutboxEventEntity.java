@@ -16,8 +16,8 @@ import org.hibernate.type.SqlTypes;
 @Getter
 @Setter
 @Entity
-@Table(name = "transaction_events")
-public class TransactionEventEntity {
+@Table(name = "outbox_events")
+public class OutboxEventEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

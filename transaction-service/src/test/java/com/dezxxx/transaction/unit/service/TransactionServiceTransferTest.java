@@ -23,7 +23,7 @@ import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
-import com.dezxxx.transaction.repository.TransactionEventRepository;
+import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
 import com.dezxxx.transaction.service.WalletService;
@@ -82,7 +82,7 @@ class TransactionServiceTransferTest {
     private TransactionRepository transactionRepository;
 
     @Mock
-    private TransactionEventRepository transactionEventRepository;
+    private OutboxEventRepository outboxEventRepository;
 
     @Mock
     private WalletService walletService;
@@ -109,7 +109,7 @@ class TransactionServiceTransferTest {
 
     @BeforeEach
     void setUp() {
-        transactionService = new TransactionService(transactionRepository, transactionEventRepository, walletService,
+        transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
                 FEES, transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner,
                 offerTokenValidator, new OfferTokenProperties("secret", Duration.ofMinutes(5)),
                 Clock.fixed(NOW, ZoneOffset.UTC));
@@ -135,7 +135,7 @@ class TransactionServiceTransferTest {
         assertThat(terms.getValue().type()).isEqualTo(TransactionPaymentType.TRANSFER);
         assertThat(terms.getValue().walletUid()).isEqualTo(WALLET_UID);
         assertThat(terms.getValue().targetWalletUid()).isEqualTo(TARGET_UID);
-        verifyNoInteractions(transactionRepository, transactionEventRepository);
+        verifyNoInteractions(transactionRepository, outboxEventRepository);
     }
 
     @Test
@@ -175,7 +175,7 @@ class TransactionServiceTransferTest {
         order.verify(walletService).debit(WALLET_UID, USER_UID, TOTAL);
         order.verify(walletService).credit(TARGET_UID, USER_UID, AMOUNT);
         order.verify(transactionRepository).completeTransfer(any(), eq(USER_UID), any());
-        verifyNoInteractions(transactionEventRepository);
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test

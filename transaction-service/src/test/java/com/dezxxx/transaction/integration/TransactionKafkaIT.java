@@ -57,7 +57,7 @@ class TransactionKafkaIT extends IntegrationTest {
         UUID user = UUID.randomUUID();
         UUID wallet = createWallet(user);
         TransactionConfirmResponseDto confirmed = confirmed(user, wallet, AMOUNT);
-        String traceparent = jdbc.queryForObject("SELECT traceparent FROM transaction_events"
+        String traceparent = jdbc.queryForObject("SELECT traceparent FROM outbox_events"
                 + " WHERE transaction_uid = ? AND user_uid = ?", String.class, confirmed.getTransactionId(), user);
 
         // when
@@ -72,7 +72,7 @@ class TransactionKafkaIT extends IntegrationTest {
         assertThat(event.getAmount()).isEqualByComparingTo("100.00");
         assertThat(event.getCurrency()).isEqualTo("USD");
         assertThat(traceId(header(message, "traceparent"))).isEqualTo(traceId(traceparent));
-        await().atMost(WAIT).until(() -> jdbc.queryForObject("SELECT sent_at IS NOT NULL FROM transaction_events"
+        await().atMost(WAIT).until(() -> jdbc.queryForObject("SELECT sent_at IS NOT NULL FROM outbox_events"
                 + " WHERE transaction_uid = ? AND user_uid = ?", Boolean.class, confirmed.getTransactionId(), user));
     }
 
@@ -192,7 +192,7 @@ class TransactionKafkaIT extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("given an unknown transaction, when DepositCompleted arrives, then after the retries it is in deposit-completed-dlt and counted")
+    @DisplayName("given an unknown transaction, when DepositCompleted arrives, then without retries it is in deposit-completed-dlt and counted")
     void unknownTransactionGoesToDlt() {
         // given
         UUID transactionId = UUID.randomUUID();
