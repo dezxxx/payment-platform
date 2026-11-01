@@ -240,6 +240,7 @@ required action `UPDATE_PASSWORD`, и шаг 9 после этого падае�
 | `@Valid` | **400** `VALIDATION_ERROR`, по строке в `details[]` на каждое кривое поле | ничего |
 | person-service `409` | **409** `USER_ALREADY_EXISTS` | ничего |
 | person-service `5xx` | **503** `DEPENDENCY_UNAVAILABLE` | ничего |
+| person-service не ответил за 30 с (`individuals.person-service.response-timeout`; 5 с по умолчанию мало для его первого запроса после холодного старта) | **503** `DEPENDENCY_UNAVAILABLE` | физлицо, если person-service закончил уже после того, как мы перестали ждать |
 | person-service `400` | **500** `INTERNAL_ERROR` — их валидация и наша разошлись, это наш баг | ничего |
 | *— выдан `user_uid`; дальше сбой компенсируется —* | | |
 | создание в Keycloak | ошибка Keycloak как есть (**503** `DEPENDENCY_UNAVAILABLE`, **409** `USER_ALREADY_EXISTS`) | ничего — физлицо удалено |

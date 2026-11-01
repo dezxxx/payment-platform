@@ -237,6 +237,7 @@ implemented; the cost is the gap described below.
 | `@Valid` | **400** `VALIDATION_ERROR`, one `details[]` line per bad field | nothing |
 | person-service `409` | **409** `USER_ALREADY_EXISTS` | nothing |
 | person-service `5xx` | **503** `DEPENDENCY_UNAVAILABLE` | nothing |
+| person-service gives no answer within 30 s (`individuals.person-service.response-timeout`; the default 5 s is too short for its first request after a cold start) | **503** `DEPENDENCY_UNAVAILABLE` | the individual, if person-service finishes after we stopped waiting |
 | person-service `400` | **500** `INTERNAL_ERROR` — their validation and ours disagree, which is our bug | nothing |
 | *— `user_uid` issued; from here a failure is compensated —* | | |
 | Keycloak create | the Keycloak error as is (**503** `DEPENDENCY_UNAVAILABLE`, **409** `USER_ALREADY_EXISTS`) | nothing — the individual is removed |

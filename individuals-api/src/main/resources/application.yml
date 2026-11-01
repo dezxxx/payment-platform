@@ -21,6 +21,7 @@ server:
 individuals:
   person-service:
     base-url: ${PERSON_SERVICE_URL:http://localhost:8082}
+    response-timeout: 30s
   keycloak:
     base-url: ${KEYCLOAK_URL:http://localhost:8080}
     realm: ${KEYCLOAK_REALM:payment-platform}
