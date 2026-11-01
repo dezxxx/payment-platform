@@ -31,9 +31,9 @@ public class OfferTokenSigner {
 
     public String issue(OfferTerms terms) {
         byte[] json = jsonMapper.writeValueAsBytes(terms);
-        String payload = ENCODER.encodeToString(json);
-        byte[] signature = sign(payload.getBytes(StandardCharsets.UTF_8));
-        return payload + "." + ENCODER.encodeToString(signature);
+        String tokenPayload = ENCODER.encodeToString(json);
+        byte[] signature = sign(tokenPayload.getBytes(StandardCharsets.UTF_8));
+        return tokenPayload + "." + ENCODER.encodeToString(signature);
     }
 
 
@@ -59,12 +59,12 @@ public class OfferTokenSigner {
     }
 
     // Mac is not thread-safe and this bean serves every request, so a new one per call
-    private byte[] sign(byte[] payload) {
+    private byte[] sign(byte[] tokenPayload) {
         try {
             Mac mac = Mac.getInstance(ALGORITHM);
             byte[] secret = properties.secret().getBytes(StandardCharsets.UTF_8);
             mac.init(new SecretKeySpec(secret, ALGORITHM));
-            return mac.doFinal(payload);
+            return mac.doFinal(tokenPayload);
         } catch (GeneralSecurityException e) {
             throw new TransactionServiceException(ErrorCode.INTERNAL_ERROR);
         }
