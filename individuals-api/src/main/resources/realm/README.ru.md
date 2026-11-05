@@ -20,10 +20,10 @@ volumes:
 | Блок | Строки | Что объявляет |
 |---|---|---|
 | настройки realm | 2-12 | имя, правила входа, сроки токенов |
-| `roles` | 13-20 | роль платформы `USER` |
-| `clients` | 21-57 | клиент `individuals-api`, его секрет, маппер `user_uid` |
-| `users` | 58-72 | служебный пользователь и его права в Admin API |
-| `components` | 73-87 | профиль пользователя: какие атрибуты может хранить учётка |
+| `roles` | 13-24 | роль платформы `USER` и служебная роль `SERVICE` |
+| `clients` | 25-61 | клиент `individuals-api`, его секрет, маппер `user_uid` |
+| `users` | 62-79 | служебный пользователь, его роль realm `SERVICE` и права в Admin API |
+| `components` | 80-94 | профиль пользователя: какие атрибуты может хранить учётка |
 
 ### Настройки realm
 
@@ -42,6 +42,13 @@ volumes:
 `USER` здесь только объявлена и никому не выдаётся: ни одна настройка импорта
 не раздаёт роли realm'а. Выдаёт её `KeycloakClient.assignPlatformRole`,
 третьим шагом регистрации.
+
+`SERVICE` — признак сервиса платформы, который зовёт внутренний сервис
+(person-service, transaction-service). В отличие от `USER` она выдаётся прямо
+здесь, в `users`, служебному пользователю `individuals-api` и больше никому.
+Внутренние сервисы проверяют подпись токена ключами realm и пускают только
+`SERVICE`: токен пользователя (`USER`) получает `403`, без токена или с чужим —
+`401`. Новый сервис платформы, который их зовёт, получает свой клиент и ту же роль.
 
 ### `clients`
 
@@ -74,7 +81,8 @@ individuals-api-dedicated**.
 
 ### `users`
 
-Один служебный пользователь с четырьмя правами в Admin API:
+Один служебный пользователь. Его роль realm `SERVICE` проверяют внутренние
+сервисы; четыре права в Admin API нужны самому шлюзу в Keycloak:
 
 | Право | Кем используется |
 |---|---|
@@ -87,7 +95,7 @@ individuals-api-dedicated**.
 ### `components` — профиль пользователя
 
 Keycloak 24+ не сохраняет атрибут, который не объявлен в профиле пользователя.
-Строка 82 — одна длинная экранированная строка; если распутать, наш атрибут
+Строка 89 — одна длинная экранированная строка; если распутать, наш атрибут
 выглядит так:
 
 ```json
@@ -120,6 +128,7 @@ Keycloak 24+ не сохраняет атрибут, который не объ�
 | id клиента | `clientId` | `application.yml`: `individuals.keycloak.client-id` |
 | секрет клиента | `secret` (заглушка) | `.env`: `KEYCLOAK_CLIENT_SECRET` |
 | имя роли `USER` | `roles.realm[].name` | `KeycloakClient.PLATFORM_ROLE` |
+| имя роли `SERVICE` | `roles.realm[].name`, `users[].realmRoles` | `SecurityConfig` в person-service и transaction-service: `hasRole("SERVICE")` |
 | почта как логин | `registrationEmailAsUsername` | `KeycloakUserRequestDto`: `username = email` |
 | вход по паролю | `directAccessGrantsEnabled` | `KeycloakClient.login`: `grant_type=password` |
 | объявление атрибута | `components` | `KeycloakUserRequestDto`: `attributes` |

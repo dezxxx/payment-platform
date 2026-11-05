@@ -7,6 +7,13 @@ spring:
   web:
     locale: en
     locale-resolver: fixed
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # keys only, no issuer check: without KC_HOSTNAME a token from localhost:8080 and one from
+          # keycloak:8080 carry different iss, the signature is what proves Keycloak issued it
+          jwk-set-uri: ${KEYCLOAK_URL:http://localhost:8080}/realms/${KEYCLOAK_REALM:payment-platform}/protocol/openid-connect/certs
   datasource:
     driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
     # the shard addresses in sharding.yaml come from the same environment variables as transaction.shards

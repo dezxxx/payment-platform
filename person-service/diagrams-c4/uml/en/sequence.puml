@@ -11,6 +11,7 @@ participant "IndividualMapper" as Map
 participant "Repositories" as Repo
 database "PostgreSQL" as DB
 
+note across : Every request into person-service first passes the service-token check (sequence-service-token):\nBearer token of individuals-api with the realm role SERVICE, otherwise 401 / 403 and nothing is read or written
 == Create ==
 IA -> Ctl : POST /api/v1/individuals
 activate Ctl

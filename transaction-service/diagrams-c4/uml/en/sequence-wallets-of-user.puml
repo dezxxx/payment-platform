@@ -8,6 +8,7 @@ box "transaction-service" #F5F9FF
     database "DB (shard by user_uid)" as DB
 end box
 
+note across: Every request into transaction-service first passes the service-token check (sequence-service-token):\nBearer token of individuals-api with the realm role SERVICE, otherwise 401 / 403 and nothing is read or written
 Client -> IA: GET the user's wallets
 alt invalid token
     IA --> Client: 401

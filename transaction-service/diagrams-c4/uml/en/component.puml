@@ -6,11 +6,13 @@ title transaction-service — component diagram (C4, level 3)
 Container_Ext(individualsApi, "individuals-api", "Spring Boot WebFlux", "Calls transaction-service through transaction-service-client, user_uid from the token")
 ContainerDb(shard0, "PostgreSQL shard_0", "wallets, transactions, outbox_events", "hash(user_uid) % 2 = 0")
 ContainerDb(shard1, "PostgreSQL shard_1", "wallets, transactions, outbox_events", "hash(user_uid) % 2 = 1")
+Container_Ext(keycloak, "Keycloak", "identity provider", "Realm signing keys (JWKS)")
 Container_Ext(kafka, "Kafka", "KRaft", "deposit / withdrawal events")
 Container_Ext(schemaRegistry, "Schema Registry", "Confluent", "Avro schemas of the events")
 Container_Ext(observability, "Prometheus / Alloy", "metrics, traces, logs", "Observability stack")
 
 Container_Boundary(app, "transaction-service") {
+    Component(security, "SecurityConfig", "Spring Security resource server", "Every request except actuator, OpenAPI and Swagger UI: Bearer token signed by the realm keys with the realm role SERVICE; otherwise 401 / 403 through GlobalExceptionHandler, nothing read or written")
     Component(walletController, "WalletRestControllerV1", "Spring MVC, implements the generated WalletsApi", "/api/v1/wallets: create, wallet by id, a user's wallets")
     Component(transactionController, "TransactionRestControllerV1", "Spring MVC, implements the generated TransactionsApi", "/api/v1/transactions: init, confirm, status, search")
     Component(handler, "GlobalExceptionHandler", "@RestControllerAdvice", "Answers any error in RFC 9457 form")
@@ -28,8 +30,11 @@ Container_Boundary(app, "transaction-service") {
     Component(consumer, "TransactionKafkaConsumer", "@KafkaListener, Avro", "Receives *Completed / *Failed and hands them to TransactionService; a repeat changes 0 rows (WHERE status = PENDING); failure -> retry -> DLT")
 }
 
-Rel(individualsApi, walletController, "REST /api/v1/wallets", "HTTP, JSON")
-Rel(individualsApi, transactionController, "REST /api/v1/transactions", "HTTP, JSON")
+Rel(individualsApi, security, "every request", "HTTP, JSON, Bearer service token")
+Rel(security, keycloak, "realm keys", "JWKS, cached")
+Rel(security, handler, "401 AUTHENTICATION_REQUIRED, 403 ACCESS_DENIED")
+Rel(security, walletController, "REST /api/v1/wallets, role SERVICE")
+Rel(security, transactionController, "REST /api/v1/transactions, role SERVICE")
 Rel(walletController, walletService, "calls")
 Rel(transactionController, transactionService, "calls")
 Rel_Back(handler, transactionController, "TransactionServiceException and framework errors")

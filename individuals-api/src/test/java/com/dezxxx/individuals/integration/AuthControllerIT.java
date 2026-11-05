@@ -6,6 +6,8 @@ import com.dezxxx.individuals.api.model.TokenResponseDto;
 import com.dezxxx.individuals.integration.support.IntegrationTest;
 import com.dezxxx.individuals.integration.support.KeycloakAdminProbe;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -48,6 +50,25 @@ class AuthControllerIT extends IntegrationTest {
         assertThat(account.get().path("firstName").asText()).isEqualTo("Ivan");
         assertThat(account.get().path("lastName").asText()).isEqualTo("Ivanov");
         assertThat(account.get().path("enabled").asBoolean()).isTrue();
+    }
+
+    @Test
+    @DisplayName("IT-KC-004: given a registration, when person-service is called, then it gets the service token of"
+            + " individuals-api with the realm role SERVICE")
+    void callsPersonServiceWithTheServiceToken() {
+        // given
+        int callsBefore = PERSON_SERVICE.receivedAuthorizations().size();
+
+        // when
+        register(freshEmail("it-kc-004"));
+
+        // then
+        String authorization = PERSON_SERVICE.receivedAuthorizations().get(callsBefore);
+        assertThat(authorization).startsWith("Bearer ");
+        Jwt serviceToken = jwtDecoder.decode(authorization.substring("Bearer ".length())).block();
+        assertThat(serviceToken.getClaimAsString("azp")).isEqualTo(CLIENT_ID);
+        assertThat(serviceToken.<Map<String, List<String>>>getClaim("realm_access").get("roles"))
+                .contains("SERVICE");
     }
 
     @Test

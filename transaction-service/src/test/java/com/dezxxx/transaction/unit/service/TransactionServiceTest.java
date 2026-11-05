@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.RETURNS_SELF;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -24,6 +25,7 @@ import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
+import com.dezxxx.transaction.metrics.TransactionMetrics;
 import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
@@ -32,6 +34,7 @@ import com.dezxxx.transaction.token.OfferTerms;
 import com.dezxxx.transaction.token.OfferTokenSigner;
 import com.dezxxx.transaction.validation.DateRangeValidator;
 import com.dezxxx.transaction.validation.OfferTokenValidator;
+import io.micrometer.tracing.Link;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
@@ -70,6 +73,8 @@ class TransactionServiceTest {
 
     private static final String OFFER_TOKEN = "payload.signature";
 
+    private static final String INIT_TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
     private static final Instant NOW = Instant.parse("2026-10-29T12:00:00Z");
 
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -106,6 +111,9 @@ class TransactionServiceTest {
     @Mock
     private OfferTokenValidator offerTokenValidator;
 
+    @Mock
+    private TransactionMetrics transactionMetrics;
+
     private TransactionService transactionService;
 
     @BeforeEach
@@ -132,7 +140,7 @@ class TransactionServiceTest {
         assertThat(terms.getValue().requestId()).isNotNull();
         assertThat(terms.getValue()).usingRecursiveComparison().ignoringFields("requestId")
                 .isEqualTo(new OfferTerms(null, USER_UID, TransactionPaymentType.DEPOSIT, WALLET_UID, null, AMOUNT,
-                        new BigDecimal("0.00"), NOW.plus(Duration.ofMinutes(5))));
+                        new BigDecimal("0.00"), NOW.plus(Duration.ofMinutes(5)), null));
         verify(walletService).getActiveWallet(WALLET_UID, USER_UID);
         verifyNoInteractions(transactionRepository, outboxEventRepository);
     }
@@ -167,7 +175,7 @@ class TransactionServiceTest {
 
     @Test
     @DisplayName("given a valid offer, when confirm, then claimed with the fee from the token, DepositRequested saved"
-            + " with the traceparent, PENDING")
+            + " with amount, total = amount + fee and the traceparent, PENDING")
     void confirmsDeposit() {
         // given
         givenOffer(NOW.plus(Duration.ofMinutes(5)));
@@ -177,7 +185,8 @@ class TransactionServiceTest {
         when(transactionRepository.claimDepositRequestId(any(), eq(USER_UID), eq(WALLET_UID), eq(AMOUNT),
                 eq(TOKEN_FEE), eq(REQUEST_ID))).thenAnswer(call -> Optional.of(call.getArgument(0)));
         when(walletService.getActiveWallet(WALLET_UID, USER_UID)).thenReturn(wallet);
-        when(transactionMapper.toRequestedPayload(any(), eq(USER_UID), eq(wallet), eq(AMOUNT))).thenReturn("{}");
+        when(transactionMapper.toRequestedPayload(any(), eq(USER_UID), eq(wallet), eq(AMOUNT),
+                eq(new BigDecimal("103.00")))).thenReturn("{}");
         givenTraceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
         when(transactionMapper.toOutboxEvent(any(), eq(USER_UID), eq("DepositRequested"), eq("{}"),
                 eq("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"))).thenReturn(event);
@@ -203,7 +212,7 @@ class TransactionServiceTest {
         when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any(), any()))
                 .thenAnswer(call -> Optional.of(call.getArgument(0)));
         when(walletService.getActiveWallet(WALLET_UID, USER_UID)).thenReturn(new WalletEntity());
-        when(transactionMapper.toRequestedPayload(any(), any(), any(), any())).thenReturn("{}");
+        when(transactionMapper.toRequestedPayload(any(), any(), any(), any(), any())).thenReturn("{}");
 
         // when
         transactionService.confirmDeposit(USER_UID, confirmRequest());
@@ -256,7 +265,7 @@ class TransactionServiceTest {
         when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any(), any()))
                 .thenAnswer(call -> Optional.of(call.getArgument(0)));
         when(walletService.getActiveWallet(WALLET_UID, USER_UID)).thenReturn(new WalletEntity());
-        when(transactionMapper.toRequestedPayload(any(), any(), any(), any())).thenReturn("{}");
+        when(transactionMapper.toRequestedPayload(any(), any(), any(), any(), any())).thenReturn("{}");
 
         // when
         transactionService.confirmDeposit(USER_UID, confirmRequest());
@@ -296,16 +305,71 @@ class TransactionServiceTest {
         verifyNoInteractions(outboxEventRepository);
     }
 
+    @Test
+    @DisplayName("given a current trace, when init, then the signed offer carries the init request's traceparent")
+    void offerCarriesInitTraceparent() {
+        // given
+        givenTraceparent(INIT_TRACEPARENT);
+        when(offerTokenSigner.issue(any())).thenReturn(OFFER_TOKEN);
+
+        // when
+        transactionService.initDeposit(USER_UID, initRequest(AMOUNT));
+
+        // then
+        ArgumentCaptor<OfferTerms> terms = ArgumentCaptor.forClass(OfferTerms.class);
+        verify(offerTokenSigner).issue(terms.capture());
+        assertThat(terms.getValue().traceparent()).isEqualTo(INIT_TRACEPARENT);
+    }
+
+    @Test
+    @DisplayName("given an offer issued in another trace, when confirm, then a child span of confirm links to the"
+            + " init span: same traceId, spanId and sampled flag")
+    @SuppressWarnings("unchecked")
+    void confirmLinksToInitSpan() {
+        // given
+        when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.DEPOSIT))
+                .thenReturn(new OfferTerms(REQUEST_ID, USER_UID, TransactionPaymentType.DEPOSIT, WALLET_UID, null,
+                        AMOUNT, TOKEN_FEE, NOW.plus(Duration.ofMinutes(5)), INIT_TRACEPARENT));
+        Span confirm = mock(Span.class);
+        TraceContext confirmContext = mock(TraceContext.class);
+        when(tracer.currentSpan()).thenReturn(confirm);
+        when(confirm.context()).thenReturn(confirmContext);
+        TraceContext.Builder initBuilder = mock(TraceContext.Builder.class, RETURNS_SELF);
+        TraceContext initContext = mock(TraceContext.class);
+        when(tracer.traceContextBuilder()).thenReturn(initBuilder);
+        when(initBuilder.build()).thenReturn(initContext);
+        Span.Builder linkBuilder = mock(Span.Builder.class, RETURNS_SELF);
+        Span link = mock(Span.class);
+        when(tracer.spanBuilder()).thenReturn(linkBuilder);
+        when(linkBuilder.start()).thenReturn(link);
+        when(transactionRepository.claimDepositRequestId(any(), any(), any(), any(), any(), any()))
+                .thenReturn(Optional.empty());
+        when(transactionRepository.findByUserUidAndRequestId(USER_UID, REQUEST_ID)).thenReturn(Optional.of(existing()));
+
+        // when
+        transactionService.confirmDeposit(USER_UID, confirmRequest());
+
+        // then
+        verify(initBuilder).traceId("4bf92f3577b34da6a3ce929d0e0e4736");
+        verify(initBuilder).spanId("00f067aa0ba902b7");
+        verify(initBuilder).sampled(true);
+        verify(linkBuilder).setParent(confirmContext);
+        ArgumentCaptor<Link> added = ArgumentCaptor.forClass(Link.class);
+        verify(linkBuilder).addLink(added.capture());
+        assertThat(added.getValue().getTraceContext()).isSameAs(initContext);
+        verify(link).end();
+    }
+
     private TransactionService service(FeeProperties fees) {
         return new TransactionService(transactionRepository, outboxEventRepository, walletService, fees,
                 transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
-                OFFER, CLOCK);
+                OFFER, transactionMetrics, CLOCK);
     }
 
     private void givenOffer(Instant expiresAt) {
         when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.DEPOSIT))
                 .thenReturn(new OfferTerms(REQUEST_ID, USER_UID, TransactionPaymentType.DEPOSIT, WALLET_UID, null,
-                        AMOUNT, TOKEN_FEE, expiresAt));
+                        AMOUNT, TOKEN_FEE, expiresAt, null));
     }
 
     @SuppressWarnings("unchecked")

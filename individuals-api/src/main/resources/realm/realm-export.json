@@ -15,6 +15,10 @@
       {
         "name": "USER",
         "description": "Platform user. Assigned to every account individuals-api creates."
+      },
+      {
+        "name": "SERVICE",
+        "description": "A platform service calling an internal service. Only the service account of individuals-api has it."
       }
     ]
   },
@@ -60,6 +64,9 @@
       "username": "service-account-individuals-api",
       "enabled": true,
       "serviceAccountClientId": "individuals-api",
+      "realmRoles": [
+        "SERVICE"
+      ],
       "clientRoles": {
         "realm-management": [
           "view-users",

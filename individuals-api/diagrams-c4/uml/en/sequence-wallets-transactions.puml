@@ -31,7 +31,8 @@ alt the token carries no user_uid (realm mapper broken)
 end
 
 Svc -> TCl : user_uid, request
-TCl -> Tx : same path and body + X-User-Uid: user_uid\nWalletsApi / TransactionsApi on transactionWebClient
+TCl -> TCl : Bearer = service token (serviceToken filter -> KeycloakClient.adminLogin:\ncached, else client_credentials; Keycloak unavailable -> 503 DEPENDENCY_UNAVAILABLE)
+TCl -> Tx : same path and body + X-User-Uid: user_uid\n+ Authorization: Bearer service token\nWalletsApi / TransactionsApi on transactionWebClient
 note right of TCl
   The client never sends user_uid:
   GET /api/v1/wallets -> GET /api/v1/wallets/user/{user_uid}
@@ -56,9 +57,12 @@ else 404 WALLET_NOT_FOUND, WALLET_TYPE_NOT_FOUND,\nTRANSACTION_NOT_FOUND
   Tx --> TCl : 404 + error code
   TCl --> Client : 404, the same error code
   note right of TCl : another user's wallet is 404 too:\ntransaction-service looks only among\nthe wallets of this user_uid
-else 409 REQUEST_ID_CONFLICT
-  Tx --> TCl : 409
-  TCl --> Client : 409 REQUEST_ID_CONFLICT
+else 400 OFFER_TOKEN_INVALID, OFFER_EXPIRED
+  Tx --> TCl : 400 + error code
+  TCl --> Client : 400, the same error code: the client calls init again
+else 401 / 403 - our service token refused\n(sequence-service-token of transaction-service)
+  Tx --> TCl : 401 AUTHENTICATION_REQUIRED / 403 ACCESS_DENIED
+  TCl --> Client : 500 INTERNAL_ERROR, their body only in the log\n(role or Keycloak address misconfigured, our bug)
 else 5xx
   Tx --> TCl : 5xx
   TCl --> Client : 503 DEPENDENCY_UNAVAILABLE
@@ -72,7 +76,7 @@ note over Client, Tx
   traceId, details), not as transaction-service's problem details.
 
   Timeout on confirm: the operation may have been committed. The client
-  repeats confirm with the same requestId: transaction-service answers 200
+  repeats confirm with the same offerToken: transaction-service answers 200
   with the transaction it already made and never charges twice.
   individuals-api does not repeat the call itself.
 

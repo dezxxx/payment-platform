@@ -176,6 +176,59 @@ Gradle toolchain сам подтягивает JDK 25, поэтому на чт�
    `Accept-Language` запроса, если понадобится настоящая локализация. Остальной
    код при этом не двигается.
 
+7. **Внутренний сервис пускает только сервис платформы.** person-service и
+   transaction-service — внутренние: их вызывают сервисы платформы, никогда не
+   пользователь. Каждый запрос, кроме инфраструктурных эндпоинтов
+   (`/actuator/health/**`, `info`, `prometheus`, `metrics/**`, документы
+   OpenAPI и Swagger UI), обязан нести access-токен Keycloak с ролью realm
+   `SERVICE`. Resource server Spring Security проверяет подпись ключами realm
+   (JWKS, JSON Web Key Set), затем роль: нет токена или токен подписал не
+   Keycloak → `401 AUTHENTICATION_REQUIRED`; валидный токен без `SERVICE`,
+   например пользовательский → `403 ACCESS_DENIED`. Оба ответа идут через
+   `GlobalExceptionHandler` сервиса, в обычной форме ошибки. individuals-api
+   отправляет токен своего служебного пользователя (`client_credentials`, тот
+   самый, который он уже получает и кэширует для Admin API) через фильтр
+   `WebClient` на клиентах person-service и transaction-service.
+
+   **Это меняет прежнее правило.** До ревью преподавателя по PR #2 (модуль 3)
+   внутренние сервисы ничего не знали о Keycloak и доверяли сети. Порты 8082 и
+   8084 опубликованы, поэтому любой на хосте мог обойти individuals-api:
+   прочитать паспорт человека по почте, жёстко удалить его через
+   `/compensate-registration/{id}` или подтвердить транзакцию под любым
+   `X-User-Uid`. Что осталось от старого правила: person-service по-прежнему
+   ничего не знает о *пользователях* Keycloak, `user_uid` остаётся доменным
+   идентификатором; сервис только проверяет, кто зовёт. `X-User-Uid`
+   по-прежнему принимается на веру — теперь только от того, кто доказал, что он
+   сервис платформы.
+
+   Отвергнуто:
+   - `azp` (id вызывающего клиента) — каждый сервис держал бы список id
+     клиентов, и новый вызывающий означал бы правку конфига в каждом; роль
+     выдаётся один раз, в Keycloak;
+   - маппер аудитории (`aud`) — ещё один маппер на каждый целевой сервис, и он
+     всё равно не отличает сервис от пользователя;
+   - общий секрет в заголовке — второй секрет, который надо менять в каждом
+     сервисе, без срока жизни и без подписи, тогда как Keycloak уже выдаёт
+     подписанные токены на 5 минут.
+
+   В Keycloak по-прежнему одна сущность: существующий клиент `individuals-api`
+   и его служебный пользователь, которому роль выдана в `realm-export.json`.
+   Новый сервис платформы, который зовёт внутренний, получает свой клиент и ту
+   же роль.
+
+   **Ловушка `iss`.** Сервисы проверяют по `jwk-set-uri`, а не по
+   `issuer-uri`. `iss` — это адрес, по которому вызывающий достучался до
+   Keycloak: individuals-api в compose идёт на `http://keycloak:8080`, Postman
+   с хоста — на `http://localhost:8080`. С `issuer-uri` один из двух всегда
+   получает `401`. Что токен выдал Keycloak, доказывает подпись ключами realm;
+   проверка издателя добавила бы только это расхождение.
+
+   Тестам Keycloak не нужен: `TestTokens` в каждом сервисе подписывает токены
+   тестовым RSA-ключом и привязывает к нему `JwtDecoder`; `ServiceAuthIT`
+   проверяет 401, 403, токен, подписанный другим ключом, отказ, который не
+   меняет ни одной строки и не двигает денег, и открытый actuator. Открыто:
+   сами порты остаются опубликованными, ими пользуются Postman и проверки.
+
 ### Наблюдаемость
 
 **Метрики.** Actuator плюс Prometheus. По умолчанию наружу отдаётся только
@@ -447,8 +500,10 @@ transaction-service — свой `TRANSACTION_OFFER_SECRET`, ключ, кото�
 flowchart LR
     CL(["клиент"]) -->|8081| API["individuals-api"]
     API -->|8080| KC["keycloak"]
-    API -.->|8082 — модуль 2| PS["person-service"]
-    API -->|8084 X-User-Uid| TS
+    API -.->|8082 — модуль 2, служебный токен| PS["person-service"]
+    API -->|8084 служебный токен + X-User-Uid| TS
+    PS -->|8080 JWKS| KC
+    TS -->|8080 JWKS| KC
     KC -->|5432| KCDB[("keycloak-postgres")]
     PSDB[("person-postgres")]
     API -->|4318 OTLP push| TEMPO["tempo"]
@@ -464,8 +519,8 @@ flowchart LR
     PROM -->|scrape 8086| FPP
 ```
 
-transaction-service (модуль 3) вызывается из individuals-api на 8084 с
-пользователем из токена в `X-User-Uid`; `offerToken` из init проходит через individuals-api
+transaction-service (модуль 3) вызывается из individuals-api на 8084 со
+служебным токеном (правило 7 из §3) и пользователем из токена в `X-User-Uid`; `offerToken` из init проходит через individuals-api
 нетронутым и возвращается в confirm, проверить его может только
 transaction-service. С платёжным провайдером он говорит только через Kafka.
 
@@ -487,6 +542,8 @@ transaction-service. С платёжным провайдером он гово�
 | имя realm | `KEYCLOAK_REALM` в `.env` | `realm` в `realm-export.json` | значение |
 | client id | `KEYCLOAK_CLIENT_ID` в `.env` | `clientId` в `realm-export.json` | значение |
 | client secret | `KEYCLOAK_CLIENT_SECRET` в `.env` | `secret` в `realm-export.json` | значение |
+| проверка служебного токена | `KEYCLOAK_URL`, `KEYCLOAK_REALM` у person-service и transaction-service в compose → `jwk-set-uri` | Keycloak и realm, которые выдают токен | хост и realm |
+| служебная роль | `SERVICE` у `service-account-individuals-api` в `realm-export.json` | `hasRole("SERVICE")` в `SecurityConfig` | имя |
 | порт приложения | `server.port` в `application.yml` | `8081:8081` в compose | правая часть |
 | сбор метрик transaction-service | цели `transaction-service:8084`, `fake-payment-provider:8086` в `prometheus.yml` | имена compose-сервисов плюс `server.port` | имя и порт |
 | Kafka внутри compose | `KAFKA_BOOTSTRAP_SERVERS: kafka:19092` у обоих сервисов в compose | `PLAINTEXT://kafka:19092` в `KAFKA_ADVERTISED_LISTENERS` | хост и порт |

@@ -31,7 +31,8 @@ alt в токене нет user_uid (сломан mapper realm)
 end
 
 Svc -> TCl : user_uid, запрос
-TCl -> Tx : тот же путь и тело + X-User-Uid: user_uid\nWalletsApi / TransactionsApi на transactionWebClient
+TCl -> TCl : Bearer = служебный токен (фильтр serviceToken -> KeycloakClient.adminLogin:\nиз кеша, иначе client_credentials; Keycloak недоступен -> 503 DEPENDENCY_UNAVAILABLE)
+TCl -> Tx : тот же путь и тело + X-User-Uid: user_uid\n+ Authorization: Bearer служебный токен\nWalletsApi / TransactionsApi на transactionWebClient
 note right of TCl
   Клиент user_uid не передаёт:
   GET /api/v1/wallets -> GET /api/v1/wallets/user/{user_uid}
@@ -56,9 +57,12 @@ else 404 WALLET_NOT_FOUND, WALLET_TYPE_NOT_FOUND,\nTRANSACTION_NOT_FOUND
   Tx --> TCl : 404 + код ошибки
   TCl --> Client : 404, тот же код
   note right of TCl : чужой кошелёк — тоже 404:\ntransaction-service ищет только\nсреди кошельков этого user_uid
-else 409 REQUEST_ID_CONFLICT
-  Tx --> TCl : 409
-  TCl --> Client : 409 REQUEST_ID_CONFLICT
+else 400 OFFER_TOKEN_INVALID, OFFER_EXPIRED
+  Tx --> TCl : 400 + код ошибки
+  TCl --> Client : 400, тот же код: клиент заново вызывает init
+else 401 / 403 — наш служебный токен отвергнут\n(sequence-service-token в transaction-service)
+  Tx --> TCl : 401 AUTHENTICATION_REQUIRED / 403 ACCESS_DENIED
+  TCl --> Client : 500 INTERNAL_ERROR, их тело только в лог\n(неверно настроены роль или адрес Keycloak, наш баг)
 else 5xx
   Tx --> TCl : 5xx
   TCl --> Client : 503 DEPENDENCY_UNAVAILABLE
@@ -72,7 +76,7 @@ note over Client, Tx
   traceId, details), а не problem details transaction-service.
 
   Таймаут на confirm: операция могла закоммититься. Клиент повторяет
-  confirm с тем же requestId: transaction-service отвечает 200 с уже
+  confirm с тем же offerToken: transaction-service отвечает 200 с уже
   созданной транзакцией и второй раз не списывает.
   Сама individuals-api вызов не повторяет.
 

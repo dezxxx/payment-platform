@@ -17,6 +17,7 @@ import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
+import com.dezxxx.transaction.metrics.TransactionMetrics;
 import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
@@ -77,6 +78,9 @@ class TransactionServiceFinalizeTest {
     @Mock
     private OfferTokenValidator offerTokenValidator;
 
+    @Mock
+    private TransactionMetrics transactionMetrics;
+
     private TransactionService transactionService;
 
     @BeforeEach
@@ -84,97 +88,129 @@ class TransactionServiceFinalizeTest {
         transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
                 new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.01"), new BigDecimal("0.005")),
                 transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
-                new OfferTokenProperties("secret", Duration.ofMinutes(5)), Clock.systemUTC());
+                new OfferTokenProperties("secret", Duration.ofMinutes(5)), transactionMetrics, Clock.systemUTC());
     }
 
     @Test
-    @DisplayName("given a PENDING deposit, when it completes, then COMPLETED and the amount credited")
+    @DisplayName("given a PENDING deposit, when it completes, then COMPLETED, the amount credited and counted")
     void completedDepositCredits() {
         // given
-        givenFinished(TransactionStatus.COMPLETED, null, 1, transaction(TransactionPaymentType.DEPOSIT, null));
+        givenFinished(TransactionPaymentType.DEPOSIT, TransactionStatus.COMPLETED, null, 1,
+                transaction(TransactionPaymentType.DEPOSIT, null));
 
         // when
-        transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionStatus.COMPLETED, null);
+        transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionPaymentType.DEPOSIT,
+                TransactionStatus.COMPLETED, null);
 
         // then
         verify(walletService).credit(WALLET_UID, USER_UID, AMOUNT);
+        verify(transactionMetrics).finishedAfterCommit(TransactionPaymentType.DEPOSIT, TransactionStatus.COMPLETED);
     }
 
     @Test
-    @DisplayName("given a PENDING deposit, when it fails, then FAILED with the reason and no money moves")
+    @DisplayName("given a PENDING deposit, when it fails, then FAILED with the reason, no money moves, counted")
     void failedDepositMovesNothing() {
         // given
-        givenFinished(TransactionStatus.FAILED, "Bank refused", 1, transaction(TransactionPaymentType.DEPOSIT, null));
+        givenFinished(TransactionPaymentType.DEPOSIT, TransactionStatus.FAILED, "Bank refused", 1,
+                transaction(TransactionPaymentType.DEPOSIT, null));
 
         // when
-        transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionStatus.FAILED, "Bank refused");
+        transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionPaymentType.DEPOSIT,
+                TransactionStatus.FAILED, "Bank refused");
 
         // then
         verifyNoInteractions(walletService);
+        verify(transactionMetrics).finishedAfterCommit(TransactionPaymentType.DEPOSIT, TransactionStatus.FAILED);
     }
 
     @Test
     @DisplayName("given a PENDING withdrawal, when it fails, then the amount and the fee go back to the wallet")
     void failedWithdrawalReturnsAmountAndFee() {
         // given
-        givenFinished(TransactionStatus.FAILED, "Bank refused", 1,
+        givenFinished(TransactionPaymentType.WITHDRAWAL, TransactionStatus.FAILED, "Bank refused", 1,
                 transaction(TransactionPaymentType.WITHDRAWAL, new BigDecimal("1.00")));
 
         // when
-        transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionStatus.FAILED, "Bank refused");
+        transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionPaymentType.WITHDRAWAL,
+                TransactionStatus.FAILED, "Bank refused");
 
         // then
         verify(walletService).credit(WALLET_UID, USER_UID, new BigDecimal("101.00"));
+        verify(transactionMetrics).finishedAfterCommit(TransactionPaymentType.WITHDRAWAL, TransactionStatus.FAILED);
     }
 
     @Test
     @DisplayName("given a PENDING withdrawal, when it completes, then no money moves: it was debited on confirm")
     void completedWithdrawalMovesNothing() {
         // given
-        givenFinished(TransactionStatus.COMPLETED, null, 1,
+        givenFinished(TransactionPaymentType.WITHDRAWAL, TransactionStatus.COMPLETED, null, 1,
                 transaction(TransactionPaymentType.WITHDRAWAL, new BigDecimal("1.00")));
 
         // when
-        transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionStatus.COMPLETED, null);
+        transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionPaymentType.WITHDRAWAL,
+                TransactionStatus.COMPLETED, null);
 
         // then
         verifyNoInteractions(walletService);
+        verify(transactionMetrics).finishedAfterCommit(TransactionPaymentType.WITHDRAWAL,
+                TransactionStatus.COMPLETED);
     }
 
     @Test
-    @DisplayName("given an already completed deposit, when the answer comes again, then nothing changes")
+    @DisplayName("given an already completed deposit, when the answer comes again, then nothing changes and nothing is counted")
     void repeatedAnswerChangesNothing() {
         // given
-        givenFinished(TransactionStatus.COMPLETED, null, 0, transaction(TransactionPaymentType.DEPOSIT, null));
+        givenFinished(TransactionPaymentType.DEPOSIT, TransactionStatus.COMPLETED, null, 0,
+                transaction(TransactionPaymentType.DEPOSIT, null));
 
         // when
-        transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionStatus.COMPLETED, null);
+        transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionPaymentType.DEPOSIT,
+                TransactionStatus.COMPLETED, null);
 
         // then
         verifyNoInteractions(walletService);
+        verifyNoInteractions(transactionMetrics);
+    }
+
+    @Test
+    @DisplayName("given a PENDING withdrawal, when DepositCompleted comes with its id, then TRANSACTION_TYPE_MISMATCH,"
+            + " which the error handler sends to the DLT: no money moves, nothing is counted")
+    void answerOfAnotherTypeThrows() {
+        // given
+        givenFinished(TransactionPaymentType.DEPOSIT, TransactionStatus.COMPLETED, null, 0,
+                transaction(TransactionPaymentType.WITHDRAWAL, new BigDecimal("1.00")));
+
+        // when / then
+        assertThatThrownBy(() -> transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID,
+                TransactionPaymentType.DEPOSIT, TransactionStatus.COMPLETED, null))
+                .isInstanceOfSatisfying(TransactionServiceException.class,
+                        ex -> assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.TRANSACTION_TYPE_MISMATCH));
+        verifyNoInteractions(walletService);
+        verifyNoInteractions(transactionMetrics);
     }
 
     @Test
     @DisplayName("given an unknown transaction, when its answer comes, then TRANSACTION_NOT_FOUND, which the error handler sends to the DLT")
     void unknownTransactionThrows() {
         // given
-        when(transactionRepository.finishPending(eq(TRANSACTION_UID), eq(USER_UID), eq(TransactionStatus.COMPLETED),
-                isNull(), any())).thenReturn(0);
+        when(transactionRepository.finishPending(eq(TRANSACTION_UID), eq(USER_UID),
+                eq(TransactionPaymentType.DEPOSIT.name()), eq(TransactionStatus.COMPLETED), isNull(), any())).thenReturn(0);
         when(transactionRepository.findByUidAndUserUid(TRANSACTION_UID, USER_UID)).thenReturn(Optional.empty());
 
         // when / then
         assertThatThrownBy(() -> transactionService.finalizeTransaction(TRANSACTION_UID, USER_UID,
-                TransactionStatus.COMPLETED, null))
+                TransactionPaymentType.DEPOSIT, TransactionStatus.COMPLETED, null))
                 .isInstanceOfSatisfying(TransactionServiceException.class,
                         ex -> assertThat(ex.getErrorCode())
                                 .isEqualTo(ErrorCode.TRANSACTION_NOT_FOUND));
         verifyNoInteractions(walletService);
+        verifyNoInteractions(transactionMetrics);
     }
 
-    private void givenFinished(TransactionStatus outcome, String failureReason, int updated,
-                               TransactionEntity transaction) {
-        when(transactionRepository.finishPending(eq(TRANSACTION_UID), eq(USER_UID), eq(outcome), eq(failureReason),
-                any())).thenReturn(updated);
+    private void givenFinished(TransactionPaymentType expectedType, TransactionStatus outcome, String failureReason,
+                               int updated, TransactionEntity transaction) {
+        when(transactionRepository.finishPending(eq(TRANSACTION_UID), eq(USER_UID), eq(expectedType.name()), eq(outcome),
+                eq(failureReason), any())).thenReturn(updated);
         when(transactionRepository.findByUidAndUserUid(TRANSACTION_UID, USER_UID))
                 .thenReturn(Optional.of(transaction));
     }

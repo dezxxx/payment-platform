@@ -9,13 +9,16 @@
       "name": "0. Infrastructure",
       "item": [
         {
-          "name": "Health",
+          "name": "Service token - client_credentials of individuals-api, realm role SERVICE",
           "event": [
             {
               "listen": "prerequest",
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "if (!pm.variables.get('clientSecret')) {",
+                  "    throw new Error('clientSecret is empty: set KEYCLOAK_CLIENT_SECRET from .env');",
+                  "}",
                   "// a fresh user per run: the collection can be run again on the same database",
                   "pm.collectionVariables.set('ivanUserUid', pm.variables.replaceIn('{{$guid}}'));",
                   "pm.collectionVariables.set('annaUserUid', pm.variables.replaceIn('{{$guid}}'));",
@@ -23,6 +26,55 @@
                 ]
               }
             },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const token = pm.response.json().access_token;",
+                  "const claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));",
+                  "pm.test('the realm role SERVICE', () => pm.expect(claims.realm_access.roles).to.include('SERVICE'));",
+                  "pm.collectionVariables.set('serviceToken', token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{clientId}}"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "{{clientSecret}}"
+                }
+              ]
+            },
+            "url": "{{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/token",
+            "description": "The token individuals-api sends to this service. Every request below carries it (collection auth); the infrastructure requests need none."
+          }
+        },
+        {
+          "name": "Health",
+          "event": [
             {
               "listen": "test",
               "script": {
@@ -37,7 +89,10 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/actuator/health"
+            "url": "{{baseUrl}}/actuator/health",
+            "auth": {
+              "type": "noauth"
+            }
           }
         },
         {
@@ -56,7 +111,10 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/swagger-ui.html"
+            "url": "{{baseUrl}}/swagger-ui.html",
+            "auth": {
+              "type": "noauth"
+            }
           }
         },
         {
@@ -76,7 +134,10 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/openapi/transaction-service.yaml"
+            "url": "{{baseUrl}}/openapi/transaction-service.yaml",
+            "auth": {
+              "type": "noauth"
+            }
           }
         }
       ]
@@ -2090,6 +2151,167 @@
           }
         }
       ]
+    },
+    {
+      "name": "8. Direct request is refused - only a platform service gets in",
+      "description": "The port is published: a request may skip individuals-api. Without the service token it gets nothing.",
+      "item": [
+        {
+          "name": "401 - no token, straight on the published port",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('AUTHENTICATION_REQUIRED', () => pm.expect(pm.response.json().error).to.eql('AUTHENTICATION_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        },
+        {
+          "name": "401 - a forged token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('AUTHENTICATION_REQUIRED', () => pm.expect(pm.response.json().error).to.eql('AUTHENTICATION_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJSUzI1NiJ9.eyJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsiU0VSVklDRSJdfX0.Zm9yZ2Vk",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        },
+        {
+          "name": "Register a user through individuals-api - a user token, role USER",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('userToken', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"refused-{{$guid}}@example.com\",\n  \"password\": \"Str0ngPass!\",\n  \"confirmPassword\": \"Str0ngPass!\",\n  \"firstName\": \"Oleg\",\n  \"lastName\": \"Sidorov\",\n  \"address\": {\n    \"countryAlpha3\": \"UKR\",\n    \"city\": \"Kyiv\",\n    \"zipCode\": \"01001\",\n    \"addressLine\": \"1 Example St.\"\n  },\n  \"individual\": {\n    \"passportNumber\": \"123456789\",\n    \"phoneNumber\": \"+380441234567\"\n  }\n}"
+            },
+            "url": "{{individualsUrl}}/api/v1/auth/registration"
+          }
+        },
+        {
+          "name": "403 - a user token: role USER, not SERVICE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));",
+                  "pm.test('ACCESS_DENIED', () => pm.expect(pm.response.json().error).to.eql('ACCESS_DENIED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        },
+        {
+          "name": "Balance of mainWallet is still 698 - the refused requests moved nothing",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 698', () => pm.expect(pm.response.json().balance).to.eql(698));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Uid",
+                "value": "{{ivanUserUid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/{{mainWallet}}"
+          }
+        }
+      ]
     }
   ],
   "variable": [
@@ -2168,6 +2390,46 @@
     {
       "key": "transferCreatedAt",
       "value": ""
+    },
+    {
+      "key": "keycloakUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "realm",
+      "value": "payment-platform"
+    },
+    {
+      "key": "clientId",
+      "value": "individuals-api"
+    },
+    {
+      "key": "clientSecret",
+      "value": "",
+      "description": "KEYCLOAK_CLIENT_SECRET from .env - set it here or pass --env-var clientSecret=... to newman; it is never stored in the collection."
+    },
+    {
+      "key": "serviceToken",
+      "value": ""
+    },
+    {
+      "key": "individualsUrl",
+      "value": "http://localhost:8081",
+      "description": "Only to register a user whose token must be refused here."
+    },
+    {
+      "key": "userToken",
+      "value": ""
     }
-  ]
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{serviceToken}}",
+        "type": "string"
+      }
+    ]
+  }
 }

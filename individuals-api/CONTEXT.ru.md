@@ -62,7 +62,10 @@ rest -> service -> gateway -> внешняя система
 - `TokenService` — логин и обновление токена
 - `KeycloakClient` — всё про Keycloak: token endpoint (логин, обновление,
   служебный токен с кешем) и Admin API (аккаунт, пароль, роль, откат, дата
-  регистрации)
+  регистрации). Тот же закешированный служебный токен уходит как
+  `Authorization: Bearer` на каждый вызов person-service и transaction-service:
+  `HttpClientsConfig.serviceToken`, `ExchangeFilterFunction` на обоих
+  `WebClient`, поэтому ни клиенту, ни методу сервиса не надо о нём помнить
 - `PersonClient` — оборачивает сгенерированный `PersonsApi`: создать персону,
   получить её `user_uid`
 
@@ -717,7 +720,7 @@ Maven Central руками, но по-настоящему ничего не р�
 | Тема | Решение | Почему |
 |---|---|---|
 | Откуда `user_uid` | только из проверенного токена (`KeycloakClaims.requireUserUid`); individuals-api ставит его в `X-User-Uid` на каждый вызов | это тот же `user_uid`, что выдал person-service при регистрации и несёт токен Keycloak; если брать его от клиента, любой прочитает чужие кошельки |
-| Граница доверия | transaction-service токен не проверяет и верит `X-User-Uid`, поэтому доступен только из сети Docker; его порт опубликован локально для разработки и его собственной Postman-коллекции | заголовок безопасен, пока individuals-api — единственный, кто его вызывает |
+| Граница доверия | transaction-service и person-service пускают только вызывающего со служебным токеном: токен нашего служебного пользователя, роль realm `SERVICE`, его ставит фильтр `WebClient`. transaction-service верит `X-User-Uid` только от такого вызывающего. Их порты остаются опубликованными для разработки и их собственных Postman-коллекций, которые берут тот же токен | ревью преподавателя по PR #2: при опубликованном порте и без проверки любой мог позвать transaction-service с любым `X-User-Uid`. Прежнее правило «доступен только из сети Docker» заменено; решение и отвергнутые варианты — правило 7 в §3 корневого `CONTEXT.ru.md` |
 | Эндпоинты | 11 операций transaction-service по тем же путям; свои кошельки — `GET /api/v1/wallets` (→ `/api/v1/wallets/user/{user_uid}`), поиск без `userUid` (подставляется из токена) | клиент никогда не называет пользователя |
 | Клиент | `TransactionClient` в `gateway/transaction`, адаптер над сгенерированным `transaction-service-client` (бины `WalletsApi`, `TransactionsApi` на `transactionWebClient`), как `PersonClient`; ставит `X-User-Uid` и переводит ошибки | один клиент на внешнюю систему |
 | Модели | эндпоинты принимают и отдают классы клиента (`com.dezxxx.transaction.client.model`): контракт хранит схемы для Swagger, `schemaMappings` в `build.gradle.kts` не даёт генератору их копировать; `@Valid` проверяет их аннотации, включая `@DifferentWallets` | тела на обеих сторонах одинаковые: копии пришлось бы перекладывать поле в поле; новую версию клиента сверять со схемами в `individuals-api.yaml` |
@@ -740,6 +743,7 @@ Maven Central руками, но по-настоящему ничего не р�
 | 400 `VALIDATION_ERROR` (их правила поймали то, что пропустили наши) | **400** `VALIDATION_ERROR` с их `details` | да |
 | 400 `MALFORMED_REQUEST` или неизвестный код | **500** `INTERNAL_ERROR`, их тело только в лог — запрос слали мы, это наш баг | да |
 | 404 `WALLET_NOT_FOUND`, `WALLET_TYPE_NOT_FOUND`, `TRANSACTION_NOT_FOUND` | **404**, тот же код; чужой кошелёк — тоже 404 | да |
+| 401 или 403 (наш служебный токен отвергнут) | **500** `INTERNAL_ERROR`, их тело только в лог — неверно настроена роль realm или адрес Keycloak, это наш баг, а не клиента; так же для person-service | да |
 | 5xx | **503** `DEPENDENCY_UNAVAILABLE` | да |
 | нет соединения или нет ответа за 5 с | **503** `DEPENDENCY_UNAVAILABLE` (`GatewayErrors.transportFailures`) | да |
 
@@ -768,6 +772,11 @@ Maven Central руками, но по-настоящему ничего не р�
 - [x] Offer token: контракт (`expiresAt`, `offerToken`; confirm принимает только токен),
       `OFFER_TOKEN_INVALID` и `OFFER_EXPIRED` пробрасываются вместо `409 REQUEST_ID_CONFLICT`,
       тесты и Postman-коллекция
+- [x] Служебный токен на каждом вызове person-service и transaction-service (ревью преподавателя
+      по PR #2): роль realm `SERVICE` у нашего служебного пользователя в `realm-export.json`, фильтр
+      `serviceToken` в `HttpClientsConfig`; заглушки запоминают заголовок `Authorization`,
+      `WalletTransactionIT.sendsTheServiceToken` и `AuthControllerIT` IT-KC-004 его декодируют (наш клиент,
+      `SERVICE`, без `USER`); Postman берёт служебный токен для двух прямых запросов в person-service
 - [ ] Опубликовать `transaction-service-client` с offer token в Nexus, пересобрать образы, прогнать
       обе Postman-коллекции на стеке
 - [ ] Подписи в легендах Grafana — `create_wallet`, а не Java-имена (`createWallet`)

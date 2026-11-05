@@ -7,6 +7,7 @@
     {"name": "userId", "type": {"type": "string", "logicalType": "uuid"}},
     {"name": "walletUid", "type": {"type": "string", "logicalType": "uuid"}},
     {"name": "amount", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 2}},
+    {"name": "total", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 2}},
     {"name": "currency", "type": "string"}
   ]
 }

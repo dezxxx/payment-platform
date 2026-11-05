@@ -2,6 +2,7 @@ package com.dezxxx.transaction.unit.kafka;
 
 import static org.mockito.Mockito.verify;
 
+import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.event.DepositCompleted;
 import com.dezxxx.transaction.event.DepositFailed;
@@ -38,7 +39,8 @@ class TransactionKafkaConsumerTest {
         consumer.onDepositCompleted(new DepositCompleted(TRANSACTION_UID, USER_UID));
 
         // then
-        verify(transactionService).finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionStatus.COMPLETED, null);
+        verify(transactionService).finalizeTransaction(TRANSACTION_UID, USER_UID,
+                TransactionPaymentType.DEPOSIT, TransactionStatus.COMPLETED, null);
     }
 
     @Test
@@ -48,8 +50,8 @@ class TransactionKafkaConsumerTest {
         consumer.onDepositFailed(new DepositFailed(TRANSACTION_UID, USER_UID, "Bank refused"));
 
         // then
-        verify(transactionService).finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionStatus.FAILED,
-                "Bank refused");
+        verify(transactionService).finalizeTransaction(TRANSACTION_UID, USER_UID,
+                TransactionPaymentType.DEPOSIT, TransactionStatus.FAILED, "Bank refused");
     }
 
     @Test
@@ -59,7 +61,8 @@ class TransactionKafkaConsumerTest {
         consumer.onWithdrawalCompleted(new WithdrawalCompleted(TRANSACTION_UID, USER_UID));
 
         // then
-        verify(transactionService).finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionStatus.COMPLETED, null);
+        verify(transactionService).finalizeTransaction(TRANSACTION_UID, USER_UID,
+                TransactionPaymentType.WITHDRAWAL, TransactionStatus.COMPLETED, null);
     }
 
     @Test
@@ -69,7 +72,7 @@ class TransactionKafkaConsumerTest {
         consumer.onWithdrawalFailed(new WithdrawalFailed(TRANSACTION_UID, USER_UID, "Bank refused"));
 
         // then
-        verify(transactionService).finalizeTransaction(TRANSACTION_UID, USER_UID, TransactionStatus.FAILED,
-                "Bank refused");
+        verify(transactionService).finalizeTransaction(TRANSACTION_UID, USER_UID,
+                TransactionPaymentType.WITHDRAWAL, TransactionStatus.FAILED, "Bank refused");
     }
 }

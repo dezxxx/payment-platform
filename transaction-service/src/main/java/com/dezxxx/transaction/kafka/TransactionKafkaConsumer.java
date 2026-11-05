@@ -1,5 +1,6 @@
 package com.dezxxx.transaction.kafka;
 
+import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.event.DepositCompleted;
 import com.dezxxx.transaction.event.DepositFailed;
@@ -26,27 +27,27 @@ public class TransactionKafkaConsumer {
     public void onDepositCompleted(DepositCompleted event) {
         log.info("DepositCompleted for transaction {}", event.getTransactionId());
         transactionService.finalizeTransaction(event.getTransactionId(), event.getUserId(),
-                TransactionStatus.COMPLETED, null);
+                TransactionPaymentType.DEPOSIT, TransactionStatus.COMPLETED, null);
     }
 
     @KafkaHandler
     public void onDepositFailed(DepositFailed event) {
         log.info("DepositFailed for transaction {}: {}", event.getTransactionId(), event.getFailureReason());
         transactionService.finalizeTransaction(event.getTransactionId(), event.getUserId(),
-                TransactionStatus.FAILED, event.getFailureReason());
+                TransactionPaymentType.DEPOSIT, TransactionStatus.FAILED, event.getFailureReason());
     }
 
     @KafkaHandler
     public void onWithdrawalCompleted(WithdrawalCompleted event) {
         log.info("WithdrawalCompleted for transaction {}", event.getTransactionId());
         transactionService.finalizeTransaction(event.getTransactionId(), event.getUserId(),
-                TransactionStatus.COMPLETED, null);
+                TransactionPaymentType.WITHDRAWAL, TransactionStatus.COMPLETED, null);
     }
 
     @KafkaHandler
     public void onWithdrawalFailed(WithdrawalFailed event) {
         log.info("WithdrawalFailed for transaction {}: {}", event.getTransactionId(), event.getFailureReason());
         transactionService.finalizeTransaction(event.getTransactionId(), event.getUserId(),
-                TransactionStatus.FAILED, event.getFailureReason());
+                TransactionPaymentType.WITHDRAWAL, TransactionStatus.FAILED, event.getFailureReason());
     }
 }

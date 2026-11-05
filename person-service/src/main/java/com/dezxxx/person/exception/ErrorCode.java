@@ -14,6 +14,10 @@ public enum ErrorCode {
 
     COUNTRY_NOT_FOUND(HttpStatus.BAD_REQUEST, "Unknown country code"),
 
+    AUTHENTICATION_REQUIRED(HttpStatus.UNAUTHORIZED, "A valid service token is required"),
+
+    ACCESS_DENIED(HttpStatus.FORBIDDEN, "Only a platform service may call this service"),
+
     INDIVIDUAL_NOT_FOUND(HttpStatus.NOT_FOUND, "Individual not found"),
 
     EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "An individual with this email already exists"),

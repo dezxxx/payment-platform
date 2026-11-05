@@ -1,0 +1,56 @@
+@startuml sequence-service-token
+title Service token: only a platform service gets in (every endpoint except actuator, OpenAPI, Swagger UI)
+
+actor "Client" as Client
+participant "individuals-api" as IA
+participant "Keycloak" as KC
+box "transaction-service" #F5F9FF
+    participant "SecurityConfig\n(resource server)" as Sec
+    participant "GlobalExceptionHandler" as Err
+    participant "Controller -> Service" as App
+    database "DB (shard by user_uid)" as DB
+end box
+
+Client -> IA: request with the user's Bearer token
+IA -> IA: user's token checked, user_uid taken from it\n(as in the endpoint's own sequence)
+alt service token cached and valid for more than 10 s
+    IA -> IA: take it from the cache
+else no token yet or it is about to expire
+    IA -> KC: POST /realms/{realm}/protocol/openid-connect/token\ngrant_type=client_credentials, client individuals-api, secret from .env
+    alt Keycloak unavailable or 5xx
+        KC --> IA: no answer / 5xx
+        IA --> Client: 503 DEPENDENCY_UNAVAILABLE
+        note right of IA: transaction-service is not called
+    else token issued
+        KC --> IA: access token: azp individuals-api,\nrealm_access.roles [SERVICE]
+        IA -> IA: cache it until 10 s before expiry
+    end
+end
+IA -> Sec: request + Authorization: Bearer <service token> + X-User-Uid
+Sec -> KC: GET /realms/{realm}/protocol/openid-connect/certs\n(on the first token, then cached; again for an unknown key id)
+alt no Authorization header
+    Sec -> Err: AuthenticationException
+    Err --> IA: 401 AUTHENTICATION_REQUIRED
+else signature not by the realm keys, malformed or expired
+    Sec -> Err: AuthenticationException
+    Err --> IA: 401 AUTHENTICATION_REQUIRED
+else valid token without the realm role SERVICE (a user's token)
+    Sec -> Err: AccessDeniedException
+    Err --> IA: 403 ACCESS_DENIED
+else valid token with the realm role SERVICE
+    Sec -> App: the request
+    App -> DB: as in the endpoint's own sequence
+    App --> IA: the endpoint's answer
+end
+note over Sec, DB
+  401 / 403: no controller is reached, nothing is read or written, no money moves.
+  X-User-Uid is trusted only after this check.
+  iss is not compared (jwk-set-uri, not issuer-uri): individuals-api asks keycloak:8080,
+  Postman asks localhost:8080, and the signature by the realm keys already proves the issuer.
+end note
+alt 401 or 403 from transaction-service
+    IA --> Client: 500 INTERNAL_ERROR, their body only in the log:\nour configuration is wrong (role or Keycloak address), not the client's request
+else the endpoint's answer
+    IA --> Client: as in the endpoint's own sequence
+end
+@enduml

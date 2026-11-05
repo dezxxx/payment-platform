@@ -24,6 +24,10 @@ public enum ErrorCode {
 
     OFFER_EXPIRED(HttpStatus.BAD_REQUEST, "The offer token is expired"),
 
+    AUTHENTICATION_REQUIRED(HttpStatus.UNAUTHORIZED, "A valid service token is required"),
+
+    ACCESS_DENIED(HttpStatus.FORBIDDEN, "Only a platform service may call this service"),
+
     WALLET_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet type not found"),
 
     WALLET_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet not found"),
@@ -31,6 +35,8 @@ public enum ErrorCode {
     TRANSACTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Transaction not found"),
 
     NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found"),
+
+    TRANSACTION_TYPE_MISMATCH(HttpStatus.CONFLICT, "The answer belongs to another type of operation"),
 
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "HTTP method is not supported for this path"),
 

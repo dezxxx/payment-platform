@@ -23,6 +23,7 @@ import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
+import com.dezxxx.transaction.metrics.TransactionMetrics;
 import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
@@ -105,13 +106,16 @@ class TransactionServiceTransferTest {
     @Mock
     private OfferTokenValidator offerTokenValidator;
 
+    @Mock
+    private TransactionMetrics transactionMetrics;
+
     private TransactionService transactionService;
 
     @BeforeEach
     void setUp() {
         transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
                 FEES, transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner,
-                offerTokenValidator, new OfferTokenProperties("secret", Duration.ofMinutes(5)),
+                offerTokenValidator, new OfferTokenProperties("secret", Duration.ofMinutes(5)), transactionMetrics,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -154,7 +158,7 @@ class TransactionServiceTransferTest {
 
     @Test
     @DisplayName("given a valid offer and enough funds, when confirm, then claim with the fee, both locked,"
-            + " amount + fee debited, amount credited, COMPLETED, no event")
+            + " amount + fee debited, amount credited, COMPLETED and counted, no event")
     void confirmsTransfer() {
         // given
         givenOffer(EXPIRES_AT);
@@ -175,6 +179,7 @@ class TransactionServiceTransferTest {
         order.verify(walletService).debit(WALLET_UID, USER_UID, TOTAL);
         order.verify(walletService).credit(TARGET_UID, USER_UID, AMOUNT);
         order.verify(transactionRepository).completeTransfer(any(), eq(USER_UID), any());
+        verify(transactionMetrics).finishedAfterCommit(TransactionPaymentType.TRANSFER, TransactionStatus.COMPLETED);
         verifyNoInteractions(outboxEventRepository);
     }
 
@@ -194,6 +199,7 @@ class TransactionServiceTransferTest {
         verify(walletService, never()).debit(any(), any(), any());
         verify(walletService, never()).credit(any(), any(), any());
         verify(transactionRepository, never()).completeTransfer(any(), any(), any());
+        verifyNoInteractions(transactionMetrics);
     }
 
     @Test
@@ -212,7 +218,7 @@ class TransactionServiceTransferTest {
     }
 
     @Test
-    @DisplayName("given a taken requestId, when confirm repeats, then its transaction, no second transfer")
+    @DisplayName("given a taken requestId, when confirm repeats, then its transaction, no second transfer and no second count")
     void repeatsConfirm() {
         // given
         givenOffer(EXPIRES_AT);
@@ -228,6 +234,7 @@ class TransactionServiceTransferTest {
         // then
         assertThat(result).isSameAs(answer);
         verifyNoInteractions(walletService);
+        verifyNoInteractions(transactionMetrics);
     }
 
     @Test
@@ -247,7 +254,7 @@ class TransactionServiceTransferTest {
     private void givenOffer(Instant expiresAt) {
         when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.TRANSFER))
                 .thenReturn(new OfferTerms(REQUEST_ID, USER_UID, TransactionPaymentType.TRANSFER, WALLET_UID,
-                        TARGET_UID, AMOUNT, FEE, expiresAt));
+                        TARGET_UID, AMOUNT, FEE, expiresAt, null));
     }
 
     private void givenClaimed() {

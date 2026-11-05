@@ -77,9 +77,12 @@ public class TransactionMapper {
         return dateTime == null ? null : dateTime.toInstant();
     }
 
-    public String toRequestedPayload(UUID transactionId, UUID userUid, WalletEntity wallet, BigDecimal amount) {
+    // total = amount + fee: a deposit charges the card the total and credits the wallet the amount;
+    // WithdrawalRequested carries the amount only, the fee stays with the platform
+    public String toRequestedPayload(UUID transactionId, UUID userUid, WalletEntity wallet, BigDecimal amount,
+                                     BigDecimal total) {
         return jsonMapper.writeValueAsString(new RequestedPayload(transactionId, userUid, wallet.getUid(), amount,
-                wallet.getWalletType().getCurrencyCode()));
+                total, wallet.getWalletType().getCurrencyCode()));
     }
 
     public OutboxEventEntity toOutboxEvent(UUID transactionId, UUID userUid, String eventType,
@@ -102,6 +105,7 @@ public class TransactionMapper {
                     .setUserId(payload.userId())
                     .setWalletUid(payload.walletUid())
                     .setAmount(amount)
+                    .setTotal(payload.total().setScale(MONEY_SCALE, RoundingMode.UNNECESSARY))
                     .setCurrency(payload.currency())
                     .build();
             case OutboxEventType.WITHDRAWAL_REQUESTED -> WithdrawalRequested.newBuilder()
@@ -115,6 +119,7 @@ public class TransactionMapper {
         };
     }
 
-    record RequestedPayload(UUID transactionId, UUID userId, UUID walletUid, BigDecimal amount, String currency) {
+    record RequestedPayload(UUID transactionId, UUID userId, UUID walletUid, BigDecimal amount, BigDecimal total,
+                            String currency) {
     }
 }

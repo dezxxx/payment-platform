@@ -24,6 +24,7 @@ import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
+import com.dezxxx.transaction.metrics.TransactionMetrics;
 import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.service.TransactionService;
@@ -104,13 +105,16 @@ class TransactionServiceWithdrawalTest {
     @Mock
     private OfferTokenValidator offerTokenValidator;
 
+    @Mock
+    private TransactionMetrics transactionMetrics;
+
     private TransactionService transactionService;
 
     @BeforeEach
     void setUp() {
         transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
                 FEES, transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner,
-                offerTokenValidator, new OfferTokenProperties("secret", Duration.ofMinutes(5)),
+                offerTokenValidator, new OfferTokenProperties("secret", Duration.ofMinutes(5)), transactionMetrics,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -160,7 +164,8 @@ class TransactionServiceWithdrawalTest {
         TransactionConfirmResponseDto answer = new TransactionConfirmResponseDto();
         givenClaimed();
         when(walletService.lockActiveWallet(WALLET_UID, USER_UID)).thenReturn(wallet);
-        when(transactionMapper.toRequestedPayload(any(), eq(USER_UID), eq(wallet), eq(AMOUNT))).thenReturn("{}");
+        when(transactionMapper.toRequestedPayload(any(), eq(USER_UID), eq(wallet), eq(AMOUNT), eq(TOTAL)))
+                .thenReturn("{}");
         when(transactionMapper.toOutboxEvent(any(), eq(USER_UID), eq("WithdrawalRequested"), eq("{}"), eq(null)))
                 .thenReturn(event);
         when(transactionMapper.toConfirmResponse(any(), eq(TransactionStatus.PENDING))).thenReturn(answer);
@@ -187,7 +192,7 @@ class TransactionServiceWithdrawalTest {
         transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
                 new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.05"), BigDecimal.ZERO), transactionMapper,
                 dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
-                new OfferTokenProperties("secret", Duration.ofMinutes(5)), Clock.fixed(NOW, ZoneOffset.UTC));
+                new OfferTokenProperties("secret", Duration.ofMinutes(5)), transactionMetrics, Clock.fixed(NOW, ZoneOffset.UTC));
         givenOffer(EXPIRES_AT);
         givenClaimed();
         when(walletService.lockActiveWallet(WALLET_UID, USER_UID)).thenReturn(wallet(TOTAL));
@@ -282,7 +287,7 @@ class TransactionServiceWithdrawalTest {
     private void givenOffer(Instant expiresAt) {
         when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.WITHDRAWAL))
                 .thenReturn(new OfferTerms(REQUEST_ID, USER_UID, TransactionPaymentType.WITHDRAWAL, WALLET_UID, null,
-                        AMOUNT, FEE, expiresAt));
+                        AMOUNT, FEE, expiresAt, null));
     }
 
     private void givenClaimed() {

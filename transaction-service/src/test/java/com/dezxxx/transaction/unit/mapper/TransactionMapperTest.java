@@ -68,7 +68,7 @@ class TransactionMapperTest {
     }
 
     @Test
-    @DisplayName("given a deposit, when building the DepositRequested payload, then JSON with ids, the exact amount and currency")
+    @DisplayName("given a deposit, when building the DepositRequested payload, then JSON with ids, the exact amount, the total and currency")
     void buildsDepositRequestedPayload() {
         // given
         WalletEntity wallet = new WalletEntity();
@@ -79,7 +79,7 @@ class TransactionMapperTest {
 
         // when
         String payload = transactionMapper.toRequestedPayload(TRANSACTION_UID, USER_UID, wallet,
-                new BigDecimal("100.00"));
+                new BigDecimal("100.00"), new BigDecimal("102.00"));
 
         // then
         JsonNode json = jsonMapper.readTree(payload);
@@ -87,16 +87,18 @@ class TransactionMapperTest {
         assertThat(json.get("userId").asString()).isEqualTo(USER_UID.toString());
         assertThat(json.get("walletUid").asString()).isEqualTo(WALLET_UID.toString());
         assertThat(json.get("amount").decimalValue()).isEqualByComparingTo("100.00");
+        assertThat(json.get("total").decimalValue()).isEqualByComparingTo("102.00");
         assertThat(json.get("currency").asString()).isEqualTo("USD");
     }
 
     @Test
-    @DisplayName("given a DepositRequested row with a whole amount, when mapping to Avro, then its fields and two decimals")
+    @DisplayName("given a DepositRequested row with whole amounts, when mapping to Avro, then its fields and two decimals")
     void mapsRowToDepositRequested() {
         // given
         OutboxEventEntity row = transactionMapper.toOutboxEvent(TRANSACTION_UID, USER_UID,
                 "DepositRequested", "{\"transactionId\":\"" + TRANSACTION_UID + "\",\"userId\":\"" + USER_UID
-                        + "\",\"walletUid\":\"" + WALLET_UID + "\",\"amount\":100,\"currency\":\"USD\"}", null);
+                        + "\",\"walletUid\":\"" + WALLET_UID + "\",\"amount\":100,\"total\":102,\"currency\":\"USD\"}",
+                null);
 
         // when
         SpecificRecord record = transactionMapper.toRequestedEvent(row);
@@ -107,12 +109,13 @@ class TransactionMapperTest {
             assertThat(event.getUserId()).isEqualTo(USER_UID);
             assertThat(event.getWalletUid()).isEqualTo(WALLET_UID);
             assertThat(event.getAmount()).isEqualTo(new BigDecimal("100.00"));
+            assertThat(event.getTotal()).isEqualTo(new BigDecimal("102.00"));
             assertThat(event.getCurrency()).isEqualTo("USD");
         });
     }
 
     @Test
-    @DisplayName("given a payload written on confirm, when mapping it back, then the same amount to the cent")
+    @DisplayName("given a payload written on confirm, when mapping it back, then the same amount and total to the cent")
     void readsBackWhatConfirmWrote() {
         // given
         WalletEntity wallet = new WalletEntity();
@@ -121,7 +124,7 @@ class TransactionMapperTest {
         type.setCurrencyCode("EUR");
         wallet.setWalletType(type);
         String payload = transactionMapper.toRequestedPayload(TRANSACTION_UID, USER_UID, wallet,
-                new BigDecimal("0.10"));
+                new BigDecimal("0.10"), new BigDecimal("0.11"));
 
         // when
         SpecificRecord record = transactionMapper.toRequestedEvent(
@@ -129,6 +132,7 @@ class TransactionMapperTest {
 
         // then
         assertThat(((DepositRequested) record).getAmount()).isEqualTo(new BigDecimal("0.10"));
+        assertThat(((DepositRequested) record).getTotal()).isEqualTo(new BigDecimal("0.11"));
         assertThat(((DepositRequested) record).getCurrency()).isEqualTo("EUR");
     }
 

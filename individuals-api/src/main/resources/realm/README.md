@@ -20,10 +20,10 @@ JSON carries no comments, which is why this file is described here instead.
 | Block | Lines | Declares |
 |---|---|---|
 | realm settings | 2-12 | name, login rules, token lifespans |
-| `roles` | 13-20 | the platform role `USER` |
-| `clients` | 21-57 | the `individuals-api` client, its secret, its `user_uid` mapper |
-| `users` | 58-72 | the service account and its Admin API roles |
-| `components` | 73-87 | the user profile: which attributes an account may hold |
+| `roles` | 13-24 | the platform role `USER` and the service role `SERVICE` |
+| `clients` | 25-61 | the `individuals-api` client, its secret, its `user_uid` mapper |
+| `users` | 62-79 | the service account, its realm role `SERVICE` and its Admin API roles |
+| `components` | 80-94 | the user profile: which attributes an account may hold |
 
 ### Realm settings
 
@@ -42,6 +42,13 @@ JSON carries no comments, which is why this file is described here instead.
 `USER` is declared here and granted nowhere: no import setting hands out a
 realm role. `KeycloakClient.assignPlatformRole` grants it as the third
 step of registration.
+
+`SERVICE` marks a platform service calling an internal one (person-service,
+transaction-service). Unlike `USER` it is granted right here, in `users`, to
+the service account of `individuals-api` and to nobody else. The internal
+services check the token signature by the realm keys and let in only
+`SERVICE`: a user token (`USER`) gets `403`, no token or a foreign one `401`.
+A new platform service that calls them gets its own client and the same role.
 
 ### `clients`
 
@@ -74,7 +81,8 @@ individuals-api-dedicated**.
 
 ### `users`
 
-One service account, with the four Admin API roles the gateway needs:
+One service account. Its realm role `SERVICE` is what the internal services
+check; its four Admin API roles are what the gateway needs in Keycloak:
 
 | Role | Used by |
 |---|---|
@@ -87,7 +95,7 @@ Nothing beyond that: a leaked secret must not buy the whole realm.
 ### `components` - the user profile
 
 Keycloak 24+ stores no attribute that the user profile does not declare. Line
-82 is one long escaped string; unescaped, our own attribute reads:
+89 is one long escaped string; unescaped, our own attribute reads:
 
 ```json
 {
@@ -119,6 +127,7 @@ Nothing enforces these pairs. They drift silently.
 | client id | `clientId` | `application.yml`: `individuals.keycloak.client-id` |
 | client secret | `secret` (placeholder) | `.env`: `KEYCLOAK_CLIENT_SECRET` |
 | role name `USER` | `roles.realm[].name` | `KeycloakClient.PLATFORM_ROLE` |
+| role name `SERVICE` | `roles.realm[].name`, `users[].realmRoles` | `SecurityConfig` of person-service and transaction-service: `hasRole("SERVICE")` |
 | email as username | `registrationEmailAsUsername` | `KeycloakUserRequestDto`: `username = email` |
 | password grant | `directAccessGrantsEnabled` | `KeycloakClient.login`: `grant_type=password` |
 | attribute declaration | `components` | `KeycloakUserRequestDto`: `attributes` |

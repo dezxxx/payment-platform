@@ -76,7 +76,7 @@ class PaymentKafkaIT {
         UUID user = UUID.randomUUID();
 
         // when
-        request(transactionId, user, "100.00");
+        request(transactionId, user, "100.00", "102.00");
 
         // then
         ConsumerRecord<String, Object> answer = firstMessage(EventTopics.DEPOSIT_COMPLETED, transactionId.toString());
@@ -85,14 +85,15 @@ class PaymentKafkaIT {
     }
 
     @Test
-    @DisplayName("given a DepositRequested above the limit, when it arrives, then DepositFailed with the reason")
+    @DisplayName("given a DepositRequested with the total above the limit, when it arrives, then DepositFailed"
+            + " with the reason")
     void answersFailed() {
         // given
         UUID transactionId = UUID.randomUUID();
         UUID user = UUID.randomUUID();
 
         // when
-        request(transactionId, user, "10000.01");
+        request(transactionId, user, "9900.00", "10098.00");
 
         // then
         ConsumerRecord<String, Object> answer = firstMessage(EventTopics.DEPOSIT_FAILED, transactionId.toString());
@@ -101,12 +102,13 @@ class PaymentKafkaIT {
     }
 
     // a plain producer: the template's own observation would add a traceparent of a new trace
-    private void request(UUID transactionId, UUID user, String amount) {
+    private void request(UUID transactionId, UUID user, String amount, String total) {
         Map<String, Object> config = kafkaProperties.buildProducerProperties();
         config.remove(ProducerConfig.TRANSACTIONAL_ID_CONFIG);
         ProducerRecord<String, Object> request = new ProducerRecord<>(EventTopics.DEPOSIT_REQUESTED,
                 transactionId.toString(),
-                new DepositRequested(transactionId, user, UUID.randomUUID(), new BigDecimal(amount), "USD"));
+                new DepositRequested(transactionId, user, UUID.randomUUID(), new BigDecimal(amount),
+                        new BigDecimal(total), "USD"));
         request.headers().add("traceparent",
                 ("00-" + TRACE_ID + "-b7ad6b7169203331-01").getBytes(StandardCharsets.UTF_8));
         try (KafkaProducer<String, Object> producer = new KafkaProducer<>(config)) {

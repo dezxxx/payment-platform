@@ -14,7 +14,7 @@ import reactor.netty.http.server.HttpServerRequest;
 
 public final class StubTransactionService {
 
-    public record Received(String method, String uri, String userUid, String body) {
+    public record Received(String method, String uri, String userUid, String authorization, String body) {
     }
 
     private record Answer(int status, String contentType, String body, Duration delay) {
@@ -33,7 +33,8 @@ public final class StubTransactionService {
                 .port(0)
                 .handle((request, response) -> bodyOf(request).flatMap(body -> {
                     received.add(new Received(request.method().name(), request.uri(),
-                            request.requestHeaders().get("X-User-Uid"), body));
+                            request.requestHeaders().get("X-User-Uid"),
+                            request.requestHeaders().get(HttpHeaderNames.AUTHORIZATION), body));
                     Answer next = answer.get();
                     return Mono.delay(next.delay())
                             .then(response.status(HttpResponseStatus.valueOf(next.status()))

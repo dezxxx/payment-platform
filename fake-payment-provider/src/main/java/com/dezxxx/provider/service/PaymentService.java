@@ -29,8 +29,8 @@ public class PaymentService {
     private final PaymentMetrics paymentMetrics;
 
     public void processDeposit(DepositRequested request) {
-        if (approved(request.getAmount())) {
-            log.info("Deposit {} charged from the card", request.getTransactionId());
+        if (approved(request.getTotal())) {
+            log.info("Deposit {}: {} charged from the card", request.getTransactionId(), request.getTotal());
             paymentKafkaProducer.send(EventTopics.DEPOSIT_COMPLETED, request.getTransactionId(),
                     new DepositCompleted(request.getTransactionId(), request.getUserId()));
             paymentMetrics.answered(PaymentMetrics.DEPOSIT, PaymentMetrics.COMPLETED);

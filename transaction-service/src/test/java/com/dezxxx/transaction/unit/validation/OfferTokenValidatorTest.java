@@ -30,7 +30,7 @@ class OfferTokenValidatorTest {
 
     private static final OfferTerms TERMS = new OfferTerms(UUID.randomUUID(), USER_UID,
             TransactionPaymentType.WITHDRAWAL, UUID.randomUUID(), null, new BigDecimal("100.00"),
-            new BigDecimal("1.00"), Instant.parse("2026-10-29T12:05:00Z"));
+            new BigDecimal("1.00"), Instant.parse("2026-10-29T12:05:00Z"), null);
 
     @Mock
     private OfferTokenSigner offerTokenSigner;

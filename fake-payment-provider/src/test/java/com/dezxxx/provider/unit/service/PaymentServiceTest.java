@@ -52,10 +52,11 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("given a deposit up to the limit, when processed, then DepositCompleted with the user to deposit-completed, counted")
+    @DisplayName("given a deposit whose total (amount + fee) is up to the limit, when processed, then DepositCompleted"
+            + " with the user to deposit-completed, counted")
     void completesDeposit() {
         // when
-        paymentService.processDeposit(depositRequested("10000.00"));
+        paymentService.processDeposit(depositRequested("9800.00", "9996.00"));
 
         // then
         SpecificRecord answer = sent("deposit-completed");
@@ -64,10 +65,11 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("given a deposit above the limit, when processed, then DepositFailed: not enough funds on the card, counted")
+    @DisplayName("given an amount under the limit but a total (amount + fee) above it, when processed, then"
+            + " DepositFailed: not enough funds on the card, counted")
     void declinesDeposit() {
         // when
-        paymentService.processDeposit(depositRequested("10000.01"));
+        paymentService.processDeposit(depositRequested("9900.00", "10098.00"));
 
         // then
         SpecificRecord answer = sent("deposit-failed");
@@ -109,8 +111,9 @@ class PaymentServiceTest {
         return answer.getValue();
     }
 
-    private static DepositRequested depositRequested(String amount) {
-        return new DepositRequested(TRANSACTION_UID, USER_UID, WALLET_UID, new BigDecimal(amount), "USD");
+    private static DepositRequested depositRequested(String amount, String total) {
+        return new DepositRequested(TRANSACTION_UID, USER_UID, WALLET_UID, new BigDecimal(amount),
+                new BigDecimal(total), "USD");
     }
 
     private static WithdrawalRequested withdrawalRequested(String amount) {

@@ -30,7 +30,7 @@ class PaymentKafkaConsumerTest {
     void processesDeposit() {
         // given
         DepositRequested request = new DepositRequested(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                new BigDecimal("1.00"), "USD");
+                new BigDecimal("1.00"), new BigDecimal("1.02"), "USD");
 
         // when
         consumer.onDepositRequested(request);

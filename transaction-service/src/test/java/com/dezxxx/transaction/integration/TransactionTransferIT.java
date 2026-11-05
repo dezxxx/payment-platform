@@ -154,9 +154,10 @@ class TransactionTransferIT extends IntegrationTest {
 
     @Test
     @DisplayName("given a completed transfer, when confirm repeats with the same offerToken, then the same transaction,"
-            + " money moved once")
+            + " money moved once and counted once")
     void repeatedConfirmMovesOnce() {
         // given
+        double finishedBefore = finished("TRANSFER", "COMPLETED");
         UUID user = UUID.randomUUID();
         UUID source = createWallet(user);
         UUID target = createWallet(user);
@@ -172,6 +173,7 @@ class TransactionTransferIT extends IntegrationTest {
         assertThat(balance(source, user)).isEqualByComparingTo("199.50");
         assertThat(balance(target, user)).isEqualByComparingTo("100.00");
         assertThat(transactions(user)).isEqualTo(1);
+        assertThat(finished("TRANSFER", "COMPLETED")).isEqualTo(finishedBefore + 1);
     }
 
     // a race does not happen on every run: repeated, so both confirms really meet on the two wallets

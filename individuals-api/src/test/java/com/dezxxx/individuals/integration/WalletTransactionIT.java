@@ -6,11 +6,16 @@ import com.dezxxx.individuals.api.model.TokenResponseDto;
 import com.dezxxx.individuals.integration.support.IntegrationTest;
 import com.dezxxx.individuals.integration.support.StubTransactionService.Received;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 @DisplayName("Wallets and transactions through individuals-api, transaction-service stubbed")
@@ -41,6 +46,9 @@ class WalletTransactionIT extends IntegrationTest {
             """.formatted(WALLET_UID, USD_TYPE);
 
     private static String accessToken;
+
+    @Autowired
+    private ReactiveJwtDecoder jwtDecoder;
 
     @BeforeEach
     void freshStubAndUser() {
@@ -86,6 +94,30 @@ class WalletTransactionIT extends IntegrationTest {
         assertThat(sent.uri()).isEqualTo(WALLETS);
         assertThat(sent.userUid()).isEqualTo(PERSON_SERVICE.userUid().toString());
         assertThat(sent.body()).contains("\"name\":\"Main USD\"");
+    }
+
+    @Test
+    @DisplayName("given a user token, when creating a wallet, then transaction-service gets the service token of"
+            + " individuals-api with the realm role SERVICE, never the user's token")
+    void sendsTheServiceToken() {
+        // given
+        TRANSACTION_SERVICE.answer(201, WALLET_JSON);
+
+        // when
+        authorized(client.post().uri(WALLETS))
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"name\":\"Main USD\",\"walletTypeUid\":\"" + USD_TYPE + "\"}")
+                .exchange()
+                .expectStatus().isCreated();
+
+        // then
+        String authorization = onlyCall().authorization();
+        assertThat(authorization).startsWith("Bearer ").isNotEqualTo("Bearer " + accessToken);
+        Jwt serviceToken = jwtDecoder.decode(authorization.substring("Bearer ".length())).block();
+        assertThat(serviceToken.getClaimAsString("azp")).isEqualTo(CLIENT_ID);
+        assertThat(serviceToken.<Map<String, List<String>>>getClaim("realm_access").get("roles"))
+                .contains("SERVICE")
+                .doesNotContain("USER");
     }
 
     @Test

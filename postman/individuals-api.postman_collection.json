@@ -7,6 +7,11 @@
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:8081" },
     { "key": "personServiceUrl", "value": "http://localhost:8082", "description": "Only to check that user_uid is the id of the individual person-service stored." },
+    { "key": "keycloakUrl", "value": "http://localhost:8080", "description": "Only for the service token of the two direct person-service checks." },
+    { "key": "realm", "value": "payment-platform" },
+    { "key": "clientId", "value": "individuals-api" },
+    { "key": "clientSecret", "value": "", "description": "KEYCLOAK_CLIENT_SECRET from .env - set it here or pass --env-var clientSecret=... to newman; it is never stored in the collection." },
+    { "key": "serviceToken", "value": "" },
     { "key": "password", "value": "Str0ngPass!", "description": "The same for both users, to keep the collection short." },
 
     { "key": "ivanEmail", "value": "ivan.petrov@example.com" },
@@ -196,6 +201,46 @@
           }
         },
         {
+          "name": "Service token of individuals-api - person-service lets in only the realm role SERVICE",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('clientSecret')) {",
+                  "    throw new Error('clientSecret is empty: set KEYCLOAK_CLIENT_SECRET from .env');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('serviceToken', pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "client_credentials" },
+                { "key": "client_id", "value": "{{clientId}}" },
+                { "key": "client_secret", "value": "{{clientSecret}}" }
+              ]
+            },
+            "url": "{{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/token",
+            "description": "The token individuals-api itself sends to person-service; Ivan's token would get 403 there."
+          }
+        },
+        {
           "name": "Ivan - the same individual in person-service",
           "event": [
             {
@@ -216,6 +261,7 @@
             }
           ],
           "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{serviceToken}}", "type": "string" }] },
             "method": "GET",
             "header": [],
             "url": { "raw": "{{personServiceUrl}}/api/v1/individuals/{{ivanUserUid}}", "host": ["{{personServiceUrl}}"], "path": ["api", "v1", "individuals", "{{ivanUserUid}}"] },
@@ -237,6 +283,7 @@
             }
           ],
           "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{serviceToken}}", "type": "string" }] },
             "method": "PATCH",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": { "mode": "raw", "raw": "{\n  \"user\": { \"lastName\": \"Petrov-Senior\" }\n}" },

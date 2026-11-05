@@ -11,6 +11,7 @@ import com.dezxxx.transaction.entity.wallet.WalletEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
 import com.dezxxx.transaction.mapper.TransactionMapper;
+import com.dezxxx.transaction.metrics.TransactionMetrics;
 import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import com.dezxxx.transaction.repository.TransactionSpecifications;
@@ -19,7 +20,9 @@ import com.dezxxx.transaction.token.OfferTokenSigner;
 import com.dezxxx.transaction.validation.DateRangeValidator;
 import com.dezxxx.transaction.validation.OfferTokenValidator;
 import io.micrometer.observation.annotation.Observed;
+import io.micrometer.tracing.Link;
 import io.micrometer.tracing.Span;
+import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +55,8 @@ public class TransactionService {
 
     private static final String TRACEPARENT = "traceparent";
 
+    private static final String OFFER_LINK = "offer.link";
+
     private static final int MONEY_SCALE = 2;
 
     // newest first; uid breaks the ties of one created_at, so pages never overlap
@@ -68,6 +73,7 @@ public class TransactionService {
     private final OfferTokenSigner offerTokenSigner;
     private final OfferTokenValidator offerTokenValidator;
     private final OfferTokenProperties offerTokenProperties;
+    private final TransactionMetrics transactionMetrics;
     private final Clock clock;
 
     @Observed(name = OPERATIONS, contextualName = "transactionService.initDeposit", lowCardinalityKeyValues = {"operation", "initDeposit"})
@@ -82,6 +88,7 @@ public class TransactionService {
     public TransactionConfirmResponseDto confirmDeposit(UUID userUid, DepositConfirmRequestDto request) {
         OfferTerms terms = offerTokenValidator.validate(request.getOfferToken(), userUid,
                 TransactionPaymentType.DEPOSIT);
+        linkToOffer(terms);
         UUID transactionId = UUID.randomUUID();
         boolean claimed = transactionRepository.claimDepositRequestId(transactionId, userUid, terms.walletUid(),
                 terms.amount(), terms.fee(), terms.requestId()).isPresent();
@@ -92,8 +99,8 @@ public class TransactionService {
         // an exception from here on rolls back the claim: the requestId is free again
         requireNotExpired(terms);
         WalletEntity wallet = walletService.getActiveWallet(terms.walletUid(), userUid);
-        saveEvent(transactionId, userUid, OutboxEventType.DEPOSIT_REQUESTED,
-                transactionMapper.toRequestedPayload(transactionId, userUid, wallet, terms.amount()));
+        saveEvent(transactionId, userUid, OutboxEventType.DEPOSIT_REQUESTED, transactionMapper.toRequestedPayload(
+                transactionId, userUid, wallet, terms.amount(), terms.amount().add(terms.fee())));
 
         log.info("Deposit {} of user {} is PENDING", transactionId, userUid);
         return transactionMapper.toConfirmResponse(transactionId, TransactionStatus.PENDING);
@@ -112,6 +119,7 @@ public class TransactionService {
     public TransactionConfirmResponseDto confirmWithdrawal(UUID userUid, WithdrawalConfirmRequestDto request) {
         OfferTerms terms = offerTokenValidator.validate(request.getOfferToken(), userUid,
                 TransactionPaymentType.WITHDRAWAL);
+        linkToOffer(terms);
         UUID transactionId = UUID.randomUUID();
         boolean claimed = transactionRepository.claimWithdrawalRequestId(transactionId, userUid,
                 terms.walletUid(), terms.amount(), terms.fee(), terms.requestId()).isPresent();
@@ -126,7 +134,7 @@ public class TransactionService {
         requireFunds(wallet, total);
         walletService.debit(terms.walletUid(), userUid, total);
         saveEvent(transactionId, userUid, OutboxEventType.WITHDRAWAL_REQUESTED,
-                transactionMapper.toRequestedPayload(transactionId, userUid, wallet, terms.amount()));
+                transactionMapper.toRequestedPayload(transactionId, userUid, wallet, terms.amount(), total));
 
         log.info("Withdrawal {} of user {} is PENDING, {} reserved", transactionId, userUid, total);
         return transactionMapper.toConfirmResponse(transactionId, TransactionStatus.PENDING);
@@ -147,6 +155,7 @@ public class TransactionService {
     public TransactionConfirmResponseDto confirmTransfer(UUID userUid, TransferConfirmRequestDto request) {
         OfferTerms terms = offerTokenValidator.validate(request.getOfferToken(), userUid,
                 TransactionPaymentType.TRANSFER);
+        linkToOffer(terms);
         UUID transactionId = UUID.randomUUID();
         boolean claimed = transactionRepository.claimTransferRequestId(transactionId, userUid, terms.walletUid(),
                 terms.targetWalletUid(), terms.amount(), terms.fee(), terms.requestId()).isPresent();
@@ -163,6 +172,7 @@ public class TransactionService {
         walletService.debit(terms.walletUid(), userUid, total);
         walletService.credit(terms.targetWalletUid(), userUid, terms.amount());
         transactionRepository.completeTransfer(transactionId, userUid, Instant.now(clock));
+        transactionMetrics.finishedAfterCommit(TransactionPaymentType.TRANSFER, TransactionStatus.COMPLETED);
 
         log.info("Transfer {} of user {} is COMPLETED: {} from wallet {} to wallet {}, fee {}", transactionId,
                 userUid, terms.amount(), terms.walletUid(), terms.targetWalletUid(), terms.fee());
@@ -195,22 +205,35 @@ public class TransactionService {
         return found.stream().map(transactionMapper::toStatusResponse).toList();
     }
 
-    // the provider's answer: the status changes only from PENDING, so a repeated message moves no money twice.
+    // the provider's answer: the status changes only from PENDING and only for the answer's type,
+    // so a repeated message moves no money twice and a deposit answer cannot finish a withdrawal
     @Transactional
     @Observed(name = OPERATIONS, contextualName = "transactionService.finalize", lowCardinalityKeyValues = {"operation", "finalize"})
-    public void finalizeTransaction(UUID transactionId, UUID userUid, TransactionStatus outcome,
-                                    String failureReason) {
-        int updated = transactionRepository.finishPending(transactionId, userUid, outcome, failureReason,
-                Instant.now(clock));
+    public void finalizeTransaction(UUID transactionId, UUID userUid, TransactionPaymentType expectedType,
+                                    TransactionStatus outcome, String failureReason) {
+        int updated = transactionRepository.finishPending(transactionId, userUid, expectedType.name(), outcome,
+                failureReason, Instant.now(clock));
         TransactionEntity transaction = transactionRepository.findByUidAndUserUid(transactionId, userUid)
                 .orElseThrow(() -> new TransactionServiceException(ErrorCode.TRANSACTION_NOT_FOUND));
         if (updated == 0) {
+            requireExpectedType(transaction, expectedType);
             log.info("Transaction {} of user {} is already {}, the repeated answer changes nothing",
                     transactionId, userUid, transaction.getStatus());
             return;
         }
         moveMoney(transaction, outcome);
+        transactionMetrics.finishedAfterCommit(expectedType, outcome);
         log.info("Transaction {} of user {} is {}", transactionId, userUid, outcome);
+    }
+
+    private void requireExpectedType(TransactionEntity transaction, TransactionPaymentType expectedType) {
+        if (transaction.getType() != expectedType) {
+            log.error("Transaction {} of user {} is a {}, the {} answer does not belong to it", transaction.getUid(),
+                    transaction.getUserUid(), transaction.getType(), expectedType);
+            throw new TransactionServiceException(ErrorCode.TRANSACTION_TYPE_MISMATCH,
+                    "Transaction " + transaction.getUid() + " is a " + transaction.getType() + ", not a "
+                            + expectedType);
+        }
     }
 
     private void moveMoney(TransactionEntity transaction, TransactionStatus outcome) {
@@ -260,7 +283,7 @@ public class TransactionService {
                                                   UUID targetWalletUid, BigDecimal amount, BigDecimal fee) {
         Instant expiresAt = Instant.now(clock).plus(offerTokenProperties.ttl());
         OfferTerms terms = new OfferTerms(UUID.randomUUID(), userUid, type, walletUid, targetWalletUid,
-                amount, fee, expiresAt);
+                amount, fee, expiresAt, traceparent());
         String offerToken = offerTokenSigner.issue(terms);
         log.info("{} offer for wallet {} of user {}: requestId {}, valid until {}",
                 type, walletUid, userUid, terms.requestId(), expiresAt);
@@ -270,6 +293,29 @@ public class TransactionService {
     private void saveEvent(UUID transactionId, UUID userUid, String eventType, String payload) {
         outboxEventRepository.saveAndFlush(
                 transactionMapper.toOutboxEvent(transactionId, userUid, eventType, payload, traceparent()));
+    }
+
+    // init and confirm are two requests with two traces: confirm keeps its own (it goes on through the outbox
+    // and Kafka) and a link span leads from it to the init request whose traceparent the signed offer carries.
+    // A link is set only when a span starts, and the confirm span is already running, hence a child span
+    private void linkToOffer(OfferTerms terms) {
+        Span confirm = tracer.currentSpan();
+        if (terms.traceparent() == null || confirm == null) {
+            return;
+        }
+        // W3C traceparent: version-traceId-spanId-flags, the lowest flag bit is "sampled"
+        String[] parts = terms.traceparent().split("-");
+        TraceContext init = tracer.traceContextBuilder()
+                .traceId(parts[1])
+                .spanId(parts[2])
+                .sampled((Integer.parseInt(parts[3], 16) & 1) == 1)
+                .build();
+        tracer.spanBuilder()
+                .setParent(confirm.context())
+                .name(OFFER_LINK)
+                .addLink(new Link(init))
+                .start()
+                .end();
     }
 
     private String traceparent() {

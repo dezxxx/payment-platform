@@ -3,18 +3,23 @@ package com.dezxxx.transaction.unit.metrics;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
+import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.metrics.TransactionMetrics;
 import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("TransactionMetrics")
@@ -94,6 +99,49 @@ class TransactionMetricsTest {
         // then
         assertThat(deadLetters("deposit-completed")).isEqualTo(2);
         assertThat(deadLetters("withdrawal-failed")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("given a finished deposit and a failed withdrawal, when their transactions commit,"
+            + " then one count per type and status")
+    void countsFinishedAfterCommit() {
+        // given
+        TransactionSynchronizationManager.initSynchronization();
+        metrics.finishedAfterCommit(TransactionPaymentType.DEPOSIT, TransactionStatus.COMPLETED);
+        metrics.finishedAfterCommit(TransactionPaymentType.WITHDRAWAL, TransactionStatus.FAILED);
+
+        // when
+        TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+
+        // then
+        assertThat(finished("DEPOSIT", "COMPLETED")).isEqualTo(1);
+        assertThat(finished("WITHDRAWAL", "FAILED")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("given a finished deposit, when its transaction rolls back, then nothing is counted")
+    void rollbackIsNotCounted() {
+        // given
+        TransactionSynchronizationManager.initSynchronization();
+        metrics.finishedAfterCommit(TransactionPaymentType.DEPOSIT, TransactionStatus.COMPLETED);
+
+        // when
+        TransactionSynchronizationManager.getSynchronizations()
+                .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+
+        // then
+        assertThat(registry.find("transaction.finished").counter()).isNull();
+    }
+
+    @AfterEach
+    void clearSynchronization() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    private double finished(String type, String status) {
+        return registry.get("transaction.finished").tag("type", type).tag("status", status).counter().count();
     }
 
     private double gauge(String name) {

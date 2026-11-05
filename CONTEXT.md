@@ -176,6 +176,57 @@ which module runs which Gradle, Boot or generator.
    `Accept-Language` if real localisation is ever wanted — and no other code
    moves.
 
+7. **An internal service lets in only a platform service.** person-service and
+   transaction-service are internal: their callers are platform services, never
+   a user. Every request except the infrastructure endpoints
+   (`/actuator/health/**`, `info`, `prometheus`, `metrics/**`, the OpenAPI
+   documents and Swagger UI) must carry a Keycloak access token with the realm
+   role `SERVICE`. The Spring Security resource server checks the signature by
+   the realm keys (JWKS, JSON Web Key Set) and then the role: no token or a token
+   Keycloak did not sign → `401 AUTHENTICATION_REQUIRED`; a valid token without
+   `SERVICE`, e.g. a user's → `403 ACCESS_DENIED`. Both go through the
+   service's own `GlobalExceptionHandler`, the usual error shape. individuals-api
+   sends the token of its service account (`client_credentials`, the token it
+   already obtains and caches for the Admin API) through a `WebClient` filter on
+   the person-service and transaction-service clients.
+
+   **This changes an earlier rule.** Until the teacher's review of PR #2
+   (module 3) the internal services knew nothing about Keycloak and trusted the
+   network. The ports 8082 and 8084 are published, so anyone on the host could
+   skip individuals-api: read an individual's passport by email, hard-delete one
+   through `/compensate-registration/{id}`, or confirm a transaction under any
+   `X-User-Uid`. Kept from the old rule: person-service still knows nothing
+   about Keycloak *users*, `user_uid` stays a domain identifier; it only checks
+   who is calling. `X-User-Uid` is still trusted - now only from a caller that
+   proved it is a platform service.
+
+   Rejected:
+   - `azp` (the calling client id) - every service would hold a list of client
+     ids, and a new caller means a config change in each of them; a role is
+     granted once, in Keycloak;
+   - an audience mapper (`aud`) - one more mapper per target service, and it
+     still does not tell a service from a user;
+   - a shared secret in a header - a second secret to rotate in every service,
+     with no expiry and no signature, while Keycloak already issues signed
+     5-minute tokens.
+
+   Keycloak keeps one entity: the existing client `individuals-api` and its
+   service account, which got the role in `realm-export.json`. A new platform
+   service that calls an internal one gets its own client and the same role.
+
+   **The `iss` trap.** The services validate by `jwk-set-uri`, not
+   `issuer-uri`. `iss` is the address the caller used to reach Keycloak:
+   individuals-api in compose asks `http://keycloak:8080`, Postman on the host
+   asks `http://localhost:8080`. With `issuer-uri` one of the two always gets
+   `401`. The signature by the realm keys is what proves Keycloak issued the
+   token; the issuer check would add only this mismatch.
+
+   Tests need no Keycloak: `TestTokens` in each service signs tokens with a test
+   RSA key and binds the `JwtDecoder` to it; `ServiceAuthIT` covers 401, 403, a
+   token signed by another key, a refused call that changes no row and moves no
+   money, and the open actuator. Still open: the ports themselves stay published,
+   Postman and the checks use them.
+
 ### Observability
 
 **Metrics.** Actuator plus Prometheus. Only `health` is exposed over HTTP by
@@ -450,8 +501,10 @@ that signs the offers of init.
 flowchart LR
     CL(["client"]) -->|8081| API["individuals-api"]
     API -->|8080| KC["keycloak"]
-    API -.->|8082 - module 2| PS["person-service"]
-    API -->|8084 X-User-Uid| TS
+    API -.->|8082 - module 2, service token| PS["person-service"]
+    API -->|8084 service token + X-User-Uid| TS
+    PS -->|8080 JWKS| KC
+    TS -->|8080 JWKS| KC
     KC -->|5432| KCDB[("keycloak-postgres")]
     PSDB[("person-postgres")]
     API -->|4318 OTLP push| TEMPO["tempo"]
@@ -468,7 +521,7 @@ flowchart LR
 ```
 
 transaction-service (module 3) is called by individuals-api on 8084 with the
-user from the token in `X-User-Uid`; the `offerToken` of init travels through
+service token (rule 7 of §3) and the user from the token in `X-User-Uid`; the `offerToken` of init travels through
 individuals-api untouched and back in confirm, only transaction-service can
 check it. transaction-service talks to the payment provider only through Kafka.
 
@@ -491,6 +544,8 @@ error anywhere.
 | realm name | `.env` `KEYCLOAK_REALM` | `realm-export.json` `realm` | the value |
 | client id | `.env` `KEYCLOAK_CLIENT_ID` | `realm-export.json` `clientId` | the value |
 | client secret | `.env` `KEYCLOAK_CLIENT_SECRET` | `realm-export.json` `secret` | the value |
+| service token check | compose `KEYCLOAK_URL`, `KEYCLOAK_REALM` of person-service and transaction-service → `jwk-set-uri` | the Keycloak and realm that issue the token | host and realm |
+| service role | `realm-export.json` `SERVICE` on `service-account-individuals-api` | `SecurityConfig` `hasRole("SERVICE")` | the name |
 | app port | `application.yml` `server.port` | compose `8081:8081` | the right-hand side |
 | transaction-service scrape | `prometheus.yml` targets `transaction-service:8084`, `fake-payment-provider:8086` | compose service names plus `server.port` | name and port |
 | Kafka inside compose | compose `KAFKA_BOOTSTRAP_SERVERS: kafka:19092` of both services | `KAFKA_ADVERTISED_LISTENERS` `PLAINTEXT://kafka:19092` | host and port |

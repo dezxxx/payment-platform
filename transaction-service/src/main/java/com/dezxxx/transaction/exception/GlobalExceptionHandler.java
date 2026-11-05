@@ -18,6 +18,8 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -48,6 +50,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(TransactionServiceException.class)
     public ResponseEntity<ProblemDetail> handleService(TransactionServiceException ex, WebRequest request) {
         return respond(ex, ex.getErrorCode(), ex.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ProblemDetail> handleAuthentication(AuthenticationException ex, WebRequest request) {
+        ErrorCode code = ErrorCode.AUTHENTICATION_REQUIRED;
+        return respond(ex, code, code.getDefaultMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ProblemDetail> handleAccessDenied(AccessDeniedException ex, WebRequest request) {
+        ErrorCode code = ErrorCode.ACCESS_DENIED;
+        return respond(ex, code, code.getDefaultMessage(), List.of(), request);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

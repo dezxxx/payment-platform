@@ -423,6 +423,38 @@
       ]
     },
     {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Finished transactions per minute, by type and status",
+      "description": "Transactions that reached COMPLETED or FAILED, counted once after the commit: a repeated confirm or Kafka answer is not counted. Transfers finish on confirm, deposits and withdrawals on the provider's answer.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (type, status) (increase(transaction_finished_total{job=\"transaction-service\"}[1m]))",
+          "legendFormat": "{{type}} {{status}}"
+        }
+      ]
+    },
+    {
       "id": 13,
       "type": "stat",
       "title": "Deposits confirmed",
@@ -435,7 +467,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 48
+        "y": 56
       },
       "fieldConfig": {
         "defaults": {
@@ -482,8 +514,8 @@
     {
       "id": 14,
       "type": "stat",
-      "title": "Answers applied",
-      "description": "Provider answers that finished a transaction or were a repeat, since the start.",
+      "title": "Transactions finished",
+      "description": "Transactions that reached COMPLETED or FAILED since the start, each counted once after its commit: repeats are not counted.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -492,7 +524,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 48
+        "y": 56
       },
       "fieldConfig": {
         "defaults": {
@@ -531,7 +563,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(transaction_operations_seconds_count{job=\"transaction-service\", operation=\"finalize\", error=\"none\"}) or vector(0)",
+          "expr": "sum(transaction_finished_total{job=\"transaction-service\"}) or vector(0)",
           "instant": true
         }
       ]
@@ -549,7 +581,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 48
+        "y": 56
       },
       "fieldConfig": {
         "defaults": {
@@ -606,7 +638,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 48
+        "y": 56
       },
       "fieldConfig": {
         "defaults": {
@@ -659,7 +691,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 52
+        "y": 60
       },
       "panels": []
     },
@@ -676,7 +708,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 53
+        "y": 61
       },
       "fieldConfig": {
         "defaults": {
@@ -713,7 +745,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 53
+        "y": 61
       },
       "fieldConfig": {
         "defaults": {
@@ -750,7 +782,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 61
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -782,7 +814,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 61
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -814,7 +846,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 69
+        "y": 77
       },
       "fieldConfig": {
         "defaults": {
@@ -846,7 +878,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 69
+        "y": 77
       },
       "fieldConfig": {
         "defaults": {
@@ -883,7 +915,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 77
+        "y": 85
       },
       "fieldConfig": {
         "defaults": {
@@ -915,7 +947,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 77
+        "y": 85
       },
       "fieldConfig": {
         "defaults": {
@@ -947,7 +979,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 85
+        "y": 93
       },
       "options": {
         "showTime": true,
@@ -974,7 +1006,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 94
+        "y": 102
       },
       "options": {
         "showTime": true,

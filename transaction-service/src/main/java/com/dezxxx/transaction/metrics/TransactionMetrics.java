@@ -1,5 +1,7 @@
 package com.dezxxx.transaction.metrics;
 
+import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
+import com.dezxxx.transaction.entity.transaction.TransactionStatus;
 import com.dezxxx.transaction.repository.OutboxEventRepository;
 import com.dezxxx.transaction.repository.TransactionRepository;
 import io.micrometer.core.instrument.Counter;
@@ -9,6 +11,8 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Component
 public class TransactionMetrics {
@@ -69,6 +73,21 @@ public class TransactionMetrics {
                 .tag("topic", topic)
                 .register(registry)
                 .increment();
+    }
+
+    // counted only when the database has kept the new status: a rolled back transaction is not counted
+    public void finishedAfterCommit(TransactionPaymentType type, TransactionStatus status) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                Counter.builder("transaction.finished")
+                        .description("Transactions that reached their final status, once per transaction")
+                        .tag("type", type.name())
+                        .tag("status", status.name())
+                        .register(registry)
+                        .increment();
+            }
+        });
     }
 
     private static long seconds(Optional<Double> age) {

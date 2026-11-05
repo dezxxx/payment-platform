@@ -48,12 +48,16 @@ public interface TransactionRepository extends JpaRepository<TransactionEntity, 
 
     Optional<TransactionEntity> findByUidAndUserUid(UUID uid, UUID userUid);
 
-    // only from PENDING: 0 rows means a repeated answer or an unknown transaction
+    // only a PENDING transaction of the answer's type: 0 rows means a repeated answer, an unknown transaction
+    // or an answer of another type. The type is compared as text, as in TransactionSpecifications.ofType:
+    // ShardingSphere binds the parameter as varchar, and PostgreSQL has no payment_type = varchar
     @Modifying
     @Query("update TransactionEntity t set t.status = :status, t.failureReason = :failureReason,"
             + " t.modifiedAt = :modifiedAt where t.uid = :uid and t.userUid = :userUid"
+            + " and cast(t.type as String) = :type"
             + " and t.status = com.dezxxx.transaction.entity.transaction.TransactionStatus.PENDING")
-    int finishPending(UUID uid, UUID userUid, TransactionStatus status, String failureReason, Instant modifiedAt);
+    int finishPending(UUID uid, UUID userUid, String type, TransactionStatus status,
+                      String failureReason, Instant modifiedAt);
 
     // for TransactionMetrics, both shards: native with an alias, as in OutboxEventRepository
     @Query(value = "SELECT count(*) AS pending FROM transactions WHERE status = 'PENDING'", nativeQuery = true)

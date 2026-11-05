@@ -5,9 +5,11 @@ title person-service - component diagram (C4, level 3)
 
 Container_Ext(individualsApi, "individuals-api", "Spring Boot WebFlux", "Calls person-service through person-service-client")
 ContainerDb(db, "PostgreSQL", "schemas person, person_history", "Individuals data and Envers audit")
+Container_Ext(keycloak, "Keycloak", "identity provider", "Realm signing keys (JWKS)")
 Container_Ext(observability, "Prometheus / Alloy", "metrics, traces, logs", "Observability stack")
 
 Container_Boundary(app, "person-service") {
+    Component(security, "SecurityConfig", "Spring Security resource server", "Every request except actuator, OpenAPI and Swagger UI: Bearer token signed by the realm keys with the realm role SERVICE; otherwise 401 / 403 through GlobalExceptionHandler, nothing read or written")
     Component(filter, "UserUidLogFilter", "Servlet filter", "Puts the request's user_uid into the log context")
     Component(controller, "IndividualRestControllerV1", "Spring MVC, implements generated IndividualsApi", "/api/v1/individuals: create, get by id and by email, update, archive, compensate registration")
     Component(handler, "GlobalExceptionHandler", "@RestControllerAdvice", "Answers every error as RFC 9457 problem details")
@@ -17,7 +19,10 @@ Container_Boundary(app, "person-service") {
     Component(envers, "Hibernate Envers", "audit", "Writes every change of the aggregate as a revision")
 }
 
-Rel(individualsApi, filter, "REST /api/v1/individuals", "HTTP, JSON")
+Rel(individualsApi, security, "REST /api/v1/individuals", "HTTP, JSON, Bearer service token")
+Rel(security, keycloak, "realm keys", "JWKS, cached")
+Rel(security, handler, "401 AUTHENTICATION_REQUIRED, 403 ACCESS_DENIED")
+Rel(security, filter, "role SERVICE: passes the request")
 Rel(filter, controller, "passes the request")
 Rel(controller, service, "calls")
 Rel(service, mappers, "maps DTO <-> entities")

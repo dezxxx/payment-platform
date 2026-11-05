@@ -10,6 +10,7 @@ System_Boundary(ps, "person-service") {
     ContainerDb(db, "PostgreSQL", "schemas person, person_history", "Individuals data and Envers audit")
 }
 
+Container_Ext(keycloak, "Keycloak", "identity provider", "Issues the service token of individuals-api, realm signing keys (JWKS)")
 Container_Ext(nexus, "Nexus", "Maven repository", "Holds person-service-client")
 Container_Ext(prometheus, "Prometheus", "metrics", "Scrapes /actuator/prometheus")
 Container_Ext(alloy, "Alloy", "telemetry agent", "Receives traces, reads logs")
@@ -17,7 +18,9 @@ Container_Ext(tempo, "Tempo", "traces", "Stores traces")
 Container_Ext(loki, "Loki", "logs", "Stores logs")
 Container_Ext(grafana, "Grafana", "dashboards", "Metrics, traces, logs")
 
-Rel(individualsApi, app, "REST /api/v1/individuals", "person-service-client")
+Rel(individualsApi, keycloak, "service token of its own client", "client_credentials, cached")
+Rel(individualsApi, app, "REST /api/v1/individuals", "person-service-client, Bearer service token")
+Rel(app, keycloak, "realm keys to check the service token", "JWKS, cached")
 Rel(app, db, "reads and writes", "JPA, Flyway")
 Rel(app, nexus, "build publishes the client", "Gradle")
 Rel(nexus, individualsApi, "imports the client", "Maven")

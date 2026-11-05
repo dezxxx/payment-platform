@@ -61,7 +61,11 @@ and each external system has exactly one client.
 - `TokenService` — login and refresh
 - `KeycloakClient` — everything Keycloak: the token endpoint (login, refresh,
   the service-account token, cached) and the Admin API (account, password,
-  role, rollback, registration date)
+  role, rollback, registration date). The same cached service-account token
+  goes as `Authorization: Bearer` on every call to person-service and
+  transaction-service: `HttpClientsConfig.serviceToken`, an
+  `ExchangeFilterFunction` on both `WebClient`s, so no client and no service
+  method has to remember it
 - `PersonClient` — wraps the generated `PersonsApi`: create the person, get
   its `user_uid`
 
@@ -764,7 +768,7 @@ the single place where the token is checked, so it is also the single place
 | Topic | Decision | Why |
 |---|---|---|
 | Where `user_uid` comes from | only from the verified token (`KeycloakClaims.requireUserUid`); individuals-api sets it as `X-User-Uid` on every call | it is the same `user_uid` person-service issued at registration and Keycloak carries in the token; taken from the client, anyone could read another user's wallets |
-| Trust boundary | transaction-service checks no token and trusts `X-User-Uid`, so it is reachable from the Docker network only; its port is published locally for development and its own Postman collection | the header is safe only while individuals-api is the only caller |
+| Trust boundary | transaction-service and person-service let in only a caller with the service token: the token of our service account, realm role `SERVICE`, sent by the `WebClient` filter. transaction-service trusts `X-User-Uid` only from such a caller. Their ports stay published for development and their own Postman collections, which take the same token | the teacher's review of PR #2: with the port published and no check, anyone could call transaction-service with any `X-User-Uid`. The earlier rule "reachable from the Docker network only" is replaced; the decision and the rejected options are rule 7 in §3 of the root `CONTEXT.md` |
 | Endpoints | the 11 operations of transaction-service under the same paths; own wallets are `GET /api/v1/wallets` (→ `/api/v1/wallets/user/{user_uid}`), search takes no `userUid` (added from the token) | the client never names a user |
 | Client | `TransactionClient` in `gateway/transaction`, an adapter over the generated `transaction-service-client` (`WalletsApi`, `TransactionsApi` beans on `transactionWebClient`), like `PersonClient`; it sets `X-User-Uid` and translates errors | one client per external system |
 | Models | the endpoints take and return the client's classes (`com.dezxxx.transaction.client.model`): the contract keeps the schemas for Swagger, `schemaMappings` in `build.gradle.kts` stops the generator from copying them; `@Valid` checks their annotations, `@DifferentWallets` included | the bodies are the same on both sides: copies would only be moved field by field; a new client version must be compared with the schemas in `individuals-api.yaml` |
@@ -787,6 +791,7 @@ the single place where the token is checked, so it is also the single place
 | 400 `VALIDATION_ERROR` (their rules caught what ours let through) | **400** `VALIDATION_ERROR` with their `details` | yes |
 | 400 `MALFORMED_REQUEST` or an unknown code | **500** `INTERNAL_ERROR`, their body only in the log — we sent it, our bug | yes |
 | 404 `WALLET_NOT_FOUND`, `WALLET_TYPE_NOT_FOUND`, `TRANSACTION_NOT_FOUND` | **404**, the same code; another user's wallet is 404 too | yes |
+| 401 or 403 (our service token refused) | **500** `INTERNAL_ERROR`, their body only in the log - the realm role or the Keycloak address is misconfigured, our bug, not the client's; the same for person-service | yes |
 | 5xx | **503** `DEPENDENCY_UNAVAILABLE` | yes |
 | no connection or no answer within 5 s | **503** `DEPENDENCY_UNAVAILABLE` (`GatewayErrors.transportFailures`) | yes |
 
@@ -815,6 +820,11 @@ never charges twice, even after the offer expired.
 - [x] The offer token: the contract (`expiresAt`, `offerToken`; confirm takes only the token),
       `OFFER_TOKEN_INVALID` and `OFFER_EXPIRED` passed through instead of `409 REQUEST_ID_CONFLICT`,
       the tests and the Postman collection
+- [x] The service token on every call to person-service and transaction-service (the teacher's review
+      of PR #2): the realm role `SERVICE` on our service account in `realm-export.json`, the
+      `serviceToken` filter in `HttpClientsConfig`; the stubs record the `Authorization` header,
+      `WalletTransactionIT.sendsTheServiceToken` and `AuthControllerIT` IT-KC-004 decode it (our client,
+      `SERVICE`, no `USER`); Postman takes the service token for the two direct person-service requests
 - [ ] Publish `transaction-service-client` with the offer token to Nexus, rebuild the images, run
       both Postman collections on the stack
 - [ ] Grafana legends read as `create_wallet`, not as Java names (`createWallet`)

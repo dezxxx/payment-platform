@@ -56,6 +56,8 @@ services:
       PERSON_DB_NAME: ${PERSON_DB_NAME}
       PERSON_DB_USER: ${PERSON_DB_USER}
       PERSON_DB_PASSWORD: ${PERSON_DB_PASSWORD}
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       OTLP_TRACES_ENDPOINT: http://alloy:4318/v1/traces
     # the JRE image has no curl or wget, only bash
     healthcheck:
@@ -101,6 +103,8 @@ services:
       TRANSACTION_DB_USER: ${TRANSACTION_DB_USER}
       TRANSACTION_DB_PASSWORD: ${TRANSACTION_DB_PASSWORD}
       TRANSACTION_OFFER_SECRET: ${TRANSACTION_OFFER_SECRET}
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       OTLP_TRACES_ENDPOINT: http://alloy:4318/v1/traces

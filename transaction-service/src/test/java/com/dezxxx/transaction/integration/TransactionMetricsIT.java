@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.dezxxx.transaction.integration.support.IntegrationTest;
 import com.dezxxx.transaction.metrics.TransactionMetrics;
-import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -21,9 +20,6 @@ class TransactionMetricsIT extends IntegrationTest {
 
     @Autowired
     private TransactionMetrics transactionMetrics;
-
-    @Autowired
-    private MeterRegistry meterRegistry;
 
     @Test
     @DisplayName("given a PENDING deposit on each shard, one an hour old, when the metrics refresh,"
