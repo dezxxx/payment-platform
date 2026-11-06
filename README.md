@@ -1,191 +1,217 @@
 # payment-platform
 
-A monorepo built along the *Java Backend Developer* course
-([education.proselyte.net](https://education.proselyte.net)). Module 1 delivers
-**individuals-api** — the platform's external entry point: it registers users,
-logs them in and answers "who am I", orchestrating Keycloak and person-service
-without owning any domain data of its own.
-
-Java 25 · Spring Boot 4.1 · WebFlux · Keycloak 26.7 · Gradle 9.5.1 · Docker Compose
+A payment platform built from independent Spring Boot services. **individuals-api**
+is the only external entry point: registration, login, the current user, wallets,
+deposit, withdrawal and transfer. Behind it, Keycloak holds the accounts,
+person-service the individuals, transaction-service the wallets and transactions,
+and a payment provider finishes deposits and withdrawals over Kafka.
 
 ---
 
-## What it does
+## Stack
+
+| | |
+|---|---|
+| Language, build | Java 25, Gradle 9.5.1 (Kotlin DSL), one build per service |
+| Framework | Spring Boot 4.1: WebFlux in individuals-api, Web MVC in the other services |
+| API | OpenAPI 3 contract first, OpenAPI Generator 7.25.0: server interfaces, DTOs, Spring HTTP Service clients |
+| Identity | Keycloak 26.7 (OIDC, Admin REST API), OAuth2 resource server with JWT |
+| Data | PostgreSQL 18, Spring Data JPA, Flyway, Hibernate Envers + Spring Data Envers, ShardingSphere-JDBC 5.5 (two shards) |
+| Messaging | Apache Kafka 4.3 (KRaft), Avro 1.12, Confluent Schema Registry 8.3, transactional outbox |
+| Observability | Micrometer, Prometheus 3, Grafana 12, Loki 3 (JSON logs), Tempo 2 (OpenTelemetry traces), Grafana Alloy |
+| Artifacts | Sonatype Nexus 3: generated clients and event schemas |
+| Tests | JUnit 5, Mockito, Testcontainers (PostgreSQL, Keycloak, Kafka), Awaitility, JaCoCo, Postman + newman |
+| Runtime | Docker, Docker Compose, Make |
+
+## Services
 
 ```
-             ┌──────────────────────────────────────────┐
-  client ──▶ │  individuals-api      :8081              │
-             │  registration · login · refresh · /me    │
-             └────────┬────────────────────────┬────────┘
-                      │                        │
-              accounts & tokens          the individual
-                      ▼                        ▼
-             Keycloak      :8080       person-service  :8082
-             (OIDC + Admin REST)       (module 2: the individual aggregate with its
-                                        address and personal data)
+             ┌──────────────────────────────────────────────────────────┐
+  client ──▶ │  individuals-api      :8081                              │
+             │  registration · login · refresh · /me · wallets · money  │
+             └────────┬───────────────────┬───────────────────┬─────────┘
+                      │                   │                   │
+              accounts & tokens     the individual     wallets & transactions
+                      ▼                   ▼                   ▼
+             Keycloak  :8080      person-service :8082   transaction-service :8084
+             (OIDC + Admin REST)  (the individual with   (two PostgreSQL shards)
+                                   its address and              │ Kafka
+                                   personal data)               ▼
+                                                         fake-payment-provider :8086
 ```
 
-Two systems, two identifiers, and they are not interchangeable:
+| Service | Port | What it does | Storage |
+|---|---|---|---|
+| `individuals-api` | 8081 | Reactive orchestrator. Calls Keycloak, person-service and transaction-service, owns no domain data | — |
+| `person-service` | 8082 | The individual aggregate: individual, user, address. Soft delete, audit history, compensation of a failed registration | PostgreSQL, Envers history schema `person_history` |
+| `transaction-service` | 8084 | Wallets and transactions: deposit, withdrawal, transfer, status, search. Sends payment requests to Kafka through an outbox, applies the provider's answers idempotently | PostgreSQL, two shards by `user_uid` |
+| `fake-payment-provider` | 8086 | Payment provider stub. Reads deposit and withdrawal requests from Kafka and answers with completed or failed events | — |
+| `currency-rate-service` | — | Exchange rates for transfers between currencies. In development | — |
 
-| Identifier | Issued by | Means |
-|---|---|---|
-| `user_uid` | person-service | The platform identifier. The only one the business layer uses. |
-| `sub` | Keycloak | Which account a token belongs to. A technical link, nothing more. |
+**Identifiers.** `user_uid` is issued by person-service and is the only user
+identifier the business layer uses. `sub` is the Keycloak account of a token.
 
-Registration writes to both systems and there is no transaction across them, so
-the flow carries an explicit **compensation**: when the Keycloak part fails, the
-half-made account is deleted and so is the individual in person-service, and the
-caller gets the original error. See §2 of `individuals-api/CONTEXT.md`.
+**Service access.** person-service and transaction-service accept only a Keycloak
+token with the realm role `SERVICE`, held by the service account of
+individuals-api: no token gives **401**, a user's token **403**. transaction-service
+takes the user from the `X-User-Uid` header.
 
-## The API
+## API
 
-Contract-first: `individuals-api/openapi/individuals-api.yaml` is the source,
-the Java interface is generated from it.
+The contract is `individuals-api/openapi/individuals-api.yaml`; Swagger UI at
+http://localhost:8081/swagger-ui.html.
 
 | Method | Path | Auth | Answers |
 |---|---|---|---|
-| `POST` | `/api/v1/auth/registration` | — | **201 (Created)** with a token pair |
-| `POST` | `/api/v1/auth/login` | — | **200 (OK)** with a token pair |
-| `POST` | `/api/v1/auth/refresh-token` | — | **200 (OK)** with a fresh token pair |
-| `GET`  | `/api/v1/auth/me` | `Bearer` | **200 (OK)** with the current user |
+| `POST` | `/api/v1/auth/registration` | — | **201** with a token pair |
+| `POST` | `/api/v1/auth/login` | — | **200** with a token pair |
+| `POST` | `/api/v1/auth/refresh-token` | — | **200** with a fresh token pair |
+| `GET` | `/api/v1/auth/me` | `Bearer` | **200** with the current user |
+| `POST` | `/api/v1/wallets` | `Bearer` | **201** with the new wallet |
+| `GET` | `/api/v1/wallets` | `Bearer` | **200** with the user's wallets |
+| `GET` | `/api/v1/wallets/{walletUid}` | `Bearer` | **200** with the wallet |
+| `POST` | `/api/v1/transactions/{deposit,withdrawal,transfer}/init` | `Bearer` | **200** with amount, fee, total, `expiresAt` and a signed `offerToken` |
+| `POST` | `/api/v1/transactions/{deposit,withdrawal,transfer}/confirm` | `Bearer` | **200** with `transactionId` and status |
+| `GET` | `/api/v1/transactions/{transactionId}/status` | `Bearer` | **200** with the transaction |
+| `GET` | `/api/v1/transactions` | `Bearer` | **200** with a page of transactions, filtered by wallet, type, status and period |
 
-Every failure answers in one shape, built from a single `ErrorCode` constant
-that carries the code, the HTTP status and the message together.
+**Errors.** Every failure has one body (`ErrorResponse`) with an `error` code.
+**401** carries `INVALID_CREDENTIALS` (wrong password), `AUTHENTICATION_REQUIRED`
+(no usable token) or `REFRESH_TOKEN_INVALID` (spent refresh token).
 
-One status is not one answer. Three different things arrive as
-**401 (Unauthorized)**, and the `error` field is what tells them apart:
-`INVALID_CREDENTIALS` when a password was compared and did not match,
-`AUTHENTICATION_REQUIRED` when no usable token was sent, and
-`REFRESH_TOKEN_INVALID` when a refresh token is spent. A client shows a
-different screen for each, and one code could not ask for all three.
+**Registration.** individuals-api creates the individual in person-service, then
+the account in Keycloak. When the Keycloak part fails, the account and the
+individual are deleted and the caller gets the original error.
+
+**Money operations.** `init` stores nothing and returns an `offerToken` signed with
+`TRANSACTION_OFFER_SECRET`, valid 5 minutes. `confirm` takes only that token and
+carries out exactly its terms; a repeated `confirm` with the same token returns
+the same transaction. A transfer is finished at once. A deposit or withdrawal
+stays `PENDING` until the provider answers over Kafka; then it becomes
+`COMPLETED` or `FAILED`, and a failed withdrawal returns the reserved money.
+
+The internal contracts are `person-service/openapi/person-service.yaml` and
+`transaction-service/openapi/transaction-service.yaml`, with Swagger UI on ports
+8082 and 8084.
 
 ## Running it
 
-**1. Environment.** Copy the template and set the two secrets; `.env`
-itself is never committed.
+**Requirements:** Docker with Compose, Make (Linux and macOS have it; on Windows
+`winget install ezwinports.make`, run from Git Bash, PowerShell or the IDE),
+Node.js for newman.
+
+**1. Environment.** `.env` is never committed.
 
 ```bash
 cp .env.example .env
-# KEYCLOAK_CLIENT_SECRET must match the value in
-# individuals-api/src/main/resources/realm/realm-export.json;
-# the Postman collections take the service token with it: set their clientSecret
-# variable, or pass --env-var clientSecret=... to newman
-# TRANSACTION_OFFER_SECRET signs the offers of transaction-service: any long
-# random string, e.g. openssl rand -base64 32; transaction-service does not start without it
 ```
 
-**2. Everything at once.** One command starts Nexus, builds the image and starts
-the stack:
+| Variable | Value |
+|---|---|
+| `KEYCLOAK_CLIENT_SECRET` | the client secret from `individuals-api/src/main/resources/realm/realm-export.json` |
+| `TRANSACTION_OFFER_SECRET` | any long random string, e.g. `openssl rand -base64 32`; transaction-service does not start without it |
+| `NEXUS_USERNAME`, `NEXUS_PASSWORD` | Nexus credentials for `make publish` |
+
+Image versions and host ports are set in `.env` too.
+
+**2. Start.**
 
 ```bash
-make
+make            # Nexus, then the images (built inside Docker), then the whole stack
+make help       # every command
 ```
 
-`make help` lists the rest — `make test`, `make it`, `make down`, `make logs`,
-`make reset-db` (empties Keycloak, the person database, both transaction shards and Kafka, e.g. before running
-the Postman collection again).
-`make verify` checks everything from scratch in order: person-service and
-transaction-service tests, their clients into Nexus, individuals-api tests,
-images without cache, the stack up. Each module has its own commands too -
-`make person-test`, `make transaction-publish-local`, `make individuals-it`
-and so on; `make help` lists them by module. The integration tests need the
-stack down, so `make verify-down` stops it first. Nexus credentials come from
-`.env`.
-Requires make, which ships with Linux and macOS; on Windows install it once
-with `winget install ezwinports.make`; it runs from Git Bash, PowerShell or the
-IDE. The steps behind it, if you would rather run them by hand, are below.
+| Command | Does |
+|---|---|
+| `make up` / `make down` | start / stop the stack, volumes kept |
+| `make reset-db` | stop, wipe Keycloak, person-service, both transaction shards and Kafka, start |
+| `make rebuild` | rebuild the images without cache, start |
+| `make logs`, `make ps` | follow the application logs, list the containers |
+| `make test` | unit tests of every service, nothing needs to run |
+| `make it` | integration tests of every service; stops the stack first |
+| `make verify-down` | stop the stack, run every test, publish the clients and events to Nexus, rebuild the images, start |
+| `make person-test`, `make transaction-it`, … | the same per service: `person-`, `individuals-`, `transaction-`, `provider-` + `build`, `jar`, `test`, `it`, `clean` |
 
-**3. Build by hand.** This folder is a Git root, not a Gradle project: every
-module is an independent build with its own wrapper, and they reach each other
-only through published artifacts. So person-service publishes
-`person-service-client` first, and `individuals-api` resolves it by coordinates.
-Until Nexus is up, the local Maven repository covers that:
+Integration tests need Docker running and the stack down.
+
+**3. Build by hand.** Each service is a separate Gradle build with its own
+wrapper. person-service publishes `person-service-client`, transaction-service
+publishes `transaction-service-client` and `transaction-service-events`;
+individuals-api and fake-payment-provider resolve them by coordinates from
+Nexus or the local Maven repository:
 
 ```bash
-cd person-service && ./gradlew publishClientPublicationToMavenLocal build && cd ..
-cd individuals-api && ./gradlew build && cd ..
+cd person-service      && ./gradlew publishClientPublicationToMavenLocal build && cd ..
+cd transaction-service && ./gradlew publishToMavenLocal build && cd ..
+cd individuals-api     && ./gradlew build && cd ..
+cd fake-payment-provider && ./gradlew build && cd ..
 ```
 
-`build` runs the integration tests too, so **Docker has to be running** — they
-start a Keycloak and PostgreSQL of their own, and the stack itself should be
-down, or the two compete for memory. For the fast loop use `./gradlew test`
-inside a module, which is unit tests only and needs nothing.
+`./gradlew test` runs the unit tests only.
 
-**4. Start the stack by hand.** Images are pinned in `.env`. The individuals-api
-image builds the application itself and downloads `person-service-client` from Nexus,
-so Nexus goes first (it must already hold the artifact - `make publish`):
+**4. Start by hand.** The images download the clients from Nexus, so Nexus goes
+first and must hold them (`make publish`):
 
 ```bash
 docker compose up -d --wait nexus
 docker compose up -d --build
 ```
 
-person-service starts once its PostgreSQL is healthy, and individuals-api once
-person-service is: registration begins there. The two Postman users get **409**
-on a second registration, because person-service already holds their email.
-
 | | URL |
 |---|---|
-| individuals-api | http://localhost:8081 |
-| Swagger UI (our contract) | http://localhost:8081/swagger-ui.html |
-| person-service | http://localhost:8082 |
-| Swagger UI of person-service | http://localhost:8082/swagger-ui.html |
-| transaction-service | http://localhost:8084 |
-| Swagger UI of transaction-service | http://localhost:8084/swagger-ui.html |
+| individuals-api, Swagger UI | http://localhost:8081, http://localhost:8081/swagger-ui.html |
+| person-service, Swagger UI | http://localhost:8082, http://localhost:8082/swagger-ui.html |
+| transaction-service, Swagger UI | http://localhost:8084, http://localhost:8084/swagger-ui.html |
 | Keycloak | http://localhost:8080 |
-| Grafana (dashboards individuals-api, person-service, transaction-service and fake-payment-provider) | http://localhost:3000 |
-| Prometheus (alerts on /alerts) | http://localhost:9090 |
-| Kafka UI (topics, consumer groups, messages) | http://localhost:8087 |
+| Grafana: a dashboard per service | http://localhost:3000 |
+| Prometheus, alerts on `/alerts` | http://localhost:9090 |
+| Kafka UI: topics, consumer groups, messages | http://localhost:8087 |
 
-The full port map, including why Nexus runs on 8083 instead of its own default,
-is in §4 of `CONTEXT.md`.
+The full port map is in §4 of `CONTEXT.md`.
+
+## Checking it
+
+| Collection | Requests | Assertions | Covers |
+|---|---|---|---|
+| `postman/individuals-api.postman_collection.json` | 73 | 159 | two users through every endpoint, wallets and money, every failure, Swagger, metrics; run it on a fresh stack (`make reset-db`) |
+| `postman/person-service.postman_collection.json` | 31 | 124 | all six operations, every RFC 9457 failure, soft delete, compensation; a fresh email on each run |
+| `postman/transaction-service.postman_collection.json` | 78 | 190 | wallets, a deposit completed and one declined by the provider, withdrawal, transfer, status, every search filter, every error; fresh users on each run |
+
+The person-service and transaction-service collections take the service token
+first: set their `clientSecret` variable to `KEYCLOAK_CLIENT_SECRET`.
+
+```bash
+npx newman run postman/transaction-service.postman_collection.json --env-var clientSecret=<KEYCLOAK_CLIENT_SECRET>
+```
+
+| Service | Tests | Unit | Integration |
+|---|---|---|---|
+| individuals-api | 124 | 86 | 38, real Keycloak and PostgreSQL |
+| person-service | 65 | 38 | 27, real PostgreSQL; 97% of lines |
+| transaction-service | 221 | 114 | 107, two real PostgreSQL shards and Kafka |
+| fake-payment-provider | 8 | 6 | 2 |
+
+individuals-api and person-service fail the build below 80% line coverage.
 
 ## Layout
 
 ```
 payment-platform/
-├── individuals-api/      the orchestrator — module 1's deliverable
-├── person-service/       the individual aggregate (module 2); publishes person-service-client to Nexus
-├── transaction-service/  wallets and transactions (module 3), port 8084; publishes its client and events to Nexus
-├── fake-payment-provider/ the payment provider stub (module 3), port 8086; answers over Kafka
-├── infra/                prometheus, tempo, loki, alloy, grafana provisioning
-├── postman/
-└── docker-compose.yml
+├── individuals-api/        the orchestrator, the only external entry point
+├── person-service/         the individual aggregate; publishes person-service-client
+├── transaction-service/    wallets and transactions; publishes its client and events
+├── fake-payment-provider/  the payment provider stub; answers over Kafka
+├── infra/                  Prometheus, Tempo, Loki, Alloy, Grafana provisioning
+├── postman/                Postman collections
+├── docker-compose.yml
+└── Makefile
 ```
 
-Modules never depend on each other through `project(":...")`. Cross-module
-contracts travel as artifacts, exactly as they would between separately
-deployed services.
+Each service has `openapi/` (its contract), `diagrams-c4/` (C4 container,
+component and sequence diagrams, PlantUML in `uml/en`, pictures in `png/en`)
+and `CONTEXT.md` (its design).
 
-Inside `individuals-api`, one rule decides where a class lives: **shared code
-sits at the level that covers everyone who uses it.** `gateway` holds one client
-per external system (`KeycloakClient`, `PersonClient`) and is the only door to
-the outside world, `service` (`UserService`, `TokenService`) decides what happens
-and what to do when it breaks, and nothing above a client ever holds a foreign
-payload.
-
-## Documentation
-
-| File | What it is |
-|---|---|
-| [`CONTEXT.md`](CONTEXT.md) | What every module shares: rules, ports, how the platform is built, started and checked. |
-| `<module>/CONTEXT.md` | What was decided and done in that module: [`individuals-api`](individuals-api/CONTEXT.md), [`person-service`](person-service/CONTEXT.md), [`transaction-service`](transaction-service/CONTEXT.md). |
-| `CONTEXT.ru.md` next to each | Russian mirror. English wins if the two disagree. |
-| [`individuals-api/diagrams-c4/`](individuals-api/diagrams-c4), [`person-service/diagrams-c4/`](person-service/diagrams-c4), [`transaction-service/diagrams-c4/`](transaction-service/diagrams-c4) | C4 diagrams of each service: container, component and sequence. PlantUML in `uml/{en,ru}`, a rendered picture of each in `png/{en,ru}`; transaction-service keeps English only. |
-| [`postman/`](postman) | Three Postman collections. `individuals-api`: two users through every endpoint, the failures, Swagger and metrics, with the tokens carried between requests for you - import it, press Run on a fresh stack. `person-service`: one individual through all six operations, every RFC 9457 failure, the soft delete and the compensation individuals-api calls; each run takes a fresh email, so it runs again on the same database. `person-service` and `transaction-service` first take the service token of individuals-api (their `clientSecret` variable is empty in git, set it from `.env`) and end with the direct requests they refuse: no token, a forged one, a user's. `transaction-service`: wallets, a deposit finished by the provider through Kafka and one it declines, a withdrawal, a transfer, the status and every search filter, then every error answer; each run makes fresh users. |
-
-## Status
-
-Module 1 is not finished. What is honest as of today:
-
-| | |
-|---|---|
-| ✅ Working | Contract, Gradle build, Keycloak realm, `KeycloakClient` and `PersonClient`, `UserService` with compensation, `TokenService`, request validation, the whole error layer, `AuthController` — **the four endpoints are served and have been called for real** — all eight meters, and JSON logs carrying every field the module requires |
-| 🐳 Compose | `make up` brings up twenty services and builds the app inside Docker. Prometheus scrapes our meters and a dashboard plots them, Loki holds our logs with their `traceId`, Tempo answers with our traces |
-| 🧪 Tests | **individuals-api: 124 tests, green — 86 unit and 38 integration**; every test case the module 1 handout lists carries its code (`UT-REG-001`, `IT-KC-001`) in its display name, against a real Keycloak and PostgreSQL in containers; coverage on the key services 100%. **person-service: 65 tests, green — 38 unit and 27 integration** on a real PostgreSQL, every scenario of the module 2 handout; **97% of lines**. Both builds fail below 80%. **transaction-service: 221 tests, green — 114 unit and 107 integration** against two real PostgreSQL shards and a real Kafka, races, forged offer tokens and refused service tokens included. **fake-payment-provider: 8 tests, green — 6 unit and 2 integration** |
-| 📮 Postman | `postman/individuals-api.postman_collection.json` — two users, their wallets and money, 73 requests, tokens captured automatically, 159 assertions; `postman/person-service.postman_collection.json` — 31 requests, 124 assertions; `postman/transaction-service.postman_collection.json` — 78 requests, 190 assertions; the last two take the service token first and end with the requests they refuse |
-| 📦 Nexus | In the compose file. person-service publishes `person-service-client` into it, and individuals-api resolves the client from it by coordinates |
-| ✅ Module 2 | **`person-service`**: the contract (`/api/v1/individuals`, six operations, RFC 9457 errors), Flyway migrations, JPA, transactions, the Envers audit, Swagger UI, metrics, JSON logs and traces with a Grafana dashboard, a Docker image in compose, tests, and `person-service-client` in Nexus. individuals-api registers through it, with address and personal data, and compensates a failed Keycloak part by deleting the individual. Done, merged into `main` |
-| 🚧 Module 3 | **`transaction-service`**: wallets, deposit, transfer, withdrawal, transaction status and search over two PostgreSQL shards (ShardingSphere-JDBC), deposit and withdrawal finished through Kafka. The design - C4 diagrams with every failure branch - is approved; init signs an offer (`offerToken`, 5 minutes) and confirm carries out exactly that offer; individuals-api calls transaction-service with the user from the token. person-service and transaction-service let in only a platform service: a Keycloak token with the realm role `SERVICE`, which only the service account of individuals-api holds; a direct call without it gets **401**, with a user's token **403**. Work on `module-3-transaction-service`, under the teacher's review |
-
-The ordered to-do lists live in the "Progress" section of each module's `CONTEXT.md` and are kept current.
+In `individuals-api`, `gateway` holds one client per external system
+(`KeycloakClient`, `PersonClient`, `TransactionClient`) and is the only package
+that talks to the outside; `service` (`UserService`, `TokenService`) holds the
+business flow.
