@@ -1,0 +1,31 @@
+@startuml component
+!include <C4/C4_Component>
+
+title currency-rate-service — component diagram (C4, level 3)
+
+Container_Ext(transactionService, "transaction-service", "Spring Boot MVC", "Caller; passes on the service token of individuals-api")
+System_Ext(externalApi, "External rate API", "Latest exchange rates")
+ContainerDb_Ext(db, "PostgreSQL currency-postgres", "own database")
+
+Container_Boundary(crs, "currency-rate-service") {
+    Component(security, "SecurityConfig", "Spring Security, resource server", "Lets /api/** in only with the realm role SERVICE: no token 401, other role 403")
+    Component(errors, "GlobalExceptionHandler", "@RestControllerAdvice", "Turns every error into ErrorResponse: 400, 401, 403, 404, 500")
+    Component(controller, "CurrencyRateController", "REST, generated from OpenAPI", "GET /rates, /currencies, /rate-providers")
+    Component(scheduler, "RateUpdateScheduler", "@Scheduled + @SchedulerLock", "Starts the update right after the start and every hour; one instance at a time")
+    Component(service, "ExchangeRateService", "business logic", "Builds every pair of active currencies, applies the coefficient from rate_corrections, saves; finds the rate valid at a moment")
+    Component(client, "ExternalRateProviderClient", "RestClient + @HttpExchange", "The only door to the external API: timeouts, retry with backoff")
+    Component(repos, "JPA repositories", "Spring Data JPA", "currencies, rate_providers, rate_corrections, conversion_rates")
+}
+
+Rel(transactionService, security, "GET /api/v1/rates", "REST, Bearer service token of individuals-api")
+Rel(security, controller, "passes an allowed request")
+Rel(security, errors, "401 / 403")
+Rel(controller, errors, "400, 404")
+Rel(controller, service, "getRate, getCurrencies, getProviders")
+Rel(scheduler, db, "lock updateRates in the shedlock table", "ShedLock JDBC, database time")
+Rel(scheduler, service, "updateRates()")
+Rel(service, client, "fetchRates()")
+Rel(client, externalApi, "latest rates", "HTTPS")
+Rel(service, repos, "reads and writes")
+Rel(repos, db, "JDBC")
+@enduml

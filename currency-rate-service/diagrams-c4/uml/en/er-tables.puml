@@ -1,0 +1,74 @@
+@startuml er-tables
+title currency-rate-service — tables (PostgreSQL currency-postgres)
+hide circle
+skinparam linetype ortho
+
+entity currencies {
+    * id : bigserial <<PK>>
+    --
+    * code : varchar(3) <<UNIQUE>> CHECK ^[A-Z]{3}$
+    * iso_code : char(3) <<UNIQUE>> CHECK ^[0-9]{3}$
+    * description : varchar(64)
+    symbol : varchar(8)
+    * active : boolean = true
+    * created_at : timestamp = now()
+    modified_at : timestamp
+}
+
+entity rate_providers {
+    * provider_code : varchar(3) <<PK>>
+    --
+    * provider_name : varchar(28) <<UNIQUE>>
+    description : varchar(255)
+    * priority : integer <<UNIQUE>>
+    * active : boolean = true
+    * created_at : timestamp = now()
+    modified_at : timestamp
+}
+
+entity rate_corrections {
+    * id : bigserial <<PK>>
+    --
+    * source_code : varchar(3) <<FK>>
+    * destination_code : varchar(3) <<FK>>
+    * coefficient : numeric(10,6) CHECK > 0
+    * active : boolean = true
+    * created_at : timestamp = now()
+    modified_at : timestamp
+    ..
+    UNIQUE (source_code, destination_code)
+}
+
+entity conversion_rates {
+    * id : bigserial <<PK>>
+    --
+    * source_code : varchar(3) <<FK>>
+    * destination_code : varchar(3) <<FK>>
+    * rate : numeric(19,8) CHECK > 0
+    * rate_begin_time : timestamp = now()
+    * rate_end_time : timestamp
+    * provider_code : varchar(3) <<FK>>
+    * created_at : timestamp = now()
+    ..
+    UNIQUE (source_code, destination_code, rate_begin_time)
+    CHECK source_code <> destination_code
+    CHECK rate_end_time > rate_begin_time
+}
+
+entity shedlock {
+    * name : varchar(64) <<PK>>
+    --
+    * lock_until : timestamp
+    * locked_at : timestamp
+    * locked_by : varchar(255)
+}
+
+currencies ||--o{ rate_corrections : "source / destination code"
+currencies ||--o{ conversion_rates : "source / destination code"
+rate_providers ||--o{ conversion_rates : provider_code
+
+legend bottom
+  * = NOT NULL. Every timestamp is UTC.
+  A pair without an active rate_corrections row uses coefficient 1.
+end legend
+@enduml
