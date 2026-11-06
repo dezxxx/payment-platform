@@ -17,7 +17,6 @@ import reactor.netty.http.server.HttpServerRequest;
 import reactor.netty.http.server.HttpServerResponse;
 import reactor.netty.http.server.HttpServer;
 
-// keeps the last created individual's user, so /me can read it back and PATCH can change it
 public final class StubPersonService {
 
     private static final String INDIVIDUALS_PATH = "/api/v1/individuals";
@@ -29,6 +28,8 @@ public final class StubPersonService {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final List<String> receivedBodies = new CopyOnWriteArrayList<>();
+
+    private final List<String> receivedAuthorizations = new CopyOnWriteArrayList<>();
 
     private final AtomicReference<ObjectNode> user = new AtomicReference<>(JSON.createObjectNode());
 
@@ -43,6 +44,7 @@ public final class StubPersonService {
                         .delete(COMPENSATION_PATH, (request, response) -> response.status(HttpResponseStatus.NO_CONTENT).send())
                         .post(INDIVIDUALS_PATH, (request, response) -> bodyOf(request).flatMap(body -> {
                             receivedBodies.add(body);
+                            receivedAuthorizations.add(request.requestHeaders().get(HttpHeaderNames.AUTHORIZATION));
                             user.set((ObjectNode) read(body).path("user").deepCopy());
                             return sendIndividual(response, HttpResponseStatus.CREATED);
                         }))
@@ -73,6 +75,10 @@ public final class StubPersonService {
 
     public UUID userUid() {
         return userUid;
+    }
+
+    public List<String> receivedAuthorizations() {
+        return List.copyOf(receivedAuthorizations);
     }
 
     public List<String> receivedBodies() {

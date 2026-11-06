@@ -79,7 +79,6 @@ public class PersonClient {
                                 .addressLine(address.getAddressLine())));
     }
 
-    // the individual's id is the user_uid Keycloak keeps and the token carries
     private static UUID userUidOf(ResponseEntity<IndividualResponseDto> response) {
         IndividualResponseDto body = response.getBody();
         if (body == null || body.getId() == null) {

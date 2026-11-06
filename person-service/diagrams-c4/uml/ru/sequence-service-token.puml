@@ -1,0 +1,61 @@
+@startuml sequence-service-token
+title person-service — пускается только сервис платформы (каждый эндпоинт, кроме actuator, OpenAPI, Swagger UI)
+
+autonumber
+skinparam shadowing false
+
+actor "Клиент" as Client
+participant "individuals-api" as IA
+participant "Keycloak" as KC
+participant "SecurityConfig\n(resource server)" as Sec
+participant "GlobalExceptionHandler" as Err
+participant "IndividualRestControllerV1\n-> IndividualService" as App
+database "PostgreSQL" as DB
+
+Client -> IA : регистрация, /me или другой вызов, которому нужен person-service
+alt служебный токен в кеше и действует ещё больше 10 с
+  IA -> IA : берёт его из кеша
+else токена ещё нет или он вот-вот истечёт
+  IA -> KC : POST /realms/{realm}/protocol/openid-connect/token\ngrant_type=client_credentials, клиент individuals-api, секрет из .env
+  alt Keycloak недоступен или 5xx
+    KC --> IA : нет ответа / 5xx
+    IA --> Client : 503 DEPENDENCY_UNAVAILABLE
+    note right of IA : person-service не вызывается
+  else токен выдан
+    KC --> IA : access-токен: azp individuals-api,\nrealm_access.roles [SERVICE]
+    IA -> IA : кеширует его до момента за 10 с до истечения
+  end
+end
+IA -> Sec : запрос + Authorization: Bearer <служебный токен>
+Sec -> KC : GET /realms/{realm}/protocol/openid-connect/certs\n(на первом токене, дальше из кеша; снова — для неизвестного id ключа)
+alt нет заголовка Authorization
+  Sec -> Err : AuthenticationException
+  Err --> IA : 401 AUTHENTICATION_REQUIRED (problem details)
+else подпись не ключами realm, токен битый или истёк
+  Sec -> Err : AuthenticationException
+  Err --> IA : 401 AUTHENTICATION_REQUIRED (problem details)
+else валидный токен без роли realm SERVICE (токен пользователя)
+  Sec -> Err : AccessDeniedException
+  Err --> IA : 403 ACCESS_DENIED (problem details)
+else валидный токен с ролью realm SERVICE
+  Sec -> App : запрос
+  App -> DB : как в sequence создания / архивации / компенсации
+  App --> IA : ответ эндпоинта
+end
+note over Sec, DB
+  401 / 403: до контроллера не доходит, ничего не прочитано и не записано:
+  ни паспорта по почте, ни жёсткого удаления через /compensate-registration/{id}.
+  iss не сравнивается (jwk-set-uri, а не issuer-uri): individuals-api идёт на keycloak:8080,
+  Postman — на localhost:8080, а подпись ключами realm уже доказывает издателя.
+end note
+alt 401 или 403 от person-service
+  IA --> Client : 500 INTERNAL_ERROR, их тело только в лог:\nневерна наша настройка (роль или адрес Keycloak), а не запрос клиента
+  note right of IA
+    при регистрации: человек не создан, компенсировать нечего;
+    на вызове компенсации: удаление отвергнуто, поэтому
+    503 REGISTRATION_INCONSISTENT с user_uid в логе
+  end note
+else ответ эндпоинта
+  IA --> Client : как в sequence самого individuals-api
+end
+@enduml

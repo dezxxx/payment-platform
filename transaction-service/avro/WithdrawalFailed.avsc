@@ -1,0 +1,10 @@
+{
+  "type": "record",
+  "name": "WithdrawalFailed",
+  "namespace": "com.dezxxx.transaction.event",
+  "fields": [
+    {"name": "transactionId", "type": {"type": "string", "logicalType": "uuid"}},
+    {"name": "userId", "type": {"type": "string", "logicalType": "uuid"}},
+    {"name": "failureReason", "type": "string"}
+  ]
+}

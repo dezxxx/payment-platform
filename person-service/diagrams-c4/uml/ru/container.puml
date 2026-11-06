@@ -10,6 +10,7 @@ System_Boundary(ps, "person-service") {
     ContainerDb(db, "PostgreSQL", "схемы person, person_history", "Данные физлиц и аудит Envers")
 }
 
+Container_Ext(keycloak, "Keycloak", "провайдер идентификации", "Выдаёт служебный токен individuals-api, ключи подписи realm (JWKS)")
 Container_Ext(nexus, "Nexus", "Maven-репозиторий", "Хранит клиент person-service-client")
 Container_Ext(prometheus, "Prometheus", "метрики", "Собирает /actuator/prometheus")
 Container_Ext(alloy, "Alloy", "агент телеметрии", "Принимает трассы, читает логи")
@@ -17,7 +18,9 @@ Container_Ext(tempo, "Tempo", "трассы", "Хранит трассы")
 Container_Ext(loki, "Loki", "логи", "Хранит логи")
 Container_Ext(grafana, "Grafana", "дашборды", "Метрики, трассы, логи")
 
-Rel(individualsApi, app, "REST /api/v1/individuals", "person-service-client")
+Rel(individualsApi, keycloak, "служебный токен своего клиента", "client_credentials, кеш")
+Rel(individualsApi, app, "REST /api/v1/individuals", "person-service-client, Bearer служебный токен")
+Rel(app, keycloak, "ключи realm для проверки служебного токена", "JWKS, кеш")
 Rel(app, db, "читает и пишет", "JPA, Flyway")
 Rel(app, nexus, "сборка публикует клиент", "Gradle")
 Rel(nexus, individualsApi, "импорт клиента", "Maven")

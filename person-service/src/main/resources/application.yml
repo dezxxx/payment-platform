@@ -5,9 +5,15 @@ spring:
   application:
     name: person-service
   web:
-    # validation messages follow the client's Accept-Language or the server locale unless fixed
     locale: en
     locale-resolver: fixed
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # keys only, no issuer check: without KC_HOSTNAME a token from localhost:8080 and one from
+          # keycloak:8080 carry different iss, the signature is what proves Keycloak issued it
+          jwk-set-uri: ${KEYCLOAK_URL:http://localhost:8080}/realms/${KEYCLOAK_REALM:payment-platform}/protocol/openid-connect/certs
   datasource:
     url: jdbc:postgresql://${PERSON_DB_HOST:localhost}:${PERSON_DB_PORT:5434}/${PERSON_DB_NAME:person}
     username: ${PERSON_DB_USER:person}

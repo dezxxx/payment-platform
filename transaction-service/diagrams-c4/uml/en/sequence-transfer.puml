@@ -1,0 +1,91 @@
+@startuml sequence-transfer
+title Transfer between one's own wallets
+skinparam maxMessageSize 260
+skinparam responseMessageBelowArrow true
+
+actor "Client\n(via individuals-api)" as Client
+box "transaction-service" #F5F9FF
+    participant "TransactionService" as TS
+    participant "OfferTokenValidator" as Val
+    participant "WalletService" as WS
+    database "DB (shard by user_uid)" as DB
+end box
+
+note over Client
+  individuals-api checks the client's token (401),
+  adds X-User-Uid and passes every answer back as is
+end note
+
+note across: Every request into transaction-service first passes the service-token check (sequence-service-token):\nBearer token of individuals-api with the realm role SERVICE, otherwise 401 / 403 and nothing is read or written
+== init: the offer, nothing is written ==
+Client -> TS: POST transfer/init (walletUid, targetWalletUid, amount)
+alt invalid body (@Valid, walletUid = targetWalletUid)
+    TS --> Client: 400 VALIDATION_ERROR
+else valid
+    TS -> WS: getActiveSameCurrencyWallet
+    WS -> DB: SELECT both wallets of the user, not archived
+    alt fewer than 2 found
+        TS --> Client: 404 WALLET_NOT_FOUND
+    else not ACTIVE / different currencies
+        TS --> Client: 400 WALLET_NOT_ACTIVE / CURRENCY_MISMATCH
+    else the pair is fine
+        TS -> TS: fee
+        alt source balance < amount + fee
+            TS --> Client: 400 INSUFFICIENT_FUNDS
+        else enough
+            TS -> TS: new requestId, expiresAt = now + ttl
+            TS -> TS: OfferTokenSigner.issue(terms + traceparent of this init) → offerToken
+            TS --> Client: 200 amount, fee, total, expiresAt, offerToken
+        end
+    end
+end
+
+== confirm: the whole transfer, one DB transaction, no Kafka ==
+Client -> TS: POST transfer/confirm (offerToken)
+alt no offerToken (@Valid)
+    TS --> Client: 400 VALIDATION_ERROR
+else
+    TS -> Val: validate(offerToken, userUid, TRANSFER)
+    Val -> Val: OfferTokenSigner.readVerified: format, HMAC signature;\nowner = X-User-Uid; type = TRANSFER
+    alt any check fails
+        TS --> Client: 400 OFFER_TOKEN_INVALID (nothing written)
+    else terms from the token
+        TS -> TS: span offer.link, child of confirm:\nSpan Link → the init span (traceparent from the token)
+        group one DB transaction
+            TS -> DB: INSERT transactions PENDING (terms incl. fee)\nON CONFLICT (user_uid, request_id) DO NOTHING
+            alt requestId taken: a repeat (the answer was lost)
+                TS -> DB: SELECT by requestId
+                TS --> Client: 200 the same transactionId + its status (expiry not checked)
+            else expiresAt passed
+                TS -> DB: ROLLBACK
+                TS --> Client: 400 OFFER_EXPIRED → init again
+            else
+                TS -> WS: lockActiveSameCurrencyWallets
+                WS -> DB: SELECT both wallets … ORDER BY uid FOR NO KEY UPDATE
+                note right of DB
+                  ORDER BY uid: two opposite transfers lock
+                  the wallets in the same order — no deadlock
+                end note
+                alt fewer than 2 found
+                    TS -> DB: ROLLBACK
+                    TS --> Client: 404
+                else not ACTIVE / different currencies
+                    TS -> DB: ROLLBACK
+                    TS --> Client: 400
+                else source balance < amount + fee (fee from the token)
+                    TS -> DB: ROLLBACK
+                    TS --> Client: 400 INSUFFICIENT_FUNDS
+                else
+                    TS -> DB: UPDATE source balance − (amount + fee)
+                    TS -> DB: UPDATE target balance + amount
+                    TS -> DB: UPDATE transactions SET status = 'COMPLETED'
+                    TS -> DB: COMMIT
+                    TS -> TS: afterCommit: transaction_finished_total{TRANSFER, COMPLETED} + 1
+                    TS --> Client: 200 COMPLETED, transactionId
+                end
+            end
+        end
+    end
+end
+note right of DB: any DB error (incl. a lock timeout) → ROLLBACK, 500
+@enduml

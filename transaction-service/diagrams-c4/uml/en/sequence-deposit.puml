@@ -1,0 +1,116 @@
+@startuml sequence-deposit
+title Deposit
+skinparam maxMessageSize 260
+skinparam responseMessageBelowArrow true
+
+actor "Client\n(via individuals-api)" as Client
+box "transaction-service" #F5F9FF
+    participant "TransactionService" as TS
+    participant "OfferTokenValidator" as Val
+    participant "WalletService" as WS
+    database "DB (shard by user_uid)" as DB
+    participant "TransactionKafkaProducer" as Pub
+    participant "TransactionKafkaConsumer" as Cons
+end box
+queue "Kafka" as Kafka
+participant "Fake Payment Provider" as PP
+
+note over Client
+  individuals-api checks the client's token (401),
+  adds X-User-Uid and passes every answer back as is
+end note
+
+note across: Every request into transaction-service first passes the service-token check (sequence-service-token):\nBearer token of individuals-api with the realm role SERVICE, otherwise 401 / 403 and nothing is read or written
+== init: the offer, nothing is written ==
+Client -> TS: POST deposit/init (walletUid, amount)
+alt invalid body (@Valid)
+    TS --> Client: 400 VALIDATION_ERROR
+else valid
+    TS -> WS: getActiveWallet
+    WS -> DB: SELECT wallet of the user, not archived
+    alt not found / not ACTIVE
+        TS --> Client: 404 WALLET_NOT_FOUND / 400 WALLET_NOT_ACTIVE
+    else found
+        TS -> TS: fee, new requestId, expiresAt = now + ttl
+        TS -> TS: OfferTokenSigner.issue(terms + traceparent of this init) → offerToken
+        TS --> Client: 200 amount, fee, total, expiresAt, offerToken
+    end
+end
+
+== confirm: one DB transaction ==
+Client -> TS: POST deposit/confirm (offerToken)
+alt no offerToken (@Valid)
+    TS --> Client: 400 VALIDATION_ERROR
+else
+    TS -> Val: validate(offerToken, userUid, DEPOSIT)
+    Val -> Val: OfferTokenSigner.readVerified: format, HMAC signature;\nowner = X-User-Uid; type = DEPOSIT
+    alt any check fails
+        TS --> Client: 400 OFFER_TOKEN_INVALID (nothing written)
+    else terms from the token
+        TS -> TS: span offer.link, child of confirm:\nSpan Link → the init span (traceparent from the token)
+        group one DB transaction
+            TS -> DB: INSERT transactions PENDING (terms incl. fee)\nON CONFLICT (user_uid, request_id) DO NOTHING
+            alt requestId taken: a repeat (the answer was lost)
+                TS -> DB: SELECT by requestId
+                TS --> Client: 200 the same transactionId + its status (expiry not checked)
+            else expiresAt passed
+                TS -> DB: ROLLBACK
+                TS --> Client: 400 OFFER_EXPIRED → init again
+            else
+                TS -> WS: getActiveWallet
+                alt not found / not ACTIVE
+                    TS -> DB: ROLLBACK
+                    TS --> Client: 404 / 400
+                else
+                    TS -> DB: INSERT outbox_events (DepositRequested:\namount, total = amount + fee, sent_at NULL)
+                    TS -> DB: COMMIT
+                    TS --> Client: 200 PENDING, transactionId
+                end
+            end
+        end
+    end
+end
+note right of DB: any DB error → ROLLBACK, 500
+
+== async: outbox → provider ==
+loop @Scheduled
+    Pub -> DB: SELECT outbox_events WHERE sent_at IS NULL (both shards)
+    Pub -> Kafka: DepositRequested (key = transactionId)
+    alt ack
+        Pub -> DB: UPDATE sent_at = now()
+    else no ack
+        Pub -> Pub: sent_at stays NULL, retried next run
+    end
+end
+Kafka -> PP: DepositRequested (amount, total)
+PP -> PP: charge the card total (amount + fee)
+PP -> Kafka: DepositCompleted / DepositFailed
+
+== async: finalization, one DB transaction ==
+Kafka -> Cons: DepositCompleted / DepositFailed
+Cons -> TS: finalizeTransaction(expectedType = DEPOSIT)
+TS -> DB: UPDATE transactions SET status\nWHERE type = DEPOSIT AND status = 'PENDING'
+alt 1 row, Completed
+    TS -> WS: credit amount
+else 1 row, Failed
+    TS -> TS: no money moved
+else 0 rows
+    TS -> DB: SELECT by transactionId, userUid
+    alt same type, no longer PENDING
+        TS -> TS: repeated message → nothing
+    else absent / another type
+        TS -> TS: TRANSACTION_NOT_FOUND / TRANSACTION_TYPE_MISMATCH → exception
+    end
+end
+alt ok
+    TS -> DB: COMMIT
+    TS -> TS: afterCommit, 1 row only:\ntransaction_finished_total{type, status} + 1
+    Cons -> Kafka: commit offset
+else not found / another type (TransactionServiceException)
+    TS -> DB: ROLLBACK
+    Cons -> Kafka: DLT at once, no retries
+else DB error (a shard is down)
+    TS -> DB: ROLLBACK
+    Cons -> Kafka: retries 20 × 30 s (about 20 min) → DLT
+end
+@enduml

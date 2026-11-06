@@ -21,7 +21,8 @@ activate Svc
 
 Svc -> PCl : createPerson
 activate PCl
-PCl -> Per : POST /api/v1/individuals\npassport, phone, email, names, address
+PCl -> Per : POST /api/v1/individuals\npassport, phone, email, names, address\n+ Authorization: Bearer service token
+note right of PCl : the service token: KeycloakClient.adminLogin, cached;\nKeycloak unavailable -> 503, nothing created.\nRefused by person-service (401 / 403) -> 500 INTERNAL_ERROR\n(sequence-service-token of person-service)
 Per --> PCl : 201, individual id = user_uid
 PCl --> Svc : user_uid
 deactivate PCl
@@ -46,7 +47,7 @@ end
 alt any step of the Keycloak account failed
   Svc -> PCl : compensateRegistration(user_uid)
   activate PCl
-  PCl -> Per : DELETE /api/v1/individuals/compensate-registration/{user_uid}
+  PCl -> Per : DELETE /api/v1/individuals/compensate-registration/{user_uid}\n+ Authorization: Bearer service token
   Per --> PCl : 204, the whole aggregate is removed
   deactivate PCl
   Svc --> Ctl : the original error (e.g. 503 DEPENDENCY_UNAVAILABLE)

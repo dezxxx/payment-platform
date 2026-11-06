@@ -11,6 +11,7 @@ participant "IndividualMapper" as Map
 participant "Репозитории" as Repo
 database "PostgreSQL" as DB
 
+note across : Каждый запрос в person-service сначала проходит проверку служебного токена (sequence-service-token):\nBearer-токен individuals-api с ролью realm SERVICE, иначе 401 / 403 и ничего не прочитано и не записано
 == Создание ==
 IA -> Ctl : POST /api/v1/individuals
 activate Ctl

@@ -63,7 +63,6 @@ public class TokenService {
         return cause instanceof ApiException api && api.getErrorCode() == ErrorCode.INVALID_CREDENTIALS;
     }
 
-    // user_uid is not in Keycloak's answer, only inside the access token
     private Mono<TokenResponseDto> withUserUid(TokenResponseDto tokens) {
         return jwtDecoder.decode(tokens.getAccessToken())
                 .map(jwt -> {

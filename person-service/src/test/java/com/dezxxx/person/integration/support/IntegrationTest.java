@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.client.RestTestClient;
@@ -18,6 +20,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "management.tracing.export.enabled=false")
 @AutoConfigureRestTestClient
+@Import(TestTokens.class)
 public abstract class IntegrationTest {
 
     private static final String POSTGRES_IMAGE = "postgres:18.2";
@@ -29,11 +32,21 @@ public abstract class IntegrationTest {
         POSTGRES.start();
     }
 
-    @Autowired
+    // every call carries the service token, as individuals-api sends it; anonymousClient sends none
     protected RestTestClient client;
+
+    protected RestTestClient anonymousClient;
 
     @Autowired
     protected JdbcTemplate jdbc;
+
+    @Autowired
+    void clients(RestTestClient restTestClient) {
+        anonymousClient = restTestClient;
+        client = restTestClient.mutate()
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.service())
+                .build();
+    }
 
     protected static String freshEmail(String prefix) {
         return prefix + "-" + UUID.randomUUID() + "@example.org";

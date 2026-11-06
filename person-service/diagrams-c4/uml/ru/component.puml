@@ -5,9 +5,11 @@ title person-service — компонентная диаграмма (C4, уро
 
 Container_Ext(individualsApi, "individuals-api", "Spring Boot WebFlux", "Вызывает person-service через person-service-client")
 ContainerDb(db, "PostgreSQL", "схемы person, person_history", "Данные физлиц и аудит Envers")
+Container_Ext(keycloak, "Keycloak", "провайдер идентификации", "Ключи подписи realm (JWKS)")
 Container_Ext(observability, "Prometheus / Alloy", "метрики, трассы, логи", "Стек наблюдаемости")
 
 Container_Boundary(app, "person-service") {
+    Component(security, "SecurityConfig", "Spring Security resource server", "Каждый запрос, кроме actuator, OpenAPI и Swagger UI: Bearer-токен, подписанный ключами realm, с ролью realm SERVICE; иначе 401 / 403 через GlobalExceptionHandler, ничего не прочитано и не записано")
     Component(filter, "UserUidLogFilter", "Servlet-фильтр", "Кладёт user_uid запроса в контекст логов")
     Component(controller, "IndividualRestControllerV1", "Spring MVC, реализует сгенерированный IndividualsApi", "/api/v1/individuals: создание, поиск по id и email, изменение, архивация, компенсация регистрации")
     Component(handler, "GlobalExceptionHandler", "@RestControllerAdvice", "Отвечает на любую ошибку в формате RFC 9457")
@@ -17,7 +19,10 @@ Container_Boundary(app, "person-service") {
     Component(envers, "Hibernate Envers", "аудит", "Записывает каждое изменение агрегата ревизией")
 }
 
-Rel(individualsApi, filter, "REST /api/v1/individuals", "HTTP, JSON")
+Rel(individualsApi, security, "REST /api/v1/individuals", "HTTP, JSON, Bearer служебный токен")
+Rel(security, keycloak, "ключи realm", "JWKS, кеш")
+Rel(security, handler, "401 AUTHENTICATION_REQUIRED, 403 ACCESS_DENIED")
+Rel(security, filter, "роль SERVICE: передаёт запрос")
 Rel(filter, controller, "передаёт запрос")
 Rel(controller, service, "вызывает")
 Rel(service, mappers, "DTO <-> сущности")
