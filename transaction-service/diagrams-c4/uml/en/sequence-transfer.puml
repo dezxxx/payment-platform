@@ -22,13 +22,15 @@ Client -> TS: POST transfer/init (walletUid, targetWalletUid, amount)
 alt invalid body (@Valid, walletUid = targetWalletUid)
     TS --> Client: 400 VALIDATION_ERROR
 else valid
-    TS -> WS: getActiveSameCurrencyWallet
+    TS -> WS: getActiveWallets
     WS -> DB: SELECT both wallets of the user, not archived
     alt fewer than 2 found
         TS --> Client: 404 WALLET_NOT_FOUND
-    else not ACTIVE / different currencies
-        TS --> Client: 400 WALLET_NOT_ACTIVE / CURRENCY_MISMATCH
-    else the pair is fine
+    else not ACTIVE
+        TS --> Client: 400 WALLET_NOT_ACTIVE
+    else different currencies
+        TS -> TS: see currency-rate-service sequence-transfer-between-currencies
+    else the pair is fine, same currency
         TS -> TS: fee
         alt source balance < amount + fee
             TS --> Client: 400 INSUFFICIENT_FUNDS
@@ -60,7 +62,7 @@ else
                 TS -> DB: ROLLBACK
                 TS --> Client: 400 OFFER_EXPIRED → init again
             else
-                TS -> WS: lockActiveSameCurrencyWallets
+                TS -> WS: lockActiveWallets
                 WS -> DB: SELECT both wallets … ORDER BY uid FOR NO KEY UPDATE
                 note right of DB
                   ORDER BY uid: two opposite transfers lock
@@ -69,7 +71,7 @@ else
                 alt fewer than 2 found
                     TS -> DB: ROLLBACK
                     TS --> Client: 404
-                else not ACTIVE / different currencies
+                else not ACTIVE
                     TS -> DB: ROLLBACK
                     TS --> Client: 400
                 else source balance < amount + fee (fee from the token)
@@ -77,8 +79,8 @@ else
                     TS --> Client: 400 INSUFFICIENT_FUNDS
                 else
                     TS -> DB: UPDATE source balance − (amount + fee)
-                    TS -> DB: UPDATE target balance + amount
-                    TS -> DB: UPDATE transactions SET status = 'COMPLETED'
+                    TS -> DB: UPDATE target balance + amount;\ndifferent currencies: + targetAmount from the token
+                    TS -> DB: UPDATE transactions SET status = 'COMPLETED';\ndifferent currencies: also rate, target_amount
                     TS -> DB: COMMIT
                     TS -> TS: afterCommit: transaction_finished_total{TRANSFER, COMPLETED} + 1
                     TS --> Client: 200 COMPLETED, transactionId
