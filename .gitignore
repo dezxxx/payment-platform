@@ -60,7 +60,5 @@ screenShoots/
 # Personal study material, kept on disk but out of the repository.
 docs/quests/
 
-# Russian documents and diagrams stay on disk; the repository is English only.
+# Russian documents stay on disk; the repository is English only.
 *.ru.md
-**/diagrams-c4/uml/ru/
-**/diagrams-c4/png/ru/

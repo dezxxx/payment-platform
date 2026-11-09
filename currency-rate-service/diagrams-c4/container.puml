@@ -1,0 +1,28 @@
+@startuml container
+!include <C4/C4_Container>
+
+title currency-rate-service — container diagram (C4, level 2)
+
+Person(client, "Client", "Transfers between wallets of different currencies")
+
+Container_Ext(individualsApi, "individuals-api", "Spring Boot WebFlux", "The only entry point; gets the rate and passes it to transaction-service")
+Container_Ext(transactionService, "transaction-service", "Spring Boot MVC", "Checks the rate against the wallets, freezes it in the signed offer")
+Container_Ext(keycloak, "Keycloak", "identity provider", "Service tokens, signing keys (JWKS)")
+
+System_Boundary(crs, "currency-rate-service") {
+    Container(app, "currency-rate-service", "Spring Boot MVC, Java 25", "Hourly rate update (ShedLock), correction coefficients, rate of a pair")
+    ContainerDb(db, "PostgreSQL currency-postgres", "currencies, rate_providers, rate_corrections, conversion_rates, shedlock", "Own database")
+}
+
+System_Ext(externalApi, "External rate API", "Latest exchange rates")
+Container_Ext(observability, "Prometheus, Loki, Tempo, Grafana", "observability", "Metrics, logs, traces")
+
+Rel(client, individualsApi, "POST /api/v1/transactions/transfer/init", "HTTPS, JWT")
+Rel(individualsApi, app, "GET /api/v1/rates", "REST, service token, circuit breaker")
+Rel(individualsApi, transactionService, "wallets of the user; transfer/init with the rate", "REST, service token, circuit breaker")
+Rel(individualsApi, keycloak, "service token", "client_credentials, cached")
+Rel(app, keycloak, "keys to check the service token", "JWKS, cached")
+Rel(app, externalApi, "latest rates, hourly", "HTTPS, API key from .env")
+Rel(app, db, "reads and writes", "JDBC, Flyway")
+Rel(app, observability, "metrics, logs, traces")
+@enduml

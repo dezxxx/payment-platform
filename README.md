@@ -208,7 +208,7 @@ payment-platform/
 ```
 
 Each service has `openapi/` (its contract), `diagrams-c4/` (C4 container,
-component and sequence diagrams, PlantUML in `uml/en`, pictures in `png/en`)
+component and sequence diagrams in PlantUML)
 and `CONTEXT.md` (its design).
 
 In `individuals-api`, `gateway` holds one client per external system

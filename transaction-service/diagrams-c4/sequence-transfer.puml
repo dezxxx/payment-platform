@@ -12,13 +12,13 @@ box "transaction-service" #F5F9FF
 end box
 
 note over Client
-  individuals-api checks the client's token (401),
-  adds X-User-Uid and passes every answer back as is
+  individuals-api: client's token (401), X-User-Uid;
+  different currencies: the rates (sequence-transfer-between-currencies)
 end note
 
 note across: Every request into transaction-service first passes the service-token check (sequence-service-token):\nBearer token of individuals-api with the realm role SERVICE, otherwise 401 / 403 and nothing is read or written
 == init: the offer, nothing is written ==
-Client -> TS: POST transfer/init (walletUid, targetWalletUid, amount)
+Client -> TS: POST transfer/init (walletUid, targetWalletUid, amount;\ndifferent currencies: + sourceCode, destinationCode, rate, rateToUsd)
 alt invalid body (@Valid, walletUid = targetWalletUid)
     TS --> Client: 400 VALIDATION_ERROR
 else valid
@@ -28,8 +28,8 @@ else valid
         TS --> Client: 404 WALLET_NOT_FOUND
     else not ACTIVE
         TS --> Client: 400 WALLET_NOT_ACTIVE
-    else different currencies
-        TS -> TS: see currency-rate-service sequence-transfer-between-currencies
+    else different currencies or rates in the request
+        TS -> TS: currency-rate-service sequence-transfer-between-currencies
     else the pair is fine, same currency
         TS -> TS: fee
         alt source balance < amount + fee

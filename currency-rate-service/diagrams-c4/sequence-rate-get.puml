@@ -1,0 +1,40 @@
+@startuml sequence-rate-get
+title Rate of a pair
+skinparam maxMessageSize 220
+skinparam responseMessageBelowArrow true
+
+participant "individuals-api" as IA
+participant "SecurityConfig" as Sec
+participant "HandlerExceptionResolver" as Res
+participant "GlobalExceptionHandler" as Err
+participant "CurrencyRateController" as Ctl
+participant "ExchangeRateService" as S
+database "DB" as DB
+
+IA -> Sec: GET /api/v1/rates?from=USD&to=EUR[&timestamp], Bearer service token
+alt no token, bad signature or expired
+    Sec -> Res: AuthenticationEntryPoint: AuthenticationException
+    Res -> Err
+    Err --> IA: 401 AUTHENTICATION_REQUIRED
+else no realm role SERVICE
+    Sec -> Res: AccessDeniedHandler: AccessDeniedException
+    Res -> Err
+    Err --> IA: 403 ACCESS_DENIED
+else allowed
+    Sec -> Ctl
+    alt from or to not 3 capital letters, from = to, timestamp not ISO 8601
+        Ctl -> Err: validation error
+        Err --> IA: 400 VALIDATION_ERROR
+    else valid
+        Ctl -> S: getRate(from, to, timestamp or now)
+        S -> DB: newest rate of the pair, rate_begin_time <= timestamp < rate_end_time
+        alt not found
+            S -> Err: RateNotFoundException
+            Err --> IA: 404 RATE_NOT_FOUND
+        else found
+            S --> IA: 200 sourceCode, destinationCode, rate, rateTimestamp, providerCode
+        end
+    end
+end
+note over Sec, DB: Read only. /currencies, /rate-providers: same token check, 200 with the list.
+@enduml

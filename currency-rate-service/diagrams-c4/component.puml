@@ -1,0 +1,31 @@
+@startuml component
+!include <C4/C4_Component>
+
+title currency-rate-service — component diagram (C4, level 3)
+
+Container_Ext(individualsApi, "individuals-api", "Spring Boot WebFlux", "The only caller: CurrencyRateServiceClient, circuit breaker")
+System_Ext(externalApi, "External rate API", "Latest exchange rates")
+ContainerDb_Ext(db, "PostgreSQL currency-postgres", "own database")
+
+Container_Boundary(crs, "currency-rate-service") {
+    Component(security, "SecurityConfig", "resource server, realm role SERVICE", "AuthenticationEntryPoint (401), AccessDeniedHandler (403) → HandlerExceptionResolver")
+    Component(errors, "GlobalExceptionHandler", "@RestControllerAdvice", "ErrorResponse: 400, 401, 403, 404, 500")
+    Component(controller, "CurrencyRateController", "generated from OpenAPI", "GET /rates, /currencies, /rate-providers")
+    Component(scheduler, "RateUpdateScheduler", "@Scheduled + @SchedulerLock", "On start and every hour; lock 59 min")
+    Component(service, "ExchangeRateService", "business logic", "Builds every pair with the coefficient, saves; finds the rate valid at a moment")
+    Component(client, "ExternalRateProviderClient", "RestClient + @HttpExchange", "Connect 10 s, response 5 s, 3 attempts")
+    Component(repos, "JPA repositories", "Spring Data JPA", "currencies, rate_providers, rate_corrections, conversion_rates")
+}
+
+Rel(individualsApi, security, "GET /api/v1/rates", "REST, Bearer service token")
+Rel(security, controller, "allowed request")
+Rel(security, errors, "401 / 403 via HandlerExceptionResolver")
+Rel(controller, errors, "400, 404")
+Rel(controller, service, "getRate, getCurrencies, getProviders")
+Rel(scheduler, db, "lock updateRates in shedlock", "ShedLock JDBC, database time")
+Rel(scheduler, service, "updateRates()")
+Rel(service, client, "fetchRates()")
+Rel(client, externalApi, "latest rates", "HTTPS")
+Rel(service, repos, "reads and writes")
+Rel(repos, db, "JDBC")
+@enduml
