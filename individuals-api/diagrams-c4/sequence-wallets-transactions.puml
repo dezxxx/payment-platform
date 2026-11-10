@@ -44,13 +44,13 @@ alt 2xx
   TCl --> Svc : the body (client class)
   Svc --> Ctl : the body
   Ctl --> Client : same status, same body
-else 400 INSUFFICIENT_FUNDS, CURRENCY_MISMATCH,\nWALLET_NOT_ACTIVE, WALLET_TYPE_NOT_ACTIVE
+else 400 INSUFFICIENT_FUNDS, AMOUNT_TOO_SMALL,\nWALLET_NOT_ACTIVE, WALLET_TYPE_NOT_ACTIVE
   Tx --> TCl : 400 + error code
   TCl --> Client : 400, the same error code
 else 400 VALIDATION_ERROR (their rules caught\nwhat ours let through)
   Tx --> TCl : 400 VALIDATION_ERROR + details
   TCl --> Client : 400 VALIDATION_ERROR, their details
-else 400 MALFORMED_REQUEST or an unknown error code
+else 400 MALFORMED_REQUEST, CURRENCY_MISMATCH\nor an unknown error code
   Tx --> TCl : 400
   TCl --> Client : 500 INTERNAL_ERROR, their body only in the log (our bug)
 else 404 WALLET_NOT_FOUND, WALLET_TYPE_NOT_FOUND,\nTRANSACTION_NOT_FOUND
@@ -66,7 +66,7 @@ else 401 / 403 - our service token refused\n(sequence-service-token of transacti
 else 5xx
   Tx --> TCl : 5xx
   TCl --> Client : 503 DEPENDENCY_UNAVAILABLE
-else no connection or no answer within responseTimeout (5 s)
+else no connection, no answer within responseTimeout (5 s)\nor circuit breaker open
   TCl --> Client : 503 DEPENDENCY_UNAVAILABLE
 end
 
@@ -82,6 +82,9 @@ note over Client, Tx
 
   individuals-api has no database: wallets and transactions are written
   by transaction-service only (its own sequence diagrams).
+
+  Transfer between currencies: currency-rate-service
+  sequence-transfer-between-currencies.
 end note
 
 @enduml

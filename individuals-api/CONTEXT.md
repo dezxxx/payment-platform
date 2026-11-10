@@ -760,7 +760,7 @@ required schema list.
 
 The client works with wallets and money only through individuals-api. It is
 the single place where the token is checked, so it is also the single place
-`user_uid` may come from. Diagrams: `diagrams-c4/uml/en/container.puml`,
+`user_uid` may come from. Diagrams: `diagrams-c4/container.puml`,
 `component.puml`, `sequence-wallets-transactions.puml`.
 
 ### Decisions

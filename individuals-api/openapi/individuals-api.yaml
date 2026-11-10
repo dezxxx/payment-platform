@@ -461,6 +461,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/TransactionNotFound"
+        "422":
+          $ref: "#/components/responses/RateNotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
         "503":
@@ -882,6 +884,14 @@ components:
           example: "2026-10-29T12:05:00Z"
         offerToken:
           type: string
+        rate:
+          type: number
+          description: Transfer between currencies only; full precision, frozen in the offerToken
+          example: 0.0221
+        targetAmount:
+          type: number
+          description: Transfer between currencies only; amount × rate, 2 digits, HALF_UP
+          example: 3.32
 
     DepositConfirmRequest:
       type: object
@@ -1110,12 +1120,37 @@ components:
                 error: DEPENDENCY_UNAVAILABLE
                 message: Keycloak is not reachable
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+            rateServiceDown:
+              summary: Transfer between currencies; currency-rate-service times out, answers 5xx or its circuit breaker is open
+              value:
+                timestamp: "2026-11-10T12:34:56Z"
+                path: /api/v1/transactions/transfer/init
+                status: 503
+                error: DEPENDENCY_UNAVAILABLE
+                message: Dependency is not reachable
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
     InitTerms:
       description: Terms of the operation
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/TransactionInitResponse"
+    RateNotFound:
+      description: Transfer between currencies; no valid rate for the pair
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            rateNotFound:
+              value:
+                timestamp: "2026-11-10T12:34:56Z"
+                path: /api/v1/transactions/transfer/init
+                status: 422
+                error: RATE_NOT_FOUND
+                message: No valid rate for the currency pair
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
     Confirmed:
       description: Transaction confirmed; a repeated confirm with the same offerToken returns the same transaction
       content:
@@ -1152,14 +1187,14 @@ components:
                 message: Not enough funds including the fee
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
                 details: []
-            currencyMismatch:
-              summary: A transfer between wallets of different currencies
+            amountTooSmall:
+              summary: Transfer between currencies below 1.00 USD, or the target amount rounds to 0.00
               value:
-                timestamp: "2026-10-26T12:34:56Z"
+                timestamp: "2026-11-10T12:34:56Z"
                 path: /api/v1/transactions/transfer/init
                 status: 400
-                error: CURRENCY_MISMATCH
-                message: The wallets have different currencies
+                error: AMOUNT_TOO_SMALL
+                message: The amount is below the minimum conversion amount
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
                 details: []
             offerTokenInvalid:

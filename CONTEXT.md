@@ -433,7 +433,7 @@ run in the image - `make test` and `make it` do that.
 ## 8. Configuration map
 
 Each service keeps its C4 diagrams in its own `diagrams-c4/`: container, component
-and sequence, PlantUML in `uml/{en,ru}` and a rendered PNG in `png/{en,ru}`. The
+and sequence, PlantUML only, in English; no rendered pictures are kept. The
 Mermaid below is the copy that renders on GitHub without a plugin.
 
 The files here work at two different times and mostly do not know about each

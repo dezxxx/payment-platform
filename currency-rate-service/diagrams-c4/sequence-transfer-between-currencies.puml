@@ -1,0 +1,67 @@
+@startuml sequence-transfer-between-currencies
+title Transfer between wallets of different currencies
+skinparam maxMessageSize 220
+skinparam responseMessageBelowArrow true
+
+actor Client
+participant "individuals-api" as IA
+participant "currency-rate-service" as CRS
+participant "transaction-service" as TS
+database "transaction DB\n(shard of the user)" as DB
+
+note across
+  Every call of individuals-api: service token, circuit breaker.
+  Timeout, 5xx, no connection, open breaker → 503 DEPENDENCY_UNAVAILABLE.
+  Validation, wallet and offer token checks, DB errors: transaction-service sequence-transfer.
+end note
+
+== init: nothing is written ==
+Client -> IA: POST /api/v1/transactions/transfer/init\n(UAH wallet → EUR wallet, amount 150.00)
+IA -> TS: GET /api/v1/wallets/user/{userUid}
+TS --> IA: 200 wallets with currencies
+alt a wallet not found or same currency
+    IA -> TS: transfer/init without rates (sequence-transfer)
+else different currencies
+    IA -> CRS: GET /api/v1/rates?from=UAH&to=EUR
+    IA -> CRS: GET /api/v1/rates?from=UAH&to=USD\n(no call: source USD → 1, target USD → the pair rate)
+    alt CRS 404
+        IA --> Client: 422 RATE_NOT_FOUND, transaction-service not called
+    else CRS 400 / 401 / 403
+        IA --> Client: 500 INTERNAL_ERROR, CRS answer only in the log
+    else rates 0.0221 and 0.024
+        IA -> TS: POST transfer/init + sourceCode UAH, destinationCode EUR, rate 0.0221, rateToUsd 0.024
+        TS -> DB: both wallets of the user
+        alt wallet currencies ≠ UAH, EUR
+            TS --> IA: 400 CURRENCY_MISMATCH
+        else 150.00 × 0.024 = 3.60 USD < 1.00 (transfer.min-conversion-amount-usd)
+            TS --> IA: 400 AMOUNT_TOO_SMALL
+        else
+            TS -> TS: fee 0.5% = 0.75, total 150.75 UAH;\ntargetAmount = 150.00 × 0.0221 = 3.32 EUR (HALF_UP, 2 digits; rate not rounded)
+            alt targetAmount = 0.00
+                TS --> IA: 400 AMOUNT_TOO_SMALL
+            else balance < total
+                TS --> IA: 400 INSUFFICIENT_FUNDS
+            else
+                TS -> TS: offerToken: terms + rate + targetAmount, 5 min
+                TS --> IA: 200 amount, fee, total, rate, targetAmount, expiresAt, offerToken
+            end
+        end
+        alt CURRENCY_MISMATCH (our bug)
+            IA --> Client: 500 INTERNAL_ERROR
+        else
+            IA --> Client: the same status and body
+        end
+    end
+end
+
+== confirm: rate from the token, currency-rate-service not called ==
+Client -> IA: POST /api/v1/transactions/transfer/confirm (offerToken)
+IA -> TS: transfer/confirm
+group one DB transaction
+    TS -> DB: lock both wallets
+    TS -> DB: source − 150.75 UAH, target + 3.32 EUR
+    TS -> DB: transactions COMPLETED, rate 0.0221, target_amount 3.32
+end
+TS --> IA: 200 COMPLETED, transactionId
+IA --> Client: 200 COMPLETED, transactionId
+@enduml

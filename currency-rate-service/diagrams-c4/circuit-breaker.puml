@@ -1,0 +1,28 @@
+@startuml circuit-breaker
+title Circuit breaker on the synchronous calls of individuals-api (Resilience4j)
+hide empty description
+
+[*] --> Closed
+Closed : calls go through,
+Closed : the last 10 calls are counted
+Open : no call,
+Open : 503 at once
+HalfOpen : one trial call
+
+Closed --> Open : half of the last 10 calls failed\n(timeout, 5xx, no connection)
+Open --> HalfOpen : 30 s passed
+HalfOpen --> Closed : the trial call succeeded
+HalfOpen --> Open : the trial call failed
+
+legend bottom
+  application.yml of individuals-api, one instance per called service. 4xx is not a failure.
+
+  | Called service | Answer when open |
+  | person-service | 503 DEPENDENCY_UNAVAILABLE |
+  | transaction-service | 503 DEPENDENCY_UNAVAILABLE |
+  | currency-rate-service | 503 DEPENDENCY_UNAVAILABLE |
+
+  Metrics resilience4j_circuitbreaker_* → Grafana: a panel per service, an alert when open.
+  Not used: Kafka, Keycloak.
+end legend
+@enduml

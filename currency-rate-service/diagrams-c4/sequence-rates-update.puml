@@ -1,0 +1,47 @@
+@startuml sequence-rates-update
+title Scheduled rate update
+skinparam maxMessageSize 220
+skinparam responseMessageBelowArrow true
+
+participant "RateUpdateScheduler" as Sch
+database "shedlock" as Lock
+participant "ExchangeRateService" as S
+participant "ExternalRateProviderClient" as C
+participant "External rate API" as Ext
+database "DB" as DB
+
+note over Sch
+  On start, then every 1 h. Rate lifetime 3 h.
+  Time limit ≪ lockAtMostFor 59 min:
+  N providers × ≈ 46 s + DB transaction 30 s
+  one provider: 3 attempts × (connect 10 s + response 5 s) + pauses ≈ 46 s
+end note
+Sch -> Lock: acquire "updateRates": lock_until = now + 59 min (database time)
+alt lock_until not passed
+    Lock --> Sch: skip this run
+else lock acquired
+    Sch -> S: updateRates()
+    S -> DB: active providers by priority, currencies, rate_corrections
+    loop providers by priority, until valid (every active currency, rate > 0)
+        S -> C: fetchRates(provider)
+        C -> Ext: GET latest rates (connect 10 s, response 5 s, 3 attempts with backoff)
+    end
+    alt no provider gave valid data
+        S -> S: log ERROR, metric update failed
+        note right: old rates stay valid until rate_end_time
+    else rates received
+        S -> S: every pair A→B: base rate of B / base rate of A × coefficient (1 if none)
+        group one DB transaction, timeout 30 s
+            S -> DB: INSERT conversion_rates: begin = now, end = now + 3 h, provider_code
+            alt DB error or timeout
+                S -> DB: ROLLBACK
+                S -> S: log ERROR, metric update failed
+            else
+                S -> DB: COMMIT
+                S -> S: log INFO, metric update succeeded + duration
+            end
+        end
+    end
+    Sch -> Lock: release: lock_until = locked_at + 59 min (lockAtLeastFor)
+end
+@enduml

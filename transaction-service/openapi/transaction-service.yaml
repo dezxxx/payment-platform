@@ -470,6 +470,7 @@ components:
       type: object
       x-class-extra-annotation: "@com.dezxxx.transaction.validation.DifferentWallets"
       x-implements: [com.dezxxx.transaction.validation.TransferWallets]
+      description: Wallets of different currencies need sourceCode, destinationCode, rate and rateToUsd; the same currency needs none
       required: [walletUid, targetWalletUid, amount]
       properties:
         walletUid:
@@ -484,6 +485,28 @@ components:
           exclusiveMinimum: true
           x-field-extra-annotation: "@jakarta.validation.constraints.Digits(integer = 17, fraction = 2)"
           example: 25.00
+        sourceCode:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: Currency of walletUid
+          example: UAH
+        destinationCode:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: Currency of targetWalletUid
+          example: EUR
+        rate:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          description: sourceCode → destinationCode, full precision
+          example: 0.0221
+        rateToUsd:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          description: sourceCode → USD, for the minimum conversion amount
+          example: 0.024
 
     TransactionInitResponse:
       type: object
@@ -504,6 +527,14 @@ components:
           example: "2026-10-29T12:05:00Z"
         offerToken:
           type: string
+        rate:
+          type: number
+          description: Transfer between currencies only; full precision, frozen in the offerToken
+          example: 0.0221
+        targetAmount:
+          type: number
+          description: Transfer between currencies only; amount × rate, 2 digits, HALF_UP
+          example: 3.32
 
     DepositConfirmRequest:
       type: object
