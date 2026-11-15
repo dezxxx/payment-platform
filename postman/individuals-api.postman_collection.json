@@ -34,7 +34,12 @@
     { "key": "ivanWithdrawalOfferToken", "value": "" },
     { "key": "ivanWithdrawalId", "value": "" },
     { "key": "ivanTransferOfferToken", "value": "" },
-    { "key": "ivanTransferId", "value": "" }
+    { "key": "ivanTransferId", "value": "" },
+    { "key": "ivanTravelEurWallet", "value": "" },
+    { "key": "ivanConversionRate", "value": "" },
+    { "key": "ivanConversionTarget", "value": "" },
+    { "key": "ivanConversionOfferToken", "value": "" },
+    { "key": "ivanConversionId", "value": "" }
   ],
   "item": [
     {
@@ -2149,7 +2154,9 @@
                   "    'auth_refresh_total',",
                   "    'external_keycloak_requests_seconds_count',",
                   "    'external_person_service_requests_seconds_count',",
-                  "    'external_transaction_service_requests_seconds_count'",
+                  "    'external_transaction_service_requests_seconds_count',",
+                  "    'external_currency_rate_service_requests_seconds_count',",
+                  "    'resilience4j_circuitbreaker_state'",
                   "].forEach(meter => {",
                   "    pm.test(meter + ' is published', () => pm.expect(scrape).to.include(meter));",
                   "});"
@@ -2161,6 +2168,393 @@
             "method": "GET",
             "header": [],
             "url": { "raw": "{{baseUrl}}/actuator/prometheus", "host": ["{{baseUrl}}"], "path": ["actuator", "prometheus"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Transfer between currencies (Ivan)",
+      "description": "individuals-api reads the wallets, sees USD and EUR, asks currency-rate-service for the live rate and passes it to transaction-service; the client sends no rate. Rates change every hour, so the checks compare numbers with each other, not with fixed values.",
+      "item": [
+        {
+          "name": "Ivan - create Travel EUR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('EUR', () => pm.expect(pm.response.json().currencyCode).to.eql('EUR'));",
+                  "pm.collectionVariables.set('ivanTravelEurWallet', pm.response.json().uid);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Travel EUR\",\n  \"walletTypeUid\": \"{{eurType}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - transfer init, 100.00 USD Main to Travel EUR at the live rate",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('fee 0.50 in USD, total 100.50', () => { pm.expect(t.fee).to.eql(0.5); pm.expect(t.total).to.eql(100.5); });",
+                  "pm.test('a rate came from currency-rate-service', () => pm.expect(t.rate).to.be.above(0));",
+                  "pm.test('targetAmount = 100.00 x rate, rounded to cents', () => pm.expect(t.targetAmount).to.be.closeTo(Math.round(100 * t.rate * 100) / 100, 0.005));",
+                  "pm.collectionVariables.set('ivanConversionRate', t.rate);",
+                  "pm.collectionVariables.set('ivanConversionTarget', t.targetAmount);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/transfer/init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "transfer",
+                "init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"targetWalletUid\": \"{{ivanTravelEurWallet}}\",\n  \"amount\": 100.00\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - transfer init with a rate of his own: ignored, the rate is the service's",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('the same rate as before, not 1000', () => pm.expect(t.rate).to.eql(Number(pm.collectionVariables.get('ivanConversionRate'))));",
+                  "pm.collectionVariables.set('ivanConversionOfferToken', t.offerToken);",
+                  "pm.collectionVariables.set('ivanConversionTarget', t.targetAmount);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/transfer/init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "transfer",
+                "init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"targetWalletUid\": \"{{ivanTravelEurWallet}}\",\n  \"amount\": 100.00,\n  \"rate\": 1000\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - transfer confirm, COMPLETED at once",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('COMPLETED', () => pm.expect(t.status).to.eql('COMPLETED'));",
+                  "pm.collectionVariables.set('ivanConversionId', t.transactionId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/transfer/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "transfer",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"offerToken\": \"{{ivanConversionOfferToken}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - Main USD balance is 597.5",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 698 - 100.50 = 597.5', () => pm.expect(pm.response.json().balance).to.eql(597.5));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets/{{ivanMainWallet}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets",
+                "{{ivanMainWallet}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ivan - Travel EUR got exactly targetAmount",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance = targetAmount of the offer', () => pm.expect(pm.response.json().balance).to.eql(Number(pm.collectionVariables.get('ivanConversionTarget'))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets/{{ivanTravelEurWallet}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets",
+                "{{ivanTravelEurWallet}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ivan - conversion status keeps rate and targetAmount",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('transfer, COMPLETED', () => { pm.expect(t.type).to.eql('transfer'); pm.expect(t.status).to.eql('COMPLETED'); });",
+                  "pm.test('the frozen rate and targetAmount', () => { pm.expect(t.rate).to.eql(Number(pm.collectionVariables.get('ivanConversionRate'))); pm.expect(t.targetAmount).to.eql(Number(pm.collectionVariables.get('ivanConversionTarget'))); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{ivanConversionId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{ivanConversionId}}",
+                "status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Transfer init - 0.99 USD to EUR, below the 1.00 USD minimum (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('AMOUNT_TOO_SMALL', () => pm.expect(pm.response.json().error).to.eql('AMOUNT_TOO_SMALL'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/transfer/init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "transfer",
+                "init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletUid\": \"{{ivanMainWallet}}\",\n  \"targetWalletUid\": \"{{ivanTravelEurWallet}}\",\n  \"amount\": 0.99\n}"
+            }
+          }
+        },
+        {
+          "name": "Ivan - Main USD after the failure, still balance is 597.5",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('balance 597.5', () => pm.expect(pm.response.json().balance).to.eql(597.5));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ivanAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallets/{{ivanMainWallet}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallets",
+                "{{ivanMainWallet}}"
+              ]
+            }
           }
         }
       ]

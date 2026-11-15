@@ -170,6 +170,49 @@ services:
       transaction-postgres-1:
         condition: service_healthy
 
+  currency-rate-service:
+    build:
+      context: ./currency-rate-service
+    depends_on:
+      currency-postgres:
+        condition: service_healthy
+      alloy:
+        condition: service_started
+    environment:
+      CURRENCY_DB_HOST: currency-postgres
+      CURRENCY_DB_PORT: 5432
+      CURRENCY_DB_NAME: ${CURRENCY_DB_NAME}
+      CURRENCY_DB_USER: ${CURRENCY_DB_USER}
+      CURRENCY_DB_PASSWORD: ${CURRENCY_DB_PASSWORD}
+      OXR_APP_ID: ${OXR_APP_ID}
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      OTLP_TRACES_ENDPOINT: http://alloy:4318/v1/traces
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8088 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ports:
+      - "${CURRENCY_RATE_SERVICE_PORT}:8088"
+
+  currency-postgres:
+    image: ${POSTGRES_IMAGE}
+    environment:
+      POSTGRES_DB: ${CURRENCY_DB_NAME}
+      POSTGRES_USER: ${CURRENCY_DB_USER}
+      POSTGRES_PASSWORD: ${CURRENCY_DB_PASSWORD}
+    ports:
+      - "${CURRENCY_POSTGRES_PORT}:5432"
+    volumes:
+      - currency-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CURRENCY_DB_USER} -d ${CURRENCY_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   kafka:
     image: ${KAFKA_IMAGE}
     hostname: kafka
@@ -296,6 +339,7 @@ services:
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
       PERSON_SERVICE_URL: ${PERSON_SERVICE_URL:-http://person-service:8082}
       TRANSACTION_SERVICE_URL: ${TRANSACTION_SERVICE_URL:-http://transaction-service:8084}
+      CURRENCY_RATE_SERVICE_URL: ${CURRENCY_RATE_SERVICE_URL:-http://currency-rate-service:8088}
     # the JRE image has no curl or wget, only bash
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8081 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
@@ -391,6 +435,7 @@ volumes:
   person-postgres-data:
   transaction-postgres-0-data:
   transaction-postgres-1-data:
+  currency-postgres-data:
   kafka-data:
   prometheus-data:
   nexus-data:

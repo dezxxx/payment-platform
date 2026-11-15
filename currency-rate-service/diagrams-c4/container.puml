@@ -10,8 +10,8 @@ Container_Ext(transactionService, "transaction-service", "Spring Boot MVC", "Che
 Container_Ext(keycloak, "Keycloak", "identity provider", "Service tokens, signing keys (JWKS)")
 
 System_Boundary(crs, "currency-rate-service") {
-    Container(app, "currency-rate-service", "Spring Boot MVC, Java 25", "Hourly rate update (ShedLock), correction coefficients, rate of a pair")
-    ContainerDb(db, "PostgreSQL currency-postgres", "currencies, rate_providers, rate_corrections, conversion_rates, shedlock", "Own database")
+    Container(app, "currency-rate-service", "Spring Boot MVC, Java 25", "Hourly rate update (ShedLock), rate of a pair")
+    ContainerDb(db, "PostgreSQL currency-postgres", "currencies, rate_providers, conversion_rates, shedlock", "Own database")
 }
 
 System_Ext(externalApi, "External rate API", "Latest exchange rates")

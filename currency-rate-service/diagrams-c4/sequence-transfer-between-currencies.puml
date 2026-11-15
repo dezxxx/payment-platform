@@ -28,15 +28,17 @@ else different currencies
         IA --> Client: 422 RATE_NOT_FOUND, transaction-service not called
     else CRS 400 / 401 / 403
         IA --> Client: 500 INTERNAL_ERROR, CRS answer only in the log
-    else rates 0.0221 and 0.024
-        IA -> TS: POST transfer/init + sourceCode UAH, destinationCode EUR, rate 0.0221, rateToUsd 0.024
+    else rates 0.01994710 and 0.02198874
+        IA -> TS: POST transfer/init + sourceCode UAH, destinationCode EUR, rate 0.01994710, rateToUsd 0.02198874
         TS -> DB: both wallets of the user
         alt wallet currencies ≠ UAH, EUR
             TS --> IA: 400 CURRENCY_MISMATCH
-        else 150.00 × 0.024 = 3.60 USD < 1.00 (transfer.min-conversion-amount-usd)
+        else no rate or rateToUsd
+            TS --> IA: 400 CURRENCY_MISMATCH
+        else amount × rateToUsd < 1.00 (transfer.min-conversion-amount-usd)
             TS --> IA: 400 AMOUNT_TOO_SMALL
         else
-            TS -> TS: fee 0.5% = 0.75, total 150.75 UAH;\ntargetAmount = 150.00 × 0.0221 = 3.32 EUR (HALF_UP, 2 digits; rate not rounded)
+            TS -> TS: fee 0.5% = 0.75, total 150.75 UAH;\ntargetAmount = 150.00 × 0.01994710 = 2.99 EUR (HALF_UP, 2 digits; rate not rounded)
             alt targetAmount = 0.00
                 TS --> IA: 400 AMOUNT_TOO_SMALL
             else balance < total
@@ -58,9 +60,10 @@ end
 Client -> IA: POST /api/v1/transactions/transfer/confirm (offerToken)
 IA -> TS: transfer/confirm
 group one DB transaction
-    TS -> DB: lock both wallets
-    TS -> DB: source − 150.75 UAH, target + 3.32 EUR
-    TS -> DB: transactions COMPLETED, rate 0.0221, target_amount 3.32
+    TS -> DB: INSERT transactions PENDING, rate 0.01994710, target_amount 2.99
+    TS -> DB: DB row lock on both wallets (FOR NO KEY UPDATE)
+    TS -> DB: source − 150.75 UAH, target + 2.99 EUR
+    TS -> DB: transactions COMPLETED
 end
 TS --> IA: 200 COMPLETED, transactionId
 IA --> Client: 200 COMPLETED, transactionId

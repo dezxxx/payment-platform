@@ -9,8 +9,8 @@ Open : no call,
 Open : 503 at once
 HalfOpen : one trial call
 
-Closed --> Open : half of the last 10 calls failed\n(timeout, 5xx, no connection)
-Open --> HalfOpen : 30 s passed
+Closed --> Open : half of the last 10 calls failed, at least 5 calls\n(timeout, 5xx, no connection)
+Open --> HalfOpen : the first call after 30 s
 HalfOpen --> Closed : the trial call succeeded
 HalfOpen --> Open : the trial call failed
 
@@ -22,7 +22,7 @@ legend bottom
   | transaction-service | 503 DEPENDENCY_UNAVAILABLE |
   | currency-rate-service | 503 DEPENDENCY_UNAVAILABLE |
 
-  Metrics resilience4j_circuitbreaker_* → Grafana: a panel per service, an alert when open.
+  Metrics resilience4j_circuitbreaker_* → Grafana: one panel, a line per service; an alert when open for 1 min.
   Not used: Kafka, Keycloak.
 end legend
 @enduml

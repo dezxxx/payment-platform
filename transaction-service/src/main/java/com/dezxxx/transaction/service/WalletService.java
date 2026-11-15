@@ -66,15 +66,23 @@ public class WalletService {
         return requireFoundAndActive(walletRepository.findActiveForUpdate(walletUid, userUid));
     }
 
-    public WalletEntity getActiveSameCurrencyWallet(UUID walletUid, UUID targetWalletUid, UUID userUid) {
-        return requireTransferPair(
-                walletRepository.findAllActiveByUids(List.of(walletUid, targetWalletUid), userUid), walletUid);
+    public WalletEntity getActiveWallets(UUID walletUid, UUID targetWalletUid, UUID userUid, String sourceCode,
+                                         String destinationCode) {
+        List<WalletEntity> wallets = requireTransferPair(
+                walletRepository.findAllActiveByUids(List.of(walletUid, targetWalletUid), userUid));
+        WalletEntity source = walletOf(wallets, walletUid);
+        requireCodesMatchCurrencies(currencyOf(source), currencyOf(walletOf(wallets, targetWalletUid)), sourceCode,
+                destinationCode);
+        return source;
     }
 
+    // confirm takes a DB row lock on both wallets (FOR NO KEY UPDATE) until its transaction ends;
+    // currencies are checked at init only: they are signed into the offer token, and a wallet never changes its type
     @Transactional
-    public WalletEntity lockActiveSameCurrencyWallets(UUID walletUid, UUID targetWalletUid, UUID userUid) {
-        return requireTransferPair(
-                walletRepository.findAllActiveForUpdate(List.of(walletUid, targetWalletUid), userUid), walletUid);
+    public WalletEntity lockActiveWallets(UUID walletUid, UUID targetWalletUid, UUID userUid) {
+        List<WalletEntity> wallets = requireTransferPair(
+                walletRepository.findAllActiveForUpdate(List.of(walletUid, targetWalletUid), userUid));
+        return walletOf(wallets, walletUid);
     }
 
     @Transactional
@@ -122,19 +130,34 @@ public class WalletService {
         return wallet;
     }
 
-    private static WalletEntity requireTransferPair(List<WalletEntity> wallets, UUID sourceUid) {
+    private static List<WalletEntity> requireTransferPair(List<WalletEntity> wallets) {
         if (wallets.size() < 2) {
             throw new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND);
         }
         wallets.forEach(WalletService::requireActive);
-        String currency = wallets.getFirst().getWalletType().getCurrencyCode();
-        if (!currency.equals(wallets.getLast().getWalletType().getCurrencyCode())) {
+        return wallets;
+    }
+
+    // one currency: the request carries no codes; two currencies: the codes are the wallets' real currencies
+    private static void requireCodesMatchCurrencies(String sourceCurrency, String targetCurrency, String sourceCode,
+                                                    String destinationCode) {
+        boolean matches = sourceCurrency.equals(targetCurrency)
+                ? sourceCode == null && destinationCode == null
+                : sourceCurrency.equals(sourceCode) && targetCurrency.equals(destinationCode);
+        if (!matches) {
             throw new TransactionServiceException(ErrorCode.CURRENCY_MISMATCH);
         }
+    }
+
+    private static WalletEntity walletOf(List<WalletEntity> wallets, UUID walletUid) {
         return wallets.stream()
-                .filter(wallet -> wallet.getUid().equals(sourceUid))
+                .filter(wallet -> wallet.getUid().equals(walletUid))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private static String currencyOf(WalletEntity wallet) {
+        return wallet.getWalletType().getCurrencyCode();
     }
 
     private WalletEntity newWallet(CreateWalletRequestDto request, WalletTypeEntity walletType, UUID userUid) {

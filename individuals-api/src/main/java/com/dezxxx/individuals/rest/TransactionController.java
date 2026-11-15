@@ -1,6 +1,7 @@
 package com.dezxxx.individuals.rest;
 
 import com.dezxxx.individuals.api.TransactionsApi;
+import com.dezxxx.individuals.api.model.TransferInitRequestDto;
 import com.dezxxx.individuals.gateway.transaction.TransactionSearch;
 import com.dezxxx.individuals.service.TransactionService;
 import com.dezxxx.individuals.util.CurrentUser;
@@ -12,7 +13,6 @@ import com.dezxxx.transaction.client.model.TransactionStatusDto;
 import com.dezxxx.transaction.client.model.TransactionStatusResponseDto;
 import com.dezxxx.transaction.client.model.TransactionTypeDto;
 import com.dezxxx.transaction.client.model.TransferConfirmRequestDto;
-import com.dezxxx.transaction.client.model.TransferInitRequestDto;
 import com.dezxxx.transaction.client.model.WithdrawalConfirmRequestDto;
 import com.dezxxx.transaction.client.model.WithdrawalInitRequestDto;
 import java.time.OffsetDateTime;

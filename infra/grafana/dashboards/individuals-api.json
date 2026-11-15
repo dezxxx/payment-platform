@@ -187,6 +187,50 @@
           "refId": "B",
           "expr": "rate(external_person_service_requests_seconds_sum[5m]) / rate(external_person_service_requests_seconds_count[5m])",
           "legendFormat": "person-service"
+        },
+        {
+          "refId": "C",
+          "expr": "rate(external_transaction_service_requests_seconds_sum[5m]) / rate(external_transaction_service_requests_seconds_count[5m])",
+          "legendFormat": "transaction-service"
+        },
+        {
+          "refId": "D",
+          "expr": "rate(external_currency_rate_service_requests_seconds_sum[5m]) / rate(external_currency_rate_service_requests_seconds_count[5m])",
+          "legendFormat": "currency-rate-service"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Circuit breakers: which platform service is cut off",
+      "description": "One breaker per platform service. 1 on an open line: 5+ of the last 10 calls failed (5xx, timeout, refused connection), calls are refused at once with 503 for 30 s, then one trial call decides. A 4xx answer is not a failure. Refused calls: requests answered 503 without reaching the service.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "resilience4j_circuitbreaker_state{job=\"individuals-api\", state=~\"open|half_open\"}",
+          "legendFormat": "{{name}} {{state}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (name) (rate(resilience4j_circuitbreaker_not_permitted_calls_total{job=\"individuals-api\"}[5m]))",
+          "legendFormat": "{{name}} refused calls/s"
         }
       ]
     },
@@ -274,7 +318,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 32
       },
       "options": {
         "showTime": true,
@@ -300,7 +344,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 41
       },
       "options": {
         "showTime": true,

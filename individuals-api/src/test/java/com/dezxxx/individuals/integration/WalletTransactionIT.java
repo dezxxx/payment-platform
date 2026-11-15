@@ -45,6 +45,15 @@ class WalletTransactionIT extends IntegrationTest {
             {"uid":"%s","name":"Main USD","walletTypeUid":"%s","currencyCode":"USD","status":"ACTIVE","balance":0}
             """.formatted(WALLET_UID, USD_TYPE);
 
+    private static final UUID UAH_WALLET_UID = UUID.fromString("5a1f0c2e-7b3d-4e8f-9a6c-2d4b6f8a0c1e");
+
+    private static final UUID EUR_WALLET_UID = UUID.fromString("8e2d4f6a-1c3b-4a5d-8f7e-9b0c2d4e6f8a");
+
+    private static final String CONVERSION_OFFER_JSON = """
+            {"amount":150.00,"fee":0.75,"total":150.75,"expiresAt":"2026-11-14T10:05:00Z","offerToken":"payload.signature",
+             "rate":0.01994710,"targetAmount":2.99}
+            """;
+
     private static String accessToken;
 
     @Autowired
@@ -53,6 +62,7 @@ class WalletTransactionIT extends IntegrationTest {
     @BeforeEach
     void freshStubAndUser() {
         TRANSACTION_SERVICE.reset();
+        CURRENCY_RATE_SERVICE.reset();
         if (accessToken == null) {
             accessToken = register(freshEmail("it-tx")).getAccessToken();
         }
@@ -231,6 +241,105 @@ class WalletTransactionIT extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("given UAH and EUR wallets, when initialising a transfer, then the rates come from currency-rate-service"
+            + " and a rate sent by the client is ignored")
+    void transferBetweenCurrenciesGetsRates() {
+        // given
+        TRANSACTION_SERVICE.answerWallets(conversionWallets());
+        TRANSACTION_SERVICE.answer(200, CONVERSION_OFFER_JSON);
+        CURRENCY_RATE_SERVICE.answerRate("UAH", "EUR", "0.01994710");
+        CURRENCY_RATE_SERVICE.answerRate("UAH", "USD", "0.02198874");
+
+        // when / then
+        initConversion("{\"walletUid\":\"%s\",\"targetWalletUid\":\"%s\",\"amount\":150.00,\"rate\":999}"
+                .formatted(UAH_WALLET_UID, EUR_WALLET_UID))
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.rate").isEqualTo(0.0199471)
+                .jsonPath("$.targetAmount").isEqualTo(2.99);
+
+        // then
+        List<Received> calls = TRANSACTION_SERVICE.received();
+        assertThat(calls).hasSize(2);
+        assertThat(calls.get(0).uri()).isEqualTo("/api/v1/wallets/user/" + PERSON_SERVICE.userUid());
+        assertThat(calls.get(1).uri()).isEqualTo(TRANSACTIONS + "/transfer/init");
+        assertThat(calls.get(1).body())
+                .contains("\"sourceCode\":\"UAH\"")
+                .contains("\"destinationCode\":\"EUR\"")
+                .contains("\"rate\":0.01994710")
+                .contains("\"rateToUsd\":0.02198874")
+                .doesNotContain("999");
+        assertThat(CURRENCY_RATE_SERVICE.received())
+                .hasSize(2)
+                .allSatisfy(call -> assertThat(call.authorization()).startsWith("Bearer "));
+    }
+
+    @Test
+    @DisplayName("given no valid rate for the pair, when initialising a transfer, then 422 RATE_NOT_FOUND and no terms are asked")
+    void transferWithoutRate() {
+        // given
+        TRANSACTION_SERVICE.answerWallets(conversionWallets());
+        CURRENCY_RATE_SERVICE.answerRate("UAH", "USD", "0.02198874");
+
+        // when / then
+        initConversion(conversionBody())
+                .expectStatus().isEqualTo(422)
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("RATE_NOT_FOUND")
+                .jsonPath("$.message").isEqualTo("No valid rate for the currency pair");
+
+        // then
+        assertThat(TRANSACTION_SERVICE.received()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("given currency-rate-service fails, when initialising a transfer, then 503 DEPENDENCY_UNAVAILABLE")
+    void transferWhenRatesUnavailable() {
+        // given
+        TRANSACTION_SERVICE.answerWallets(conversionWallets());
+        CURRENCY_RATE_SERVICE.answerProblem(500, "INTERNAL_ERROR");
+
+        // when / then
+        initConversion(conversionBody())
+                .expectStatus().isEqualTo(503)
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("DEPENDENCY_UNAVAILABLE");
+    }
+
+    @Test
+    @DisplayName("given transaction-service answers CURRENCY_MISMATCH, when initialising a transfer, then 500 - our rates were wrong")
+    void currencyMismatchIsOurBug() {
+        // given
+        TRANSACTION_SERVICE.answerWallets(conversionWallets());
+        TRANSACTION_SERVICE.answerProblem(400, "CURRENCY_MISMATCH", "[]");
+        CURRENCY_RATE_SERVICE.answerRate("UAH", "EUR", "0.01994710");
+        CURRENCY_RATE_SERVICE.answerRate("UAH", "USD", "0.02198874");
+
+        // when / then
+        initConversion(conversionBody())
+                .expectStatus().isEqualTo(500)
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("INTERNAL_ERROR");
+    }
+
+    @Test
+    @DisplayName("given a conversion below the minimum, when initialising a transfer, then 400 AMOUNT_TOO_SMALL")
+    void amountTooSmallPassesThrough() {
+        // given
+        TRANSACTION_SERVICE.answerWallets(conversionWallets());
+        TRANSACTION_SERVICE.answerProblem(400, "AMOUNT_TOO_SMALL", "[]");
+        CURRENCY_RATE_SERVICE.answerRate("UAH", "EUR", "0.01994710");
+        CURRENCY_RATE_SERVICE.answerRate("UAH", "USD", "0.02198874");
+
+        // when / then
+        initConversion(conversionBody())
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.error").isEqualTo("AMOUNT_TOO_SMALL")
+                .jsonPath("$.message").isEqualTo("The amount is below the minimum conversion amount");
+    }
+
+    @Test
     @DisplayName("given not enough money, when confirming, then 400 INSUFFICIENT_FUNDS in our error format")
     void insufficientFundsPassesThrough() {
         // given
@@ -328,6 +437,24 @@ class WalletTransactionIT extends IntegrationTest {
                 .expectStatus().isEqualTo(503)
                 .expectBody()
                 .jsonPath("$.error").isEqualTo("DEPENDENCY_UNAVAILABLE");
+    }
+
+    private WebTestClient.ResponseSpec initConversion(String body) {
+        return authorized(client.post().uri(TRANSACTIONS + "/transfer/init"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .exchange();
+    }
+
+    private static String conversionBody() {
+        return "{\"walletUid\":\"%s\",\"targetWalletUid\":\"%s\",\"amount\":150.00}".formatted(UAH_WALLET_UID, EUR_WALLET_UID);
+    }
+
+    private static String conversionWallets() {
+        return """
+                [{"uid":"%s","name":"Main UAH","walletTypeUid":"%s","currencyCode":"UAH","status":"ACTIVE","balance":200},
+                 {"uid":"%s","name":"Travel EUR","walletTypeUid":"%s","currencyCode":"EUR","status":"ACTIVE","balance":0}]
+                """.formatted(UAH_WALLET_UID, UUID.randomUUID(), EUR_WALLET_UID, UUID.randomUUID());
     }
 
     private WebTestClient.ResponseSpec confirmWithdrawal() {

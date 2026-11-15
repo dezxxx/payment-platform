@@ -18,7 +18,9 @@ public enum ErrorCode {
 
     INSUFFICIENT_FUNDS(HttpStatus.BAD_REQUEST, "Not enough funds including the fee"),
 
-    CURRENCY_MISMATCH(HttpStatus.BAD_REQUEST, "The wallets have different currencies"),
+    CURRENCY_MISMATCH(HttpStatus.BAD_REQUEST, "The currency codes do not match the wallets"),
+
+    AMOUNT_TOO_SMALL(HttpStatus.BAD_REQUEST, "The amount is below the minimum conversion amount"),
 
     OFFER_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "The offer token is invalid"),
 

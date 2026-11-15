@@ -17,6 +17,7 @@ Project context for humans and LLMs. Read this first before touching anything.
 | 2 - person-service | [`person-service/CONTEXT.md`](person-service/CONTEXT.md) |
 | 3 - transaction-service | [`transaction-service/CONTEXT.md`](transaction-service/CONTEXT.md) |
 | 3 - fake-payment-provider | [`fake-payment-provider/CONTEXT.md`](fake-payment-provider/CONTEXT.md) |
+| 4 - currency-rate-service | [`currency-rate-service/CONTEXT.md`](currency-rate-service/CONTEXT.md) |
 
 ---
 
@@ -43,8 +44,11 @@ The root is deliberately named after the platform, not after one service:
 
 ### The whole platform, for later modules
 
-Recorded from the course description of the full system, so that later modules
-do not drift from it. Only the first two rows exist today.
+The system the platform grows into. Built: Individuals API (individuals-api),
+Keycloak, Users Service (person-service), Wallets and Payments Service (both in
+transaction-service), Currency Service (currency-rate-service), Fake Payment
+Provider (fake-payment-provider). Not built yet: Webhook Service, Notification
+Service.
 
 | Service | Type | Owns | Talks to |
 |---|---|---|---|
@@ -52,26 +56,24 @@ do not drift from it. Only the first two rows exist today.
 | **Keycloak** | external IAM | credentials, roles, JWT issuing and validation | - |
 | **Users Service** | domain | the business profile: name, country, address | called only through Individuals API |
 | **Wallets Service** | domain | wallets and balances, internal transfers | Kafka consumer |
-| **Payments Service** | domain | deposit, transfer and withdrawal transactions | Currency Service, Fake Payment Provider, Kafka |
-| **Currency Service** | utility | exchange rates from an external provider | called by Payments Service |
+| **Payments Service** | domain | deposit, transfer and withdrawal transactions | Fake Payment Provider, Kafka; gets the rates from Individuals API |
+| **Currency Service** | utility | exchange rates from an external provider | called only by Individuals API |
 | **Webhook Service** | integration | inbound webhooks from the provider | publishes to Kafka, processes nothing itself |
 | **Notification Service** | infrastructure | user notifications, plus a REST API to read them | Kafka consumer |
 | **Fake Payment Provider** | external stub | imitates a real payment gateway, answers by webhook | - |
 
-Behaviour the description fixes, and that later modules must not invent
-differently:
+How money moves today (details: `transaction-service/CONTEXT.md`):
 
-- **Balances change only on Kafka events** (`transaction.completed`,
-  `transaction.failed`). Wallets Service never adjusts a balance from a REST
-  call.
-- **`/init` writes nothing to the database.** A payment transaction is
-  persisted only once `/confirm` succeeds.
-- **The webhook endpoint is protected by a shared secret**, checked on every
-  call.
-- **Webhook Service only publishes** `payment.status.updated`; the consumers
-  decide what it means.
-- Notification Service reacts to events such as `user.registered` and
-  `transaction.completed`.
+- **`/init` writes nothing to the database.** It returns the terms and a signed
+  `offerToken`; a transaction is persisted only in `/confirm`.
+- **Transfer** (one currency or two): `/confirm` debits the source and credits
+  the target in one database transaction and answers `COMPLETED`. No Kafka.
+- **Deposit**: `/confirm` writes a `PENDING` transaction and a `DepositRequested`
+  event to the outbox; the balance grows only on the provider's
+  `DepositCompleted` from Kafka, `DepositFailed` leaves it unchanged.
+- **Withdrawal**: `/confirm` debits `amount + fee` as a reserve and writes a
+  `PENDING` transaction and `WithdrawalRequested` in one database transaction;
+  `WithdrawalCompleted` keeps the reserve, `WithdrawalFailed` returns it.
 
 Two integration styles coexist on purpose: synchronous REST where an answer is
 needed now, Kafka where the work can finish later. Compensation exists because
@@ -125,30 +127,26 @@ which module runs which Gradle, Boot or generator.
    - `individuals-api/openapi/individuals-api.yaml` — server interfaces are
      generated from it; controllers *implement* them, so the code cannot drift
      from the contract.
-   - `person-service/openapi/person-service.yaml` — `person-client` generates
+   - `person-service/openapi/person-service.yaml` — `person-service-client` generates
      DTOs and `@HttpExchange` clients from it.
 
 2. **No hand-written DTOs.** Every DTO comes out of a generator.
 
 3. **No `project(":...")` dependencies between modules.** Cross-module
    contracts travel as artifacts published to Nexus, addressed by Maven
-   coordinates. Modules are `include`d only so one wrapper builds them all.
+   coordinates. There is no root build: each module is built from its own folder.
 
-4. **Transport = Spring HTTP Service Clients + WebClient.** No Feign, and no
-   `RestClient` either. `person-client` is generated with
-   `library = spring-http-interface`, and the proxies are built with
-   `WebClientAdapter` so every call returns a `Mono`. The handout names
-   `RestClient`; see the deviations table for why the adapter differs while the
-   style does not.
+4. **Platform clients = Spring HTTP Service Clients + WebClient.** No Feign.
+   Every published client (`person-service-client`, `transaction-service-client`,
+   `currency-rate-service-client`) is generated with
+   `library = spring-http-interface`; individuals-api builds the proxies with
+   `WebClientAdapter`, so every call returns a `Mono` and never blocks the event
+   loop. Spring Cloud OpenFeign is rejected: blocking, and feature-complete (no
+   new features).
 
-   Module 2's handout says the same in stronger words - use HTTP Service
-   Clients, **not** Spring Cloud OpenFeign, which it calls feature-complete.
-   The `Feign/OpenAPI` label on the platform diagram predates both and is not a
-   requirement.
-
-   person-service needs no HTTP client at all: it answers calls and owns a
-   database, it does not make outbound calls. `person-client` is for its
-   callers, starting with individuals-api.
+   The inner services make no calls to each other. The only outbound call of an
+   inner service is currency-rate-service to the rate provider: a blocking
+   `RestClient`, because the service is Spring MVC.
 
 5. **Every build validates the contracts** — `openApiValidate` runs before
    `openApiGenerate`, and `check` depends on it. A broken contract fails the
@@ -176,9 +174,9 @@ which module runs which Gradle, Boot or generator.
    `Accept-Language` if real localisation is ever wanted — and no other code
    moves.
 
-7. **An internal service lets in only a platform service.** person-service and
-   transaction-service are internal: their callers are platform services, never
-   a user. Every request except the infrastructure endpoints
+7. **An internal service lets in only a platform service.** person-service,
+   transaction-service and currency-rate-service are internal: their caller is
+   individuals-api, never a user. Every request except the infrastructure endpoints
    (`/actuator/health/**`, `info`, `prometheus`, `metrics/**`, the OpenAPI
    documents and Swagger UI) must carry a Keycloak access token with the realm
    role `SERVICE`. The Spring Security resource server checks the signature by
@@ -188,19 +186,18 @@ which module runs which Gradle, Boot or generator.
    service's own `GlobalExceptionHandler`, the usual error shape. individuals-api
    sends the token of its service account (`client_credentials`, the token it
    already obtains and caches for the Admin API) through a `WebClient` filter on
-   the person-service and transaction-service clients.
+   the person-service, transaction-service and currency-rate-service clients.
 
-   **This changes an earlier rule.** Until the teacher's review of PR #2
-   (module 3) the internal services knew nothing about Keycloak and trusted the
-   network. The ports 8082 and 8084 are published, so anyone on the host could
-   skip individuals-api: read an individual's passport by email, hard-delete one
-   through `/compensate-registration/{id}`, or confirm a transaction under any
-   `X-User-Uid`. Kept from the old rule: person-service still knows nothing
-   about Keycloak *users*, `user_uid` stays a domain identifier; it only checks
-   who is calling. `X-User-Uid` is still trusted - now only from a caller that
-   proved it is a platform service.
+   Why: the ports 8082, 8084 and 8088 are published, so without the check anyone
+   on the host could skip individuals-api: read an individual's passport by
+   email, hard-delete one through `/compensate-registration/{id}`, or confirm a
+   transaction under any `X-User-Uid`. person-service still knows nothing about
+   Keycloak *users*, `user_uid` stays a domain identifier; it only checks who is
+   calling. `X-User-Uid` is trusted only from a caller that proved it is a
+   platform service.
 
    Rejected:
+   - trusting the Docker network alone - the published ports bypass it;
    - `azp` (the calling client id) - every service would hold a list of client
      ids, and a new caller means a config change in each of them; a role is
      granted once, in Keycloak;
@@ -211,8 +208,9 @@ which module runs which Gradle, Boot or generator.
      5-minute tokens.
 
    Keycloak keeps one entity: the existing client `individuals-api` and its
-   service account, which got the role in `realm-export.json`. A new platform
-   service that calls an internal one gets its own client and the same role.
+   service account, which got the role in `realm-export.json`. individuals-api is
+   the only Keycloak client and the only caller of the internal services; they
+   never call each other, so none of them has a client or a secret of its own.
 
    **The `iss` trap.** The services validate by `jwk-set-uri`, not
    `issuer-uri`. `iss` is the address the caller used to reach Keycloak:
@@ -248,11 +246,10 @@ management:
 
 Each module lists its own application meters in its CONTEXT.
 
-Named in Micrometer's dotted convention, **not** with the `_total` suffix the
-handout table shows. Prometheus appends `_total` to counters itself, so a meter
-registered as `auth_registration_total` is scraped as
-`auth_registration_total_total`. The handout lists the scraped names; the code
-must register the dotted ones.
+Named in Micrometer's dotted convention, **without** a `_total` suffix.
+Prometheus appends `_total` to counters itself, so a meter registered as
+`auth_registration_total` would be scraped as `auth_registration_total_total`.
+The code registers `auth.registration`; Prometheus shows `auth_registration_total`.
 
 **Histogram buckets are switched on for `http.server.requests`.** Boot
 publishes `count`, `sum` and `max` for its built-in HTTP timer and nothing
@@ -278,7 +275,7 @@ management:
     tracing:
       export:
         otlp:
-          endpoint: http://tempo:4318/v1/traces
+          endpoint: http://alloy:4318/v1/traces
 ```
 
 The `management.opentelemetry.tracing.export.otlp.*` namespace is the Boot 4
@@ -294,7 +291,7 @@ the domain `user_uid` when known.
 
 ## 4. Port map
 
-Host ports, as fixed by the course handout. Values live in `.env`, never in
+Host ports of the whole stack. Values live in `.env`, never in
 `docker-compose.yml`.
 
 | Service | Host | Container |
@@ -311,6 +308,9 @@ Host ports, as fixed by the course handout. Values live in `.env`, never in
 | schema-registry | 8085 | 8081 |
 | fake-payment-provider | 8086 | 8086 |
 | kafka-ui | 8087 | 8080 |
+| nexus | 8083 | 8081 |
+| currency-rate-service | 8088 | 8088 |
+| currency-postgres | 5437 | 5432 |
 | transaction-postgres-0-exporter, -1-exporter | - | 9187 |
 | prometheus | 9090 | 9090 |
 | tempo | 3200, 4318 | 3200, 4318 |
@@ -318,15 +318,14 @@ Host ports, as fixed by the course handout. Values live in `.env`, never in
 | alloy | - | - |
 | grafana | 3000 | 3000 |
 
-`person-service` gets 8082 in module 2 - not from the handout, chosen because
-8081 is taken. The OpenAPI `servers` entries follow this table.
-`transaction-service` gets 8084 in module 3: the handout's 8082 belongs to
-person-service and 8083 to Nexus. `schema-registry` keeps its own 8081 inside
-the network and gets 8085 on the host, where 8081 is individuals-api.
+Each service takes the next free port on the host; the OpenAPI `servers`
+entries follow this table. Two images keep their own default inside the
+network and get another port on the host, because 8081 on the host is
+individuals-api: `schema-registry` (8081 → 8085) and Nexus (8081 → 8083).
 
-**Nexus runs on 8083, not on its own default 8081.** The handout fixes 8081 for
-individuals-api, so Nexus is the one that has to move; the URLs live in
-`gradle.properties`. Until Nexus is up, that unreachable repository is also why
+**Nexus is on 8083.** The Nexus URLs live in `gradle.properties` of every
+module that publishes or resolves the clients; images reach it through
+`host.docker.internal:8083`. Until Nexus is up, that unreachable repository is also why
 IntelliJ reports `Sources were not downloaded for ...`: an ordinary build finds
 the jar in Maven Central and never reaches the third repository, but the IDE
 asks every repository for sources and reports the whole lookup as failed.
@@ -347,17 +346,20 @@ payment-platform/              a Git root, NOT a Gradle project
 │                              its C4 diagrams in diagrams-c4/
 ├── transaction-service/       wallets and transactions (module 3); also publishes transaction-service-client
 │                              and transaction-service-events -> Nexus; its C4 diagrams in diagrams-c4/
-└── fake-payment-provider/     the payment provider stub (module 3): answers the Kafka requests of transaction-service
+├── fake-payment-provider/     the payment provider stub (module 3): answers the Kafka requests of transaction-service
+└── currency-rate-service/     exchange rates (module 4); also publishes currency-rate-service-client -> Nexus;
+                               its C4 diagrams in diagrams-c4/
 ```
 
 Each module is an independent Gradle build: its own `settings.gradle.kts`,
-`gradle.properties`, wrapper and conventions. The handout requires it - "the
-root is not a Maven/Gradle project, it is a package that plays the role of a
-Git root", and every cross-module dependency travels as a published artifact.
+`gradle.properties`, wrapper and conventions. The root is not a Gradle project,
+only the Git root, and every cross-module dependency travels as a published
+artifact: a module can be built, versioned and deployed without the others.
 
-individuals-api still reads `gradle/libs.versions.toml` as
-`from(files("../gradle/libs.versions.toml"))`. person-service reads nothing from
-outside its folder: plugin versions are in its own `build.gradle.kts`.
+individuals-api reads `gradle/libs.versions.toml` as
+`from(files("../gradle/libs.versions.toml"))`. person-service, transaction-service,
+currency-rate-service and fake-payment-provider read nothing from outside their
+folder: their versions are in their own `build.gradle.kts`.
 
 ---
 
@@ -366,8 +368,8 @@ outside its folder: plugin versions are in its own `build.gradle.kts`.
 `make` does all of it: `make` alone starts Nexus, builds the image and starts
 the stack, and `make help` lists the rest. The `Makefile` exists because there
 is no root build to hang the order on. `make verify` runs the whole order from
-scratch (person-service and transaction-service `clean check`, their clients
-and the events into Nexus, individuals-api and fake-payment-provider
+scratch (person-service, transaction-service and currency-rate-service
+`clean check`, their clients and the events into Nexus, individuals-api and fake-payment-provider
 `clean build`, images `--no-cache`, stack up);
 `make verify-down` stops the stack first, because the integration tests need
 its memory.
@@ -375,7 +377,7 @@ its memory.
 The `Makefile` is one file in blocks: the platform (stack, `verify`), all
 modules (`build`, `test`, `it`, `check`, `publish`, `clean`), then one block per
 module with the same commands under its prefix - `person-`, `individuals-`,
-`transaction-`, `provider-` - so one module is checked on its own, e.g.
+`transaction-`, `provider-`, `currency-` - so one module is checked on its own, e.g.
 `make transaction-publish-local`.
 
 What it runs, for when it is not installed:
@@ -390,8 +392,13 @@ cd person-service  && ./gradlew publishClientPublicationToMavenLocal
 cd person-service  && ./gradlew check      # contract, unit + integration tests, 80% coverage gate
 cd transaction-service && ./gradlew publishClientPublicationToMavenLocal
 cd transaction-service && ./gradlew check  # contract, unit + integration tests
+cd currency-rate-service && ./gradlew publishClientPublicationToMavenLocal
+cd currency-rate-service && ./gradlew check  # contract, unit + integration tests
 cd individuals-api && ./gradlew build
 ```
+
+currency-rate-service starts once `currency-postgres` is healthy and takes the
+first rates right after the start (it needs `OXR_APP_ID` in `.env`).
 
 transaction-service builds its image itself, like person-service, and starts
 once both of its PostgreSQL shards are healthy.
@@ -400,8 +407,8 @@ Into Nexus: `make publish` (`publishClientPublicationToNexusRepository`;
 `NEXUS_USERNAME` / `NEXUS_PASSWORD` default to `NEXUS_ADMIN_USER` /
 `NEXUS_ADMIN_PASSWORD` from `.env`).
 
-**The image builds individuals-api itself**, as in the teacher's reference: a
-JDK stage runs `bootJar`, a JRE stage runs the jar. The build context is the
+**The image builds individuals-api itself**: a JDK stage runs `bootJar`, a JRE
+stage runs the jar, so a clean clone needs only Docker, not a local JDK. The build context is the
 repository root, because the module reads `gradle/libs.versions.toml` from
 there. `person-service-client` is downloaded from Nexus through
 `host.docker.internal:8083` - a docker build runs outside the compose network,
@@ -449,7 +456,7 @@ flowchart TB
     LV["libs.versions.toml<br/>every version"]
     PSY["person-service.yaml"]
     IAY["individuals-api.yaml"]
-    PCJ["person-client.jar<br/>DTOs plus HttpExchange"]
+    PCJ["person-service-client.jar<br/>DTOs plus HttpExchange"]
     APIJ["individuals-api.jar"]
 
     SG --> APIJ
@@ -492,8 +499,9 @@ flowchart TB
 `.env` is substituted into the compose file itself. It does **not** reach the
 container - only the `environment:` block does. That is why individuals-api
 lists `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID` and `KEYCLOAK_CLIENT_SECRET`
-explicitly, and transaction-service its `TRANSACTION_OFFER_SECRET`, the key
-that signs the offers of init.
+explicitly, transaction-service its `TRANSACTION_OFFER_SECRET`, the key
+that signs the offers of init, and currency-rate-service its `OXR_APP_ID`, the
+key of the rate provider.
 
 ### Run time - who talks to whom
 
@@ -501,16 +509,20 @@ that signs the offers of init.
 flowchart LR
     CL(["client"]) -->|8081| API["individuals-api"]
     API -->|8080| KC["keycloak"]
-    API -.->|8082 - module 2, service token| PS["person-service"]
+    API -->|8082 service token| PS["person-service"]
     API -->|8084 service token + X-User-Uid| TS
     PS -->|8080 JWKS| KC
     TS -->|8080 JWKS| KC
     KC -->|5432| KCDB[("keycloak-postgres")]
-    PSDB[("person-postgres")]
-    API -->|4318 OTLP push| TEMPO["tempo"]
+    PS -->|5432| PSDB[("person-postgres")]
+    API & PS & TS & CRS & FPP -->|4318 OTLP push| ALLOY["alloy"]
+    ALLOY -->|4318| TEMPO["tempo"]
+    ALLOY -->|logs| LOKI["loki"]
+    PROM -->|scrape 8082| PS
     PROM["prometheus"] -->|scrape 8081| API
     GRAF["grafana"] --> PROM
     GRAF --> TEMPO
+    GRAF --> LOKI
     TS["transaction-service"] -->|5432| TSDB[("transaction-postgres-0 / -1")]
     TS -->|19092| KAFKA["kafka"]
     FPP["fake-payment-provider"] -->|19092| KAFKA
@@ -518,7 +530,18 @@ flowchart LR
     FPP -->|8081| SR
     PROM -->|scrape 8084| TS
     PROM -->|scrape 8086| FPP
+    API -->|8088 service token| CRS["currency-rate-service"]
+    CRS -->|8080 JWKS| KC
+    CRS -->|5432| CRSDB[("currency-postgres")]
+    CRS -->|HTTPS, hourly| OXR(["Open Exchange Rates"])
+    PROM -->|scrape 8088| CRS
 ```
+
+currency-rate-service (module 4) is called only by individuals-api, with the
+service token: for a transfer between currencies individuals-api reads the
+wallet currencies from transaction-service, asks currency-rate-service for the
+rates and passes them to transaction-service in `transfer/init`. Inner services
+never call each other; currency-rate-service calls nobody but the rate provider.
 
 transaction-service (module 3) is called by individuals-api on 8084 with the
 service token (rule 7 of §3) and the user from the token in `X-User-Uid`; the `offerToken` of init travels through
@@ -527,8 +550,9 @@ check it. transaction-service talks to the payment provider only through Kafka.
 
 Two opposite mechanics, and they are easy to confuse. **Prometheus pulls** -
 it walks to the application on a schedule, so the application's address lives
-in `prometheus.yml`. **The application pushes** traces, so Tempo's address
-lives in `application.yml`. One arrow points each way.
+in `prometheus.yml`. **The application pushes** traces to Alloy, which
+forwards them to Tempo, so Alloy's address lives in the application config
+(`OTLP_TRACES_ENDPOINT`). One arrow points each way.
 
 ### Values that must agree
 
@@ -539,15 +563,16 @@ error anywhere.
 |---|---|---|---|
 | metrics scrape | `prometheus.yml` target `individuals-api:8081` | compose service name plus `server.port` | name and port |
 | metrics path | `prometheus.yml` `metrics_path` | `application.yml` `exposure.include` | prometheus is exposed |
-| traces | `application-docker.yml` `tempo:4318/v1/traces` | `tempo.yml` OTLP http receiver | host, port, path |
+| traces | compose `OTLP_TRACES_ENDPOINT` (individuals-api: `application-docker.yml`) `alloy:4318/v1/traces` | `config.alloy` OTLP receiver on 4318, exporter to `tempo:4318`; `tempo.yml` OTLP http receiver | host, port, path |
 | Tempo storage | `tempo.yml` `/var/tempo/...` | compose `tempo-data:/var/tempo` | the path |
 | realm name | `.env` `KEYCLOAK_REALM` | `realm-export.json` `realm` | the value |
 | client id | `.env` `KEYCLOAK_CLIENT_ID` | `realm-export.json` `clientId` | the value |
 | client secret | `.env` `KEYCLOAK_CLIENT_SECRET` | `realm-export.json` `secret` | the value |
-| service token check | compose `KEYCLOAK_URL`, `KEYCLOAK_REALM` of person-service and transaction-service → `jwk-set-uri` | the Keycloak and realm that issue the token | host and realm |
+| service token check | compose `KEYCLOAK_URL`, `KEYCLOAK_REALM` of person-service, transaction-service and currency-rate-service → `jwk-set-uri` | the Keycloak and realm that issue the token | host and realm |
 | service role | `realm-export.json` `SERVICE` on `service-account-individuals-api` | `SecurityConfig` `hasRole("SERVICE")` | the name |
 | app port | `application.yml` `server.port` | compose `8081:8081` | the right-hand side |
 | transaction-service scrape | `prometheus.yml` targets `transaction-service:8084`, `fake-payment-provider:8086` | compose service names plus `server.port` | name and port |
+| currency-rate-service scrape | `prometheus.yml` target `currency-rate-service:8088` | compose service name plus `server.port` | name and port |
 | Kafka inside compose | compose `KAFKA_BOOTSTRAP_SERVERS: kafka:19092` of both services | `KAFKA_ADVERTISED_LISTENERS` `PLAINTEXT://kafka:19092` | host and port |
 | Schema Registry | compose `SCHEMA_REGISTRY_URL: http://schema-registry:8081` of both services | `SCHEMA_REGISTRY_LISTENERS` | the port |
 
@@ -562,12 +587,9 @@ graph in Grafana.
 
 ### Known noise, not defects
 
-- ~100 deprecation warnings from generated sources: OpenAPI Generator 7.14.0
-  emits `org.springframework.lang.@Nullable`, deprecated in Spring 7. Harmless;
-  worth silencing on the generated source set rather than in the generator.
 - `Ignoring complex example on request body` — the generator does not carry
-  multi-example blocks into code. The examples stay in the contract, which is
-  where the handout wants them.
+  multi-example blocks into code. The examples stay in the contract, where
+  Swagger UI shows them.
 
 ### Why Gradle 9.5.1 and not the latest
 

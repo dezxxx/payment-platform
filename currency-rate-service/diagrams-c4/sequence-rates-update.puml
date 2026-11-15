@@ -21,7 +21,7 @@ alt lock_until not passed
     Lock --> Sch: skip this run
 else lock acquired
     Sch -> S: updateRates()
-    S -> DB: active providers by priority, currencies, rate_corrections
+    S -> DB: active providers by priority, currencies
     loop providers by priority, until valid (every active currency, rate > 0)
         S -> C: fetchRates(provider)
         C -> Ext: GET latest rates (connect 10 s, response 5 s, 3 attempts with backoff)
@@ -30,7 +30,7 @@ else lock acquired
         S -> S: log ERROR, metric update failed
         note right: old rates stay valid until rate_end_time
     else rates received
-        S -> S: every pair A→B: base rate of B / base rate of A × coefficient (1 if none)
+        S -> S: every pair A→B: base rate of B / base rate of A
         group one DB transaction, timeout 30 s
             S -> DB: INSERT conversion_rates: begin = now, end = now + 3 h, provider_code
             alt DB error or timeout

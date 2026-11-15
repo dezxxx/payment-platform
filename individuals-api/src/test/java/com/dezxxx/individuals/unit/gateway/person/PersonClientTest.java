@@ -12,6 +12,7 @@ import com.dezxxx.individuals.gateway.person.PersonClient;
 import com.dezxxx.individuals.gateway.person.PersonProfile;
 import com.dezxxx.individuals.metrics.AuthMetrics;
 import com.dezxxx.person.client.api.IndividualsApi;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.List;
@@ -188,7 +189,8 @@ class PersonClientTest {
         IndividualsApi individualsApi = HttpServiceProxyFactory.builderFor(WebClientAdapter.create(webClient))
                 .build()
                 .createClient(IndividualsApi.class);
-        return new PersonClient(individualsApi, PROPERTIES, new AuthMetrics(new SimpleMeterRegistry()));
+        return new PersonClient(individualsApi, PROPERTIES, new AuthMetrics(new SimpleMeterRegistry()),
+                CircuitBreakerRegistry.ofDefaults());
     }
 
     private static ClientResponse json(HttpStatus status, String body) {

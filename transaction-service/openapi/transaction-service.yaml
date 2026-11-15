@@ -233,6 +233,12 @@ paths:
       tags: [transactions]
       operationId: initTransfer
       summary: Compute the terms of a transfer between two wallets of the user and issue a signed offerToken valid for 5 minutes; nothing is written
+      description: |
+        One currency: the request carries only the wallets and the amount; the target gets `amount`.
+        Two currencies: individuals-api adds the currency codes and the rates it took from currency-rate-service.
+        The codes must be the wallets' currencies, `amount × rateToUsd` must reach 1.00 USD, and the target gets
+        `targetAmount = amount × rate` (2 digits, HALF_UP). The rate and `targetAmount` are frozen in the offerToken.
+        The fee is 0.5 % of `amount`, in the source currency.
       parameters:
         - $ref: "#/components/parameters/UserUidHeader"
       requestBody:
@@ -241,11 +247,28 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/TransferInitRequest"
+            examples:
+              oneCurrency:
+                summary: USD → USD, no codes and no rates
+                value:
+                  walletUid: 3b2f9c1a-5d4e-4f6a-8b7c-9d0e1f2a3b4c
+                  targetWalletUid: 7e6d5c4b-3a29-4180-9f8e-7d6c5b4a3928
+                  amount: 25.00
+              twoCurrencies:
+                summary: 150.00 UAH → EUR at 0.01994710; 150.00 UAH is 3.30 USD
+                value:
+                  walletUid: 3b2f9c1a-5d4e-4f6a-8b7c-9d0e1f2a3b4c
+                  targetWalletUid: 7e6d5c4b-3a29-4180-9f8e-7d6c5b4a3928
+                  amount: 150.00
+                  sourceCode: UAH
+                  destinationCode: EUR
+                  rate: 0.01994710
+                  rateToUsd: 0.02198874
       responses:
         "200":
           $ref: "#/components/responses/InitTerms"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          $ref: "#/components/responses/TransferBadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
         "401":
@@ -500,13 +523,13 @@ components:
           minimum: 0
           exclusiveMinimum: true
           description: sourceCode → destinationCode, full precision
-          example: 0.0221
+          example: 0.01994710
         rateToUsd:
           type: number
           minimum: 0
           exclusiveMinimum: true
           description: sourceCode → USD, for the minimum conversion amount
-          example: 0.024
+          example: 0.02198874
 
     TransactionInitResponse:
       type: object
@@ -530,11 +553,11 @@ components:
         rate:
           type: number
           description: Transfer between currencies only; full precision, frozen in the offerToken
-          example: 0.0221
+          example: 0.01994710
         targetAmount:
           type: number
           description: Transfer between currencies only; amount × rate, 2 digits, HALF_UP
-          example: 3.32
+          example: 1.99
 
     DepositConfirmRequest:
       type: object
@@ -593,6 +616,14 @@ components:
         fee:
           type: number
           example: 1.00
+        rate:
+          type: number
+          description: Transfer between currencies only; the rate the transfer was made at, full precision
+          example: 0.01994710
+        targetAmount:
+          type: number
+          description: Transfer between currencies only; credited to targetWalletUid, amount × rate, 2 digits, HALF_UP
+          example: 1.99
         failureReason:
           type: string
           example: INSUFFICIENT_FUNDS_EXTERNAL
@@ -665,6 +696,49 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    TransferBadRequest:
+      description: The request failed validation or the transfer is refused; `error` names which
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            currencyMismatch:
+              summary: The codes or rates do not match the wallets - codes other than the wallets' currencies, codes or a rate for one currency, no rate for two
+              value:
+                type: https://example.org/problems/currency-mismatch
+                title: Bad Request
+                status: 400
+                detail: The currency codes do not match the wallets
+                instance: /api/v1/transactions/transfer/init
+                timestamp: "2026-11-15T12:34:56Z"
+                error: CURRENCY_MISMATCH
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+            amountTooSmall:
+              summary: amount × rateToUsd below 1.00 USD, or targetAmount rounds to 0.00
+              value:
+                type: https://example.org/problems/amount-too-small
+                title: Bad Request
+                status: 400
+                detail: The amount is below the minimum conversion amount
+                instance: /api/v1/transactions/transfer/init
+                timestamp: "2026-11-15T12:34:56Z"
+                error: AMOUNT_TOO_SMALL
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
+            insufficientFunds:
+              summary: The source has less than amount + fee
+              value:
+                type: https://example.org/problems/insufficient-funds
+                title: Bad Request
+                status: 400
+                detail: Not enough funds including the fee
+                instance: /api/v1/transactions/transfer/init
+                timestamp: "2026-11-15T12:34:56Z"
+                error: INSUFFICIENT_FUNDS
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                details: []
     NotFound:
       description: Not found
       content:

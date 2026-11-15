@@ -54,7 +54,7 @@ else
     else terms from the token
         TS -> TS: span offer.link, child of confirm:\nSpan Link → the init span (traceparent from the token)
         group one DB transaction
-            TS -> DB: INSERT transactions PENDING (terms incl. fee)\nON CONFLICT (user_uid, request_id) DO NOTHING
+            TS -> DB: INSERT transactions PENDING (terms incl. fee;\ndifferent currencies: also rate, target_amount)\nON CONFLICT (user_uid, request_id) DO NOTHING
             alt requestId taken: a repeat (the answer was lost)
                 TS -> DB: SELECT by requestId
                 TS --> Client: 200 the same transactionId + its status (expiry not checked)
@@ -79,8 +79,8 @@ else
                     TS --> Client: 400 INSUFFICIENT_FUNDS
                 else
                     TS -> DB: UPDATE source balance − (amount + fee)
-                    TS -> DB: UPDATE target balance + amount;\ndifferent currencies: + targetAmount from the token
-                    TS -> DB: UPDATE transactions SET status = 'COMPLETED';\ndifferent currencies: also rate, target_amount
+                    TS -> DB: UPDATE target balance + amount;\ndifferent currencies: + targetAmount from the token instead of amount
+                    TS -> DB: UPDATE transactions SET status = 'COMPLETED'
                     TS -> DB: COMMIT
                     TS -> TS: afterCommit: transaction_finished_total{TRANSFER, COMPLETED} + 1
                     TS --> Client: 200 COMPLETED, transactionId

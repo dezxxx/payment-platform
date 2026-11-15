@@ -1,4 +1,16 @@
 groups:
+  - name: individuals-api
+    rules:
+      # the breaker stays open: every call to that service is answered 503 without trying
+      - alert: DependencyCircuitBreakerOpen
+        expr: max by (name) (resilience4j_circuitbreaker_state{job="individuals-api", state="open"}) == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "individuals-api cut off {{ $labels.name }}"
+          description: "The circuit breaker to {{ $labels.name }} has been open for a minute: its calls are refused with 503 DEPENDENCY_UNAVAILABLE."
+
   - name: transaction-service
     rules:
       # the provider never answered: the money is neither credited nor returned
@@ -39,3 +51,33 @@ groups:
         annotations:
           summary: "transaction-service lags behind the provider's answers"
           description: "Up to {{ $value | humanize }} answers are waiting in one partition."
+
+  - name: currency-rate-service
+    rules:
+      # no update for two hours: one more hour and every rate expires
+      - alert: CurrencyRatesTooOld
+        expr: rate_newest_age_seconds{job="currency-rate-service"} > 7200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The newest exchange rate is more than 2 hours old"
+          description: "The newest rate became valid {{ $value | humanizeDuration }} ago; rates live 3 hours, then cross-currency transfers stop."
+
+      # no valid rate at all: every GET /rates answers 404, every cross-currency transfer 422
+      - alert: CurrencyRatesMissing
+        expr: max(rate_valid_pairs{job="currency-rate-service"}) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No currency pair has a valid rate"
+          description: "Cross-currency transfers are refused until a rate update succeeds."
+
+      - alert: CurrencyRateUpdateFailed
+        expr: sum(increase(rate_updates_total{job="currency-rate-service", result="failure"}[1h])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "An hourly rate update failed"
+          description: "No provider gave valid rates or the write failed; the previous rates stay valid until their rate_end_time."

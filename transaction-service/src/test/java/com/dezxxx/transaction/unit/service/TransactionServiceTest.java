@@ -17,6 +17,7 @@ import com.dezxxx.transaction.api.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.api.model.TransactionInitResponseDto;
 import com.dezxxx.transaction.config.FeeProperties;
 import com.dezxxx.transaction.config.OfferTokenProperties;
+import com.dezxxx.transaction.config.TransferProperties;
 import com.dezxxx.transaction.entity.transaction.OutboxEventEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
@@ -140,7 +141,7 @@ class TransactionServiceTest {
         assertThat(terms.getValue().requestId()).isNotNull();
         assertThat(terms.getValue()).usingRecursiveComparison().ignoringFields("requestId")
                 .isEqualTo(new OfferTerms(null, USER_UID, TransactionPaymentType.DEPOSIT, WALLET_UID, null, AMOUNT,
-                        new BigDecimal("0.00"), NOW.plus(Duration.ofMinutes(5)), null));
+                        new BigDecimal("0.00"), null, null, NOW.plus(Duration.ofMinutes(5)), null));
         verify(walletService).getActiveWallet(WALLET_UID, USER_UID);
         verifyNoInteractions(transactionRepository, outboxEventRepository);
     }
@@ -329,7 +330,7 @@ class TransactionServiceTest {
         // given
         when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.DEPOSIT))
                 .thenReturn(new OfferTerms(REQUEST_ID, USER_UID, TransactionPaymentType.DEPOSIT, WALLET_UID, null,
-                        AMOUNT, TOKEN_FEE, NOW.plus(Duration.ofMinutes(5)), INIT_TRACEPARENT));
+                        AMOUNT, TOKEN_FEE, null, null, NOW.plus(Duration.ofMinutes(5)), INIT_TRACEPARENT));
         Span confirm = mock(Span.class);
         TraceContext confirmContext = mock(TraceContext.class);
         when(tracer.currentSpan()).thenReturn(confirm);
@@ -362,14 +363,14 @@ class TransactionServiceTest {
 
     private TransactionService service(FeeProperties fees) {
         return new TransactionService(transactionRepository, outboxEventRepository, walletService, fees,
-                transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
+                new TransferProperties(new BigDecimal("1.00")), transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
                 OFFER, transactionMetrics, CLOCK);
     }
 
     private void givenOffer(Instant expiresAt) {
         when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.DEPOSIT))
                 .thenReturn(new OfferTerms(REQUEST_ID, USER_UID, TransactionPaymentType.DEPOSIT, WALLET_UID, null,
-                        AMOUNT, TOKEN_FEE, expiresAt, null));
+                        AMOUNT, TOKEN_FEE, null, null, expiresAt, null));
     }
 
     @SuppressWarnings("unchecked")

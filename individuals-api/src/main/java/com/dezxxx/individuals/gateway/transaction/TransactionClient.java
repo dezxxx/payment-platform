@@ -19,6 +19,8 @@ import com.dezxxx.transaction.client.model.TransferInitRequestDto;
 import com.dezxxx.transaction.client.model.WalletResponseDto;
 import com.dezxxx.transaction.client.model.WithdrawalConfirmRequestDto;
 import com.dezxxx.transaction.client.model.WithdrawalInitRequestDto;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
@@ -43,7 +45,7 @@ public class TransactionClient {
     private static final Set<ErrorCode> PASSED_THROUGH = EnumSet.of(
             ErrorCode.VALIDATION_ERROR,
             ErrorCode.INSUFFICIENT_FUNDS,
-            ErrorCode.CURRENCY_MISMATCH,
+            ErrorCode.AMOUNT_TOO_SMALL,
             ErrorCode.OFFER_TOKEN_INVALID,
             ErrorCode.OFFER_EXPIRED,
             ErrorCode.WALLET_NOT_ACTIVE,
@@ -56,6 +58,7 @@ public class TransactionClient {
     private final TransactionsApi transactionsApi;
     private final TransactionServiceProperties properties;
     private final AuthMetrics metrics;
+    private final CircuitBreakerRegistry breakers;
 
     public Mono<WalletResponseDto> createWallet(UUID userUid, CreateWalletRequestDto request) {
         return body(() -> walletsApi.createWallet(userUid, Mono.just(request)));
@@ -113,6 +116,7 @@ public class TransactionClient {
 
     private <T> Mono<T> guarded(Mono<T> call) {
         return metrics.timeTransactionService(call)
+                .transformDeferred(CircuitBreakerOperator.of(breakers.circuitBreaker(TRANSACTION_SERVICE)))
                 .onErrorMap(WebClientResponseException.class, TransactionClient::translate)
                 .transform(GatewayErrors.transportFailures(TRANSACTION_SERVICE, properties.baseUrl()));
     }

@@ -7,7 +7,7 @@ participant "individuals-api" as IA
 participant "SecurityConfig" as Sec
 participant "HandlerExceptionResolver" as Res
 participant "GlobalExceptionHandler" as Err
-participant "CurrencyRateController" as Ctl
+participant "CurrencyRateRestControllerV1" as Ctl
 participant "ExchangeRateService" as S
 database "DB" as DB
 
@@ -29,7 +29,7 @@ else allowed
         Ctl -> S: getRate(from, to, timestamp or now)
         S -> DB: newest rate of the pair, rate_begin_time <= timestamp < rate_end_time
         alt not found
-            S -> Err: RateNotFoundException
+            S -> Err: CurrencyRateServiceException(RATE_NOT_FOUND)
             Err --> IA: 404 RATE_NOT_FOUND
         else found
             S --> IA: 200 sourceCode, destinationCode, rate, rateTimestamp, providerCode

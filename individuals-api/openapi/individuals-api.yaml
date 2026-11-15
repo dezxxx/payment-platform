@@ -444,6 +444,16 @@ paths:
       tags: [transactions]
       operationId: initTransfer
       summary: Compute the terms of a transfer between two wallets of the current user and issue a signed offerToken valid for 5 minutes; nothing is written
+      description: |
+        Wallets of one currency: the target gets `amount`.
+
+        Wallets of different currencies: the service takes the current rate
+        from currency-rate-service, the client never sends one. The answer adds
+        `rate` and `targetAmount` (amount × rate, rounded half-up to cents);
+        both are frozen in the offerToken, and confirm credits exactly
+        `targetAmount`. The fee is charged in the source currency. A conversion
+        below 1.00 USD, or one whose target amount rounds to 0.00, is refused
+        with AMOUNT_TOO_SMALL.
       security:
         - bearerAuth: []
       requestBody:
@@ -452,6 +462,19 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/TransferInitRequest"
+            examples:
+              oneCurrency:
+                summary: USD -> USD, no rate
+                value:
+                  walletUid: 3b0e6a0c-5f4e-4d1a-9a57-1c2b3d4e5f60
+                  targetWalletUid: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+                  amount: 25.00
+              twoCurrencies:
+                summary: 150 UAH -> EUR; the answer carries rate 0.01994710 and targetAmount 2.99
+                value:
+                  walletUid: 5a1f0c2e-7b3d-4e8f-9a6c-2d4b6f8a0c1e
+                  targetWalletUid: 8e2d4f6a-1c3b-4a5d-8f7e-9b0c2d4e6f8a
+                  amount: 150.00
       responses:
         "200":
           $ref: "#/components/responses/InitTerms"
@@ -850,7 +873,9 @@ components:
 
     TransferInitRequest:
       type: object
-      description: The two wallets must differ
+      x-class-extra-annotation: "@com.dezxxx.transaction.validation.DifferentWallets"
+      x-implements: [com.dezxxx.transaction.validation.TransferWallets]
+      description: The two wallets must differ; amount is in the source wallet's currency
       required: [walletUid, targetWalletUid, amount]
       properties:
         walletUid:
@@ -887,11 +912,11 @@ components:
         rate:
           type: number
           description: Transfer between currencies only; full precision, frozen in the offerToken
-          example: 0.0221
+          example: 0.01994710
         targetAmount:
           type: number
           description: Transfer between currencies only; amount × rate, 2 digits, HALF_UP
-          example: 3.32
+          example: 1.99
 
     DepositConfirmRequest:
       type: object
@@ -950,6 +975,14 @@ components:
         fee:
           type: number
           example: 1.00
+        rate:
+          type: number
+          description: Transfer between currencies only; the rate the transfer was made at, full precision
+          example: 0.01994710
+        targetAmount:
+          type: number
+          description: Transfer between currencies only; credited to targetWalletUid, amount × rate, 2 digits, HALF_UP
+          example: 1.99
         failureReason:
           type: string
           example: INSUFFICIENT_FUNDS_EXTERNAL

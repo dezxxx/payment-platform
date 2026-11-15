@@ -3,6 +3,7 @@ package com.dezxxx.transaction.service;
 import com.dezxxx.transaction.api.model.*;
 import com.dezxxx.transaction.config.FeeProperties;
 import com.dezxxx.transaction.config.OfferTokenProperties;
+import com.dezxxx.transaction.config.TransferProperties;
 import com.dezxxx.transaction.entity.transaction.OutboxEventType;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
@@ -48,7 +49,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-@EnableConfigurationProperties(FeeProperties.class)
+@EnableConfigurationProperties({FeeProperties.class, TransferProperties.class})
 public class TransactionService {
 
     private static final String OPERATIONS = "transaction.operations";
@@ -66,6 +67,7 @@ public class TransactionService {
     private final OutboxEventRepository outboxEventRepository;
     private final WalletService walletService;
     private final FeeProperties feeProperties;
+    private final TransferProperties transferProperties;
     private final TransactionMapper transactionMapper;
     private final DateRangeValidator dateRangeValidator;
     private final Tracer tracer;
@@ -142,12 +144,13 @@ public class TransactionService {
 
     @Observed(name = OPERATIONS, contextualName = "transactionService.initTransfer", lowCardinalityKeyValues = {"operation", "initTransfer"})
     public TransactionInitResponseDto initTransfer(UUID userUid, TransferInitRequestDto request) {
-        WalletEntity source = walletService.getActiveSameCurrencyWallet(request.getWalletUid(),
-                request.getTargetWalletUid(), userUid);
+        WalletEntity source = walletService.getActiveWallets(request.getWalletUid(), request.getTargetWalletUid(),
+                userUid, request.getSourceCode(), request.getDestinationCode());
+        Conversion conversion = conversion(request);
         BigDecimal fee = fee(TransactionPaymentType.TRANSFER, request.getAmount());
         requireFunds(source, request.getAmount().add(fee));
         return issueOffer(userUid, TransactionPaymentType.TRANSFER, request.getWalletUid(),
-                request.getTargetWalletUid(), request.getAmount(), fee);
+                request.getTargetWalletUid(), request.getAmount(), fee, conversion);
     }
 
     @Transactional
@@ -158,24 +161,26 @@ public class TransactionService {
         linkToOffer(terms);
         UUID transactionId = UUID.randomUUID();
         boolean claimed = transactionRepository.claimTransferRequestId(transactionId, userUid, terms.walletUid(),
-                terms.targetWalletUid(), terms.amount(), terms.fee(), terms.requestId()).isPresent();
+                terms.targetWalletUid(), terms.amount(), terms.fee(), terms.rate(), terms.targetAmount(),
+                terms.requestId()).isPresent();
         if (!claimed) {
             return repeatedConfirm(userUid, terms.requestId());
         }
 
         // an exception from here on rolls back the claim, the debit and the credit: the requestId is free again
         requireNotExpired(terms);
-        WalletEntity source = walletService.lockActiveSameCurrencyWallets(terms.walletUid(),
-                terms.targetWalletUid(), userUid);
+        WalletEntity source = walletService.lockActiveWallets(terms.walletUid(), terms.targetWalletUid(), userUid);
         BigDecimal total = terms.amount().add(terms.fee());
         requireFunds(source, total);
         walletService.debit(terms.walletUid(), userUid, total);
-        walletService.credit(terms.targetWalletUid(), userUid, terms.amount());
+        BigDecimal credited = terms.targetAmount() == null ? terms.amount() : terms.targetAmount();
+        walletService.credit(terms.targetWalletUid(), userUid, credited);
         transactionRepository.completeTransfer(transactionId, userUid, Instant.now(clock));
         transactionMetrics.finishedAfterCommit(TransactionPaymentType.TRANSFER, TransactionStatus.COMPLETED);
 
-        log.info("Transfer {} of user {} is COMPLETED: {} from wallet {} to wallet {}, fee {}", transactionId,
-                userUid, terms.amount(), terms.walletUid(), terms.targetWalletUid(), terms.fee());
+        log.info("Transfer {} of user {} is COMPLETED: {} from wallet {}, {} to wallet {} at rate {}, fee {}",
+                transactionId, userUid, terms.amount(), terms.walletUid(), credited, terms.targetWalletUid(),
+                terms.rate(), terms.fee());
         return transactionMapper.toConfirmResponse(transactionId, TransactionStatus.COMPLETED);
     }
 
@@ -274,20 +279,49 @@ public class TransactionService {
         }
     }
 
-    private TransactionInitResponseDto issueOffer(UUID userUid, TransactionPaymentType type, UUID walletUid,
-                                                  BigDecimal amount, BigDecimal fee) {
-        return issueOffer(userUid, type, walletUid, null, amount, fee);
+    // the wallets are already checked against the codes: no codes means one currency
+    private Conversion conversion(TransferInitRequestDto request) {
+        BigDecimal rate = request.getRate();
+        BigDecimal rateToUsd = request.getRateToUsd();
+        if (request.getSourceCode() == null) {
+            if (rate != null || rateToUsd != null) {
+                throw new TransactionServiceException(ErrorCode.CURRENCY_MISMATCH);
+            }
+            return null;
+        }
+        if (rate == null || rateToUsd == null) {
+            throw new TransactionServiceException(ErrorCode.CURRENCY_MISMATCH);
+        }
+        BigDecimal amountUsd = request.getAmount().multiply(rateToUsd).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+        if (amountUsd.compareTo(transferProperties.minConversionAmountUsd()) < 0) {
+            throw new TransactionServiceException(ErrorCode.AMOUNT_TOO_SMALL);
+        }
+        BigDecimal targetAmount = request.getAmount().multiply(rate).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+        if (targetAmount.signum() == 0) {
+            throw new TransactionServiceException(ErrorCode.AMOUNT_TOO_SMALL);
+        }
+        return new Conversion(rate, targetAmount);
     }
 
     private TransactionInitResponseDto issueOffer(UUID userUid, TransactionPaymentType type, UUID walletUid,
-                                                  UUID targetWalletUid, BigDecimal amount, BigDecimal fee) {
+                                                  BigDecimal amount, BigDecimal fee) {
+        return issueOffer(userUid, type, walletUid, null, amount, fee, null);
+    }
+
+    private TransactionInitResponseDto issueOffer(UUID userUid, TransactionPaymentType type, UUID walletUid,
+                                                  UUID targetWalletUid, BigDecimal amount, BigDecimal fee,
+                                                  Conversion conversion) {
+        BigDecimal rate = conversion == null ? null : conversion.rate();
+        BigDecimal targetAmount = conversion == null ? null : conversion.targetAmount();
         Instant expiresAt = Instant.now(clock).plus(offerTokenProperties.ttl());
         OfferTerms terms = new OfferTerms(UUID.randomUUID(), userUid, type, walletUid, targetWalletUid,
-                amount, fee, expiresAt, traceparent());
+                amount, fee, rate, targetAmount, expiresAt, traceparent());
         String offerToken = offerTokenSigner.issue(terms);
         log.info("{} offer for wallet {} of user {}: requestId {}, valid until {}",
                 type, walletUid, userUid, terms.requestId(), expiresAt);
-        return transactionMapper.toInitResponse(amount, fee, expiresAt, offerToken);
+        return conversion == null
+                ? transactionMapper.toInitResponse(amount, fee, expiresAt, offerToken)
+                : transactionMapper.toTransferInitResponse(amount, fee, rate, targetAmount, expiresAt, offerToken);
     }
 
     private void saveEvent(UUID transactionId, UUID userUid, String eventType, String payload) {
@@ -328,4 +362,6 @@ public class TransactionService {
         return headers.get(TRACEPARENT);
     }
 
+    private record Conversion(BigDecimal rate, BigDecimal targetAmount) {
+    }
 }

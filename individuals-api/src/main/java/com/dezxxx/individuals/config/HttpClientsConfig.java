@@ -1,5 +1,6 @@
 package com.dezxxx.individuals.config;
 
+import com.dezxxx.currency.client.api.CurrencyRateApi;
 import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
 import com.dezxxx.person.client.api.IndividualsApi;
 import com.dezxxx.transaction.client.api.TransactionsApi;
@@ -24,7 +25,8 @@ import reactor.netty.http.client.HttpClient;
 @Configuration
 @EnableConfigurationProperties({KeycloakProperties.class,
                                 PersonServiceProperties.class,
-                                TransactionServiceProperties.class})
+                                TransactionServiceProperties.class,
+                                CurrencyRateServiceProperties.class})
 public class HttpClientsConfig {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
@@ -55,6 +57,24 @@ public class HttpClientsConfig {
                 .clientConnector(connector(properties.responseTimeout()))
                 .filter(serviceToken(keycloakClient))
                 .build();
+    }
+
+    @Bean
+    WebClient currencyRateWebClient(WebClient.Builder builder, CurrencyRateServiceProperties properties,
+                                    KeycloakClient keycloakClient) {
+        return builder
+                .baseUrl(properties.baseUrl())
+                .clientConnector(connector(properties.responseTimeout()))
+                .filter(serviceToken(keycloakClient))
+                .build();
+    }
+
+    @Bean
+    CurrencyRateApi currencyRateApi(WebClient currencyRateWebClient) {
+        return HttpServiceProxyFactory
+                .builderFor(WebClientAdapter.create(currencyRateWebClient))
+                .build()
+                .createClient(CurrencyRateApi.class);
     }
 
     @Bean
@@ -91,8 +111,8 @@ public class HttpClientsConfig {
         return conversions;
     }
 
-    // person-service and transaction-service let in only a token with the realm role SERVICE: the service account
-    // token of individuals-api, the one KeycloakClient already caches for the Admin API
+    // person-service, transaction-service and currency-rate-service let in only a token with the realm role SERVICE:
+    // the service account token of individuals-api, the one KeycloakClient already caches for the Admin API
     private static ExchangeFilterFunction serviceToken(KeycloakClient keycloakClient) {
         return (request, next) -> keycloakClient.adminLogin()
                 .map(token -> ClientRequest.from(request).headers(headers -> headers.setBearerAuth(token)).build())

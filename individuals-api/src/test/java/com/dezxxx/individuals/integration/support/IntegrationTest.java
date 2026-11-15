@@ -3,11 +3,14 @@ package com.dezxxx.individuals.integration.support;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dasniko.testcontainers.keycloak.KeycloakContainer;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ClassPathResource;
@@ -40,6 +43,8 @@ public abstract class IntegrationTest {
 
     protected static final StubTransactionService TRANSACTION_SERVICE = new StubTransactionService();
 
+    protected static final StubCurrencyRateService CURRENCY_RATE_SERVICE = new StubCurrencyRateService();
+
     protected static final StubOtlpCollector OTLP_COLLECTOR = new StubOtlpCollector();
 
     protected static final String TRANSACTION_SERVICE_TIMEOUT = "1s";
@@ -48,13 +53,23 @@ public abstract class IntegrationTest {
         KEYCLOAK.start();
         PERSON_SERVICE.start();
         TRANSACTION_SERVICE.start();
+        CURRENCY_RATE_SERVICE.start();
         OTLP_COLLECTOR.start();
     }
 
     @Value("${local.server.port}")
     private int port;
 
+    @Autowired
+    private CircuitBreakerRegistry breakers;
+
     protected WebTestClient client;
+
+    // the context is shared: failures stubbed by one test must not leave a breaker open for the next
+    @BeforeEach
+    void closeTheBreakers() {
+        breakers.getAllCircuitBreakers().forEach(CircuitBreaker::reset);
+    }
 
     @BeforeEach
     void bindTheClientToTheRunningServer() {
@@ -77,6 +92,7 @@ public abstract class IntegrationTest {
         registry.add("individuals.person-service.base-url", PERSON_SERVICE::baseUrl);
         registry.add("individuals.transaction-service.base-url", TRANSACTION_SERVICE::baseUrl);
         registry.add("individuals.transaction-service.response-timeout", () -> TRANSACTION_SERVICE_TIMEOUT);
+        registry.add("individuals.currency-rate-service.base-url", CURRENCY_RATE_SERVICE::baseUrl);
         registry.add("management.opentelemetry.tracing.export.otlp.endpoint", OTLP_COLLECTOR::tracesEndpoint);
     }
 

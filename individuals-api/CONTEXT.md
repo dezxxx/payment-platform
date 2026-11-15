@@ -1,6 +1,6 @@
 # CONTEXT - individuals-api
 
-Module 1; module 3 adds wallets and transactions (section 6). Shared rules, ports and how the platform is started: [`CONTEXT.md`](../CONTEXT.md).
+Module 1; module 3 adds wallets and transactions (section 6); module 4 adds transfers between currencies and circuit breakers (section 7). Shared rules, ports and how the platform is started: [`CONTEXT.md`](../CONTEXT.md).
 
 Module 1 delivers **individuals-api**: the external entry layer that
 orchestrates user registration and authentication. It stores nothing itself.
@@ -30,6 +30,9 @@ modules are generated with `reactive = true`, so the contracts themselves are
 | `auth.refresh` | counter | token refreshes |
 | `external.keycloak.requests` | timer | Keycloak call duration |
 | `external.person_service.requests` | timer | person-service call duration |
+| `external.transaction_service.requests` | timer | transaction-service call duration |
+| `external.currency_rate_service.requests` | timer | currency-rate-service call duration |
+| `resilience4j.circuitbreaker.*` | gauges, counters | breaker state and refused calls per platform service (section 7) |
 
 ### individuals-api layers
 
@@ -48,7 +51,7 @@ generated code.
 | Layer | Holds | Never does |
 |---|---|---|
 | `rest` | accepts and returns DTOs, implements the generated `AuthApi` | business logic; direct calls to Keycloak or person-service |
-| `service` | orchestration of the registration and login scenarios | HTTP, JSON, Keycloak or person-client types |
+| `service` | orchestration of the registration and login scenarios | HTTP, JSON, Keycloak or person-service-client types |
 | `gateway` | every outbound call, one client per external system | domain decisions |
 | `validation`, `error`, `config`, `metrics` | validation rules, error mapping, security wiring, meters | anything belonging to another layer |
 
@@ -62,16 +65,18 @@ and each external system has exactly one client.
 - `KeycloakClient` — everything Keycloak: the token endpoint (login, refresh,
   the service-account token, cached) and the Admin API (account, password,
   role, rollback, registration date). The same cached service-account token
-  goes as `Authorization: Bearer` on every call to person-service and
-  transaction-service: `HttpClientsConfig.serviceToken`, an
-  `ExchangeFilterFunction` on both `WebClient`s, so no client and no service
-  method has to remember it
+  goes as `Authorization: Bearer` on every call to person-service,
+  transaction-service and currency-rate-service: `HttpClientsConfig.serviceToken`,
+  an `ExchangeFilterFunction` on the three `WebClient`s, so no client and no
+  service method has to remember it
 - `PersonClient` — wraps the generated `PersonsApi`: create the person, get
   its `user_uid`
+- `TransactionClient` — wallets and transactions (section 6)
+- `CurrencyRateServiceClient` — the rate of a currency pair (section 7)
 
 Each client turns the other side's errors into our `ApiException` itself, in a
 private `translate` method - there are no separate translator classes.
-`util/GatewayErrors` is shared by both: "the other side did not answer at
+`util/GatewayErrors` is shared by all of them: "the other side did not answer at
 all" becomes **503**.
 
 **Identifiers.** The business layer knows only the domain `user_uid`. The
@@ -177,7 +182,7 @@ Two consequences for the gateway code:
 | Spring Boot 4.0.6 | 4.1.0 | 4.1.0 reached GA after the handout was written |
 | `proselyte` / `com.example` | `dezxxx` / `com.dezxxx` | handout placeholders |
 | Tempo traces under `/tmp/tempo/traces` | `/var/tempo`, with an explicit wal path | that is where docker-compose mounts the named volume; under `/tmp` the traces die with the container and the volume stays empty |
-| `RestClient` as the standard HTTP client (and `Feign/OpenAPI` on the platform diagram) | Spring HTTP Service Clients over `WebClientAdapter` | The **style** the handout mandates - annotated `@HttpExchange` interfaces behind generated proxies - is followed exactly; `person-client` is generated from the OpenAPI document with `library = spring-http-interface`. Only the adapter differs. `RestClient` is synchronous and `RestClientAdapter` cannot return `Mono` at all, so adopting it would mean regenerating the client with `reactive = false` and wrapping every call in `Mono.fromCallable(...).subscribeOn(boundedElastic())`. A bare call would park a Netty event loop thread that serves hundreds of connections. The same handout's C4 diagram labels this service **Spring Boot WebFlux**, and the two requirements pull against each other; the reactive adapter is the one that keeps WebFlux worth having |
+| `RestClient` as the standard HTTP client (and `Feign/OpenAPI` on the platform diagram) | Spring HTTP Service Clients over `WebClientAdapter` | The **style** the handout mandates - annotated `@HttpExchange` interfaces behind generated proxies - is followed exactly; `person-service-client` is generated from the OpenAPI document with `library = spring-http-interface`. Only the adapter differs. `RestClient` is synchronous and `RestClientAdapter` cannot return `Mono` at all, so adopting it would mean regenerating the client with `reactive = false` and wrapping every call in `Mono.fromCallable(...).subscribeOn(boundedElastic())`. A bare call would park a Netty event loop thread that serves hundreds of connections. The same handout's C4 diagram labels this service **Spring Boot WebFlux**, and the two requirements pull against each other; the reactive adapter is the one that keeps WebFlux worth having |
 | postgres volume at `/var/lib/postgresql/data` | `/var/lib/postgresql` | PostgreSQL 18 moved the data directory one level down and refuses to start when the old path is mounted — the container exits with code 1 |
 
 ---
@@ -410,7 +415,7 @@ rather than whether it works, which no test can fail for us.
 | 9 | logs are JSON and carry correlation | ✅ ECS to stdout, `traceId` and `spanId` on every record - IT-OBS-003 |
 | 10 | at least one integration test against Keycloak | ✅ three |
 | 11 | person-service migrations are attached and runnable | ✅ IT-DB-001 runs them on a real PostgreSQL |
-| 12 | `person-client` is published to Nexus | ❌ only `publishToMavenLocal`; same gap as criterion 6 |
+| 12 | `person-service-client` is published to Nexus | ❌ only `publishToMavenLocal`; same gap as criterion 6 |
 
 Eleven of twelve. The one that is open is the one open acceptance criterion
 too, plus criterion 11's coverage number - everything else the handout asks
@@ -461,7 +466,7 @@ neither task and fails silently by never running at all.
       next course modules
 - [x] Root `build.gradle.kts` — toolchain 25, Lombok, test conventions
 - [x] Gradle Wrapper 9.5.1
-- [x] `person-client/build.gradle.kts` — generate + publish to Nexus
+- [x] `person-service/build.gradle.kts` — generate + publish to Nexus
 - [x] `individuals-api/build.gradle.kts` — Boot app, contract-first, split
       unit / integration test tasks
 - [x] `person-service/build.gradle.kts` — contract validation only
@@ -565,10 +570,10 @@ neither task and fails silently by never running at all.
       What the report showed beyond the criterion: `gateway.keycloak` is at
       **0%** - its error translator only runs when Keycloak answers with a
       failure, and no test of ours makes it do that
-- [x] **Nexus is in compose, and `person-client` really comes from it.**
+- [x] **Nexus is in compose, and `person-service-client` really comes from it.**
       Publishing was proven by removing the artifact from `~/.m2` and from
       Gradle's cache and rebuilding with `--refresh-dependencies`: the build
-      passed, and the only place left to get `com.dezxxx:person-client` from
+      passed, and the only place left to get `com.dezxxx:person-service-client` from
       was Nexus. Closes criterion 6 and the last line of the student checklist.
       Three things had to be sorted out on the way:
       1. **Nexus answers an unauthenticated read with 403, not 401**, and
@@ -716,11 +721,11 @@ Seven defects surfaced; all are fixed and the build is green from `clean`.
 | # | Symptom | Root cause | Fix |
 |---|---|---|---|
 | 1 | Wrapper could not download the distribution, `Connect timed out` after 10 s | `services.gradle.org` redirects to GitHub release assets; `networkTimeout=10000` with `retries=0` gave up on the first slow connect | `networkTimeout=120000`, `retries=3`, `retryBackOffMs=2000` |
-| 2 | `Could not resolve com.dezxxx:person-client` → `Username must not be null!` | the `credentials { }` block was declared unconditionally; Gradle treats null credentials as a hard error, not as an unreachable repository, and aborts the whole resolution | credentials attached only when `NEXUS_USERNAME` **and** `NEXUS_PASSWORD` are set — in `settings.gradle.kts` and in the `person-client` publish repo |
+| 2 | `Could not resolve com.dezxxx:person-service-client` → `Username must not be null!` | the `credentials { }` block was declared unconditionally; Gradle treats null credentials as a hard error, not as an unreachable repository, and aborts the whole resolution | credentials attached only when `NEXUS_USERNAME` **and** `NEXUS_PASSWORD` are set — in `settings.gradle.kts` and in the `person-service-client` publish repo |
 | 3 | `Configuration cache state could not be cached` | downstream of #2 — an unresolvable classpath cannot be serialised | disappeared with #2 |
 | 4 | `sourcesJar` used the output of `openApiGenerate` without declaring a dependency | the generated directory was added to `sourceSets` as a bare path, so only the hand-wired `compileJava` knew about it | the srcDir is now wired to the task provider, so every consumer inherits the dependency |
 | 5 | `TemplateNotFoundException: pom-sb3.mustache` | the generator tried to emit a Maven `pom.xml` as a supporting file; the `spring-http-interface` library ships no such template | `globalProperties = { apis, models }` — APIs and models only, no supporting files |
-| 6 | `package org.springframework.format.annotation does not exist` | generated models annotate date-time properties with `@DateTimeFormat`, which lives in `spring-context`, not `spring-web` | `spring-context` added to the catalog and to `person-client` |
+| 6 | `package org.springframework.format.annotation does not exist` | generated models annotate date-time properties with `@DateTimeFormat`, which lives in `spring-context`, not `spring-web` | `spring-context` added to the catalog and to `person-service-client` |
 | 7 | `Could not find org.testcontainers:junit-jupiter:` (empty version) | Boot 4.1 imports **Testcontainers 2.0.5**, and 2.x renamed every module artifact | `testcontainers-junit-jupiter`, `testcontainers-postgresql` |
 
 Two more things the run settled:
@@ -737,7 +742,7 @@ Two more things the run settled:
 - Gradle 9.5.1 runs the whole build; 9.7.1 was verified to exist and work too,
   but is held back by the IDE — see "Why Gradle 9.5.1" in section 9 of `../CONTEXT.md`.
 - Spring Boot 4.1.0, OpenAPI Generator 7.14.0, Lombok 1.18.46 all resolve.
-- `person-client` generates `PersonsApi` with `@HttpExchange` — Spring HTTP
+- `person-service-client` generates `PersonsApi` with `@HttpExchange` — Spring HTTP
   Service Clients, no Feign, as rule 4 requires.
 - `individuals-api` generates `AuthApi` as an interface only.
 - All three specs pass `openApiValidate`.
@@ -771,7 +776,7 @@ the single place where the token is checked, so it is also the single place
 | Trust boundary | transaction-service and person-service let in only a caller with the service token: the token of our service account, realm role `SERVICE`, sent by the `WebClient` filter. transaction-service trusts `X-User-Uid` only from such a caller. Their ports stay published for development and their own Postman collections, which take the same token | the teacher's review of PR #2: with the port published and no check, anyone could call transaction-service with any `X-User-Uid`. The earlier rule "reachable from the Docker network only" is replaced; the decision and the rejected options are rule 7 in §3 of the root `CONTEXT.md` |
 | Endpoints | the 11 operations of transaction-service under the same paths; own wallets are `GET /api/v1/wallets` (→ `/api/v1/wallets/user/{user_uid}`), search takes no `userUid` (added from the token) | the client never names a user |
 | Client | `TransactionClient` in `gateway/transaction`, an adapter over the generated `transaction-service-client` (`WalletsApi`, `TransactionsApi` beans on `transactionWebClient`), like `PersonClient`; it sets `X-User-Uid` and translates errors | one client per external system |
-| Models | the endpoints take and return the client's classes (`com.dezxxx.transaction.client.model`): the contract keeps the schemas for Swagger, `schemaMappings` in `build.gradle.kts` stops the generator from copying them; `@Valid` checks their annotations, `@DifferentWallets` included | the bodies are the same on both sides: copies would only be moved field by field; a new client version must be compared with the schemas in `individuals-api.yaml` |
+| Models | the endpoints take and return the client's classes (`com.dezxxx.transaction.client.model`): the contract keeps the schemas for Swagger, `schemaMappings` in `build.gradle.kts` stops the generator from copying them; `@Valid` checks their annotations, `@DifferentWallets` included | the bodies are the same on both sides: copies would only be moved field by field; a new client version must be compared with the schemas in `individuals-api.yaml`. One exception, `TransferInitRequest` (section 7) |
 | Classes | `WalletController`, `TransactionController` → `WalletService`, `TransactionService` → `TransactionClient` | `rest -> service -> gateway`, as in section 1 |
 | Configuration | `individuals.transaction-service.base-url` from `TRANSACTION_SERVICE_URL` (`http://localhost:8084` locally, `http://transaction-service:8084` in Docker), `response-timeout` 5 s by default | only the address differs between environments; paths come from the contract |
 | Error body | our `ErrorResponse`, not transaction-service's RFC 9457 problem details; the `error` code is kept | one error format on every individuals-api endpoint |
@@ -786,13 +791,15 @@ the single place where the token is checked, so it is also the single place
 | `@Valid` | **400** `VALIDATION_ERROR` | no |
 | the token has no `user_uid` (realm mapper broken) | **500** `INTERNAL_ERROR` | no |
 | 2xx | the same status and body (the client's class) | yes |
-| 400 `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`, `WALLET_NOT_ACTIVE`, `WALLET_TYPE_NOT_ACTIVE` | **400**, the same code — a business refusal the client must see | yes |
+| 400 `INSUFFICIENT_FUNDS`, `AMOUNT_TOO_SMALL`, `WALLET_NOT_ACTIVE`, `WALLET_TYPE_NOT_ACTIVE` | **400**, the same code — a business refusal the client must see | yes |
+| 400 `CURRENCY_MISMATCH` | **500** `INTERNAL_ERROR`, their body only in the log — individuals-api sent wrong currency codes or rates, our bug (section 7) | yes |
 | 400 `OFFER_TOKEN_INVALID`, `OFFER_EXPIRED` | **400**, the same code — a forged, foreign or other-operation token, or one older than 5 minutes: the client calls init again | yes |
 | 400 `VALIDATION_ERROR` (their rules caught what ours let through) | **400** `VALIDATION_ERROR` with their `details` | yes |
 | 400 `MALFORMED_REQUEST` or an unknown code | **500** `INTERNAL_ERROR`, their body only in the log — we sent it, our bug | yes |
 | 404 `WALLET_NOT_FOUND`, `WALLET_TYPE_NOT_FOUND`, `TRANSACTION_NOT_FOUND` | **404**, the same code; another user's wallet is 404 too | yes |
 | 401 or 403 (our service token refused) | **500** `INTERNAL_ERROR`, their body only in the log - the realm role or the Keycloak address is misconfigured, our bug, not the client's; the same for person-service | yes |
 | 5xx | **503** `DEPENDENCY_UNAVAILABLE` | yes |
+| the circuit breaker is open | **503** `DEPENDENCY_UNAVAILABLE` at once (section 7) | no |
 | no connection or no answer within 5 s | **503** `DEPENDENCY_UNAVAILABLE` (`GatewayErrors.transportFailures`) | yes |
 
 Unlike person-service, a 400 from transaction-service is passed through: there
@@ -830,3 +837,117 @@ never charges twice, even after the offer expired.
 - [ ] Grafana legends read as `create_wallet`, not as Java names (`createWallet`)
 - [ ] Open: no endpoint lists wallet types, their uids come only from the
       `V003__seed_wallet_types.sql` seed
+
+## 7. Module 4 — transfers between currencies and circuit breakers
+
+A user moves money between two of their own wallets of different currencies.
+individuals-api is the only caller of currency-rate-service: it takes the rate
+and hands it to transaction-service, which computes and freezes the terms.
+Diagrams: `currency-rate-service/diagrams-c4/sequence-transfer-between-currencies.puml`,
+`transaction-service/diagrams-c4/sequence-transfer.puml`.
+
+### Transfer init, step by step
+
+1. `TransactionController.initTransfer` takes our own `TransferInitRequest`
+   (`walletUid`, `targetWalletUid`, `amount`). A field the client adds, `rate`
+   included, is dropped by the JSON reader.
+2. `TransactionService.initTransfer` reads the user's wallets:
+   `TransactionClient.getWalletsByUserUid` (HTTP `GET /api/v1/wallets/user/{user_uid}`).
+3. A wallet not among them, or both wallets in one currency: no rate is asked,
+   the request goes to transaction-service as the client sent it, and
+   transaction-service gives the exact refusal (`WALLET_NOT_FOUND`) or the terms.
+4. Different currencies: `CurrencyRateServiceClient.getRate(source, target)`
+   (HTTP `GET /api/v1/rates?from=&to=`) and `rateToUsd`, the rate of the source
+   currency to USD, for the minimum of 1.00 USD:
+   - source is USD: `rateToUsd` = 1, one call;
+   - target is USD: `rateToUsd` = the pair rate, one call;
+   - otherwise a second call `getRate(source, USD)`; both calls run in parallel
+     (`Mono.zip`).
+5. `TransactionClient.initTransfer` sends transaction-service's
+   `TransferInitRequest` with `sourceCode`, `destinationCode`, `rate`,
+   `rateToUsd`. transaction-service checks the codes against the wallets,
+   computes `targetAmount` and puts the rate into the signed `offerToken`.
+6. Confirm is unchanged: the token is passed through, the rate is not asked again.
+
+### Decisions
+
+| Topic | Decision | Why | Rejected |
+|---|---|---|---|
+| Who asks for the rate | individuals-api | the orchestrator drives every synchronous flow and is the only Keycloak client; inner services never call each other | transaction-service calling currency-rate-service: a second caller with its own token and a new failure path inside the money service |
+| Request model | `TransferInitRequest` is generated from our contract (left out of `schemaMappings`); transaction-service's class of the same name is built in `TransactionService` and written there with its full package | the client must not be able to send a rate; with the shared class it could | the shared class with `rate` dropped by hand: the contract would show fields the client must not send |
+| Two equal wallets | our `TransferInitRequest` carries `x-class-extra-annotation: @DifferentWallets` and `x-implements: TransferWallets`; the annotation and its validator come in `transaction-service-client` | without them the own class loses the check the shared class had, and two equal wallets would reach transaction-service (`WalletTransactionIT.sameWalletStopsHere` catches it) | a copy of the validator in individuals-api: the same rule in two places |
+| Where the currencies come from | the user's wallet list, one call | the list holds `currencyCode` of both wallets; two `getWalletById` calls cost more and give the same | a currency in the request: the client could lie |
+| Missing wallet, one currency | no rates, transaction-service decides | its checks and error codes stay in one place | refusing in individuals-api: a copy of transaction-service's rules |
+| `CURRENCY_MISMATCH` | **500** `INTERNAL_ERROR`, body only in the log | the codes and rates are ours; a mismatch is an individuals-api bug, not the client's | passing it through as 400: tells the client to fix what they never sent |
+| `AMOUNT_TOO_SMALL` | passed through as **400** | below 1.00 USD, or a target amount that rounds to 0.00, is the client's choice of amount | — |
+| No valid rate | currency-rate-service 404 → **422** `RATE_NOT_FOUND` | the request is valid, the platform has no current rate for the pair | 404: the client named no missing resource; 503: the service works |
+
+### What the client is told (currency-rate-service)
+
+| currency-rate-service answer | Client sees |
+|---|---|
+| 200 | nothing yet, the flow goes on with the rate |
+| 404 | **422** `RATE_NOT_FOUND`; transaction-service is not asked for terms |
+| other 4xx | **500** `INTERNAL_ERROR`, their body only in the log — our request is wrong |
+| 5xx, no connection, no answer in 5 s, or the breaker is open | **503** `DEPENDENCY_UNAVAILABLE` |
+
+Configuration: `individuals.currency-rate-service.base-url` from
+`CURRENCY_RATE_SERVICE_URL` (`http://localhost:8088` locally,
+`http://currency-rate-service:8088` in Docker), `response-timeout` 5 s by
+default. Client: `currency-rate-service-client` from Nexus (`gradle.properties`:
+`currencyClient*`), bean `CurrencyRateApi` on `currencyRateWebClient` with the
+service token.
+
+### Circuit breakers
+
+One Resilience4j breaker per platform service: `person-service`,
+`transaction-service`, `currency-rate-service`. Each client wraps its call with
+`.transformDeferred(CircuitBreakerOperator.of(breakers.circuitBreaker(name)))`
+right after the timer and before the error translation, so the breaker sees the
+raw `WebClientResponseException`.
+
+| Setting (`resilience4j.circuitbreaker.configs.default`) | Value | Meaning |
+|---|---|---|
+| `sliding-window-size` | 10 | the last 10 calls are judged |
+| `minimum-number-of-calls` | 5 | fewer calls never open it |
+| `failure-rate-threshold` | 50 | 50 % failures open it |
+| `wait-duration-in-open-state` | 30s | calls are refused at once for 30 s |
+| `permitted-number-of-calls-in-half-open-state` | 1 | then one trial call closes it or opens it again |
+| `record-failure-predicate` | `config.DependencyFailurePredicate` | a 4xx is a working service's answer and counts as a success |
+
+An open breaker throws `CallNotPermittedException`; `GatewayErrors.transportFailures`
+turns it into **503** `DEPENDENCY_UNAVAILABLE`, and the request never leaves.
+
+| Decision | Why | Rejected |
+|---|---|---|
+| On the three platform services only | they are ours and fail as a whole; the breaker spares the user a 5 s wait per request while one is down | Keycloak: an open breaker on it would block every login and the service token itself; Kafka: individuals-api does not use it |
+| No retries | init and confirm are repeated by the client; a retry inside would double the wait | Resilience4j `Retry` |
+| The compensation call goes through the breaker too | person-service down means the compensation fails either way; the open breaker answers at once | a breaker-less path for one call: more code for the same outcome |
+
+Observability: Micrometer publishes `resilience4j_circuitbreaker_state`
+(`name`, `state`) and `resilience4j_circuitbreaker_not_permitted_calls_total`;
+the Grafana panel "Circuit breakers" on the individuals-api dashboard; the alert
+`DependencyCircuitBreakerOpen` (open for a minute, critical) in
+`infra/prometheus/alerts.yml`.
+
+### Tests
+
+- `CurrencyRateServiceClientTest`: the request, 404 → `RATE_NOT_FOUND`, 400 → `INTERNAL_ERROR`,
+  503 and a refused connection → `DEPENDENCY_UNAVAILABLE`, a 200 without a body; with the
+  production breaker settings: 5 × 503 open it and the 6th call never leaves, 5 × 404 keep it closed
+- `DependencyFailurePredicateTest`: a 4xx is not a failure, 5xx and transport errors are
+- `TransactionServiceTest`: one currency (no rate calls), a foreign wallet, UAH → EUR (two rates),
+  USD → EUR and UAH → USD (one call each), `RATE_NOT_FOUND` stops before transaction-service
+- `TransactionClientTest`: `AMOUNT_TOO_SMALL` passed through, `CURRENCY_MISMATCH` → 500
+- `WalletTransactionIT` (currency-rate-service is a Reactor Netty stub): the rates reach
+  transaction-service, currency-rate-service gets the service token, a client's `rate` is dropped;
+  422; 503; 500 on `CURRENCY_MISMATCH`; 400 `AMOUNT_TOO_SMALL`. `IntegrationTest` resets every
+  breaker before each test: the Spring context is shared, and a stubbed failure must not leave a
+  breaker open for the next test
+- Postman folder 9: USD → EUR at the live rate, a client's rate ignored, balances, status, 400 below 1.00 USD
+
+### Progress
+
+- [x] Client, orchestration, error codes, breakers, meters, panel, alert, tests, contract, Postman
+- [ ] Publish `currency-rate-service-client` and `transaction-service-client` to Nexus, rebuild the
+      images, run every Postman collection on the stack

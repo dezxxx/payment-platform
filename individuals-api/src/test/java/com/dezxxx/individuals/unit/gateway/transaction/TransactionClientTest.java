@@ -14,7 +14,9 @@ import com.dezxxx.transaction.client.api.WalletsApi;
 import com.dezxxx.transaction.client.model.CreateWalletRequestDto;
 import com.dezxxx.transaction.client.model.TransactionStatusDto;
 import com.dezxxx.transaction.client.model.TransactionTypeDto;
+import com.dezxxx.transaction.client.model.TransferInitRequestDto;
 import com.dezxxx.transaction.client.model.WithdrawalConfirmRequestDto;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.net.ConnectException;
@@ -174,6 +176,28 @@ class TransactionClientTest {
     }
 
     @Test
+    @DisplayName("given a conversion below the minimum, when initialising a transfer, then AMOUNT_TOO_SMALL passes through")
+    void amountTooSmallPassesThrough() {
+        // given
+        TransactionClient client = clientAnswering(new AtomicReference<>(),
+                problem(HttpStatus.BAD_REQUEST, "AMOUNT_TOO_SMALL", "[]"));
+
+        // when / then
+        expectError(client.initTransfer(USER_UID, transfer()), ErrorCode.AMOUNT_TOO_SMALL);
+    }
+
+    @Test
+    @DisplayName("given CURRENCY_MISMATCH, when initialising a transfer, then INTERNAL_ERROR - we sent the wrong rates")
+    void currencyMismatchIsOurBug() {
+        // given
+        TransactionClient client = clientAnswering(new AtomicReference<>(),
+                problem(HttpStatus.BAD_REQUEST, "CURRENCY_MISMATCH", "[]"));
+
+        // when / then
+        expectError(client.initTransfer(USER_UID, transfer()), ErrorCode.INTERNAL_ERROR);
+    }
+
+    @Test
     @DisplayName("given a body transaction-service cannot read, when calling, then INTERNAL_ERROR - we sent it")
     void malformedRequestIsOurBug() {
         // given
@@ -248,11 +272,15 @@ class TransactionClientTest {
                 .conversionService(HttpClientsConfig.transactionQueryValues())
                 .build();
         return new TransactionClient(factory.createClient(WalletsApi.class), factory.createClient(TransactionsApi.class),
-                PROPERTIES, new AuthMetrics(new SimpleMeterRegistry()));
+                PROPERTIES, new AuthMetrics(new SimpleMeterRegistry()), CircuitBreakerRegistry.ofDefaults());
     }
 
     private static WithdrawalConfirmRequestDto withdrawal() {
         return new WithdrawalConfirmRequestDto("payload.signature");
+    }
+
+    private static TransferInitRequestDto transfer() {
+        return new TransferInitRequestDto(WALLET_UID, UUID.randomUUID(), new BigDecimal("150.00"));
     }
 
     private static ClientResponse json(HttpStatus status, String body) {

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.dezxxx.transaction.api.model.TransactionStatusResponseDto;
 import com.dezxxx.transaction.config.FeeProperties;
 import com.dezxxx.transaction.config.OfferTokenProperties;
+import com.dezxxx.transaction.config.TransferProperties;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.exception.ErrorCode;
 import com.dezxxx.transaction.exception.TransactionServiceException;
@@ -90,7 +91,7 @@ class TransactionServiceQueryTest {
     @BeforeEach
     void setUp() {
         transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
-                FEES, transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
+                FEES, new TransferProperties(new BigDecimal("1.00")), transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
                 new OfferTokenProperties("secret", Duration.ofMinutes(5)), transactionMetrics, Clock.systemUTC());
     }
 
