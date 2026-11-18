@@ -36,7 +36,7 @@ public class RateMetrics {
         this.conversionRateRepository = conversionRateRepository;
         this.clock = clock;
         Gauge.builder("rate.newest.age", newestRateAgeSeconds, AtomicLong::get)
-                .description("How long ago the newest rate became valid, 0 when there is none yet")
+                .description("How long ago the provider published the newest saved rates, 0 when there are none yet")
                 .baseUnit(SECONDS)
                 .register(registry);
         Gauge.builder("rate.valid.pairs", validPairs, AtomicLong::get)

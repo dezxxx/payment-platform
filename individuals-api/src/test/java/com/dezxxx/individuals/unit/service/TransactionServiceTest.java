@@ -7,12 +7,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import com.dezxxx.individuals.api.model.TransferInitRequestDto;
+import com.dezxxx.individuals.api.model.TransferInitUserRequestDto;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.currency.CurrencyRateServiceClient;
@@ -27,6 +28,7 @@ import com.dezxxx.transaction.client.model.TransactionStatusDto;
 import com.dezxxx.transaction.client.model.TransactionStatusResponseDto;
 import com.dezxxx.transaction.client.model.TransactionTypeDto;
 import com.dezxxx.transaction.client.model.TransferConfirmRequestDto;
+import com.dezxxx.transaction.client.model.TransferInitRequestDto;
 import com.dezxxx.transaction.client.model.WalletResponseDto;
 import com.dezxxx.transaction.client.model.WithdrawalConfirmRequestDto;
 import com.dezxxx.transaction.client.model.WithdrawalInitRequestDto;
@@ -141,7 +143,7 @@ class TransactionServiceTest {
                 .verifyComplete();
 
         // then
-        com.dezxxx.transaction.client.model.TransferInitRequestDto sent = sentTransfer();
+        TransferInitRequestDto sent = sentTransfer();
         assertThat(sent.getWalletUid()).isEqualTo(WALLET_UID);
         assertThat(sent.getTargetWalletUid()).isEqualTo(TARGET_WALLET_UID);
         assertThat(sent.getAmount()).isEqualByComparingTo(CONVERSION_AMOUNT);
@@ -186,7 +188,7 @@ class TransactionServiceTest {
                 .verifyComplete();
 
         // then
-        com.dezxxx.transaction.client.model.TransferInitRequestDto sent = sentTransfer();
+        TransferInitRequestDto sent = sentTransfer();
         assertThat(sent.getSourceCode()).isEqualTo("UAH");
         assertThat(sent.getDestinationCode()).isEqualTo("EUR");
         assertThat(sent.getRate()).isEqualByComparingTo(UAH_EUR);
@@ -209,7 +211,7 @@ class TransactionServiceTest {
                 .verifyComplete();
 
         // then
-        com.dezxxx.transaction.client.model.TransferInitRequestDto sent = sentTransfer();
+        TransferInitRequestDto sent = sentTransfer();
         assertThat(sent.getRate()).isEqualByComparingTo(USD_EUR);
         assertThat(sent.getRateToUsd()).isEqualByComparingTo(BigDecimal.ONE);
         verify(currencyRateServiceClient).getRate("USD", "EUR");
@@ -217,7 +219,7 @@ class TransactionServiceTest {
     }
 
     @Test
-    @DisplayName("given UAH -> USD, when initialising a transfer, then one rate call and rateToUsd is the pair rate")
+    @DisplayName("given UAH -> USD, when initialising a transfer, then the same rate is asked twice and goes as rate and rateToUsd")
     void initTransferToUsd() {
         // given
         when(transactionClient.getWalletsByUserUid(USER_UID))
@@ -231,10 +233,10 @@ class TransactionServiceTest {
                 .verifyComplete();
 
         // then
-        com.dezxxx.transaction.client.model.TransferInitRequestDto sent = sentTransfer();
+        TransferInitRequestDto sent = sentTransfer();
         assertThat(sent.getRate()).isEqualByComparingTo(UAH_USD);
         assertThat(sent.getRateToUsd()).isEqualByComparingTo(UAH_USD);
-        verify(currencyRateServiceClient).getRate("UAH", "USD");
+        verify(currencyRateServiceClient, times(2)).getRate("UAH", "USD");
         verifyNoMoreInteractions(currencyRateServiceClient);
     }
 
@@ -325,15 +327,14 @@ class TransactionServiceTest {
         verifyNoInteractions(transactionClient);
     }
 
-    private com.dezxxx.transaction.client.model.TransferInitRequestDto sentTransfer() {
-        ArgumentCaptor<com.dezxxx.transaction.client.model.TransferInitRequestDto> sent =
-                ArgumentCaptor.forClass(com.dezxxx.transaction.client.model.TransferInitRequestDto.class);
+    private TransferInitRequestDto sentTransfer() {
+        ArgumentCaptor<TransferInitRequestDto> sent = ArgumentCaptor.forClass(TransferInitRequestDto.class);
         verify(transactionClient).initTransfer(eq(USER_UID), sent.capture());
         return sent.getValue();
     }
 
-    private static TransferInitRequestDto transferRequest() {
-        return new TransferInitRequestDto(WALLET_UID, TARGET_WALLET_UID, CONVERSION_AMOUNT);
+    private static TransferInitUserRequestDto transferRequest() {
+        return new TransferInitUserRequestDto(WALLET_UID, TARGET_WALLET_UID, CONVERSION_AMOUNT);
     }
 
     private static WalletResponseDto wallet(UUID uid, String currencyCode) {

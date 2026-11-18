@@ -11,7 +11,8 @@ participant "External rate API" as Ext
 database "DB" as DB
 
 note over Sch
-  On start, then every 1 h. Rate lifetime 3 h.
+  On start, then every 1 h. Rate lifetime 3 h from the publication;
+  an answer published more than 2 h ago (max-age) or in the future is not valid.
   Time limit ≪ lockAtMostFor 59 min:
   N providers × ≈ 46 s + DB transaction 30 s
   one provider: 3 attempts × (connect 10 s + response 5 s) + pauses ≈ 46 s
@@ -22,17 +23,22 @@ alt lock_until not passed
 else lock acquired
     Sch -> S: updateRates()
     S -> DB: active providers by priority, currencies
-    loop providers by priority, until valid (every active currency, rate > 0)
+    loop providers by priority, until valid (every active currency, rate > 0, published within max-age)
         S -> C: fetchRates(provider)
         C -> Ext: GET latest rates (connect 10 s, response 5 s, 3 attempts with backoff)
+        Ext --> C: timestamp (publication), rates from USD
     end
     alt no provider gave valid data
         S -> S: log ERROR, metric update failed
         note right: old rates stay valid until rate_end_time
-    else rates received
-        S -> S: every pair A→B: base rate of B / base rate of A
+    else this publication already saved (provider_code, rate_begin_time = timestamp)
+        S -> S: nothing written, log INFO, metric update succeeded
+        note right: a repeated answer does not extend the rates
+    else new publication
+        S -> DB: active rate_corrections
+        S -> S: every pair A→B: base rate of B / base rate of A × coefficient of A→B (1 if none), rounded to 8 digits once
         group one DB transaction, timeout 30 s
-            S -> DB: INSERT conversion_rates: begin = now, end = now + 3 h, provider_code
+            S -> DB: INSERT conversion_rates: begin = publication, end = publication + 3 h, provider_code
             alt DB error or timeout
                 S -> DB: ROLLBACK
                 S -> S: log ERROR, metric update failed

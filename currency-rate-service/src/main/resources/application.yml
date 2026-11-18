@@ -36,6 +36,7 @@ currency:
     lock-at-most-for: 59m
     lock-at-least-for: 59m
     transaction-timeout: 30s
+    max-age: 2h
   provider:
     connect-timeout: 10s
     response-timeout: 5s

@@ -461,7 +461,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/TransferInitRequest"
+              $ref: "#/components/schemas/TransferInitUserRequest"
             examples:
               oneCurrency:
                 summary: USD -> USD, no rate
@@ -871,7 +871,7 @@ components:
           exclusiveMinimum: true
           example: 50.00
 
-    TransferInitRequest:
+    TransferInitUserRequest:
       type: object
       x-class-extra-annotation: "@com.dezxxx.transaction.validation.DifferentWallets"
       x-implements: [com.dezxxx.transaction.validation.TransferWallets]

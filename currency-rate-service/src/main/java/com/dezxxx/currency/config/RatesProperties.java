@@ -9,5 +9,6 @@ public record RatesProperties(Duration updateInterval,
                               Duration lifetime,
                               Duration lockAtMostFor,
                               Duration lockAtLeastFor,
-                              Duration transactionTimeout) {
+                              Duration transactionTimeout,
+                              Duration maxAge) {
 }

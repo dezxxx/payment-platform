@@ -18,6 +18,7 @@ import com.dezxxx.currency.mapper.CurrencyRateMapper;
 import com.dezxxx.currency.metrics.RateMetrics;
 import com.dezxxx.currency.repository.ConversionRateRepository;
 import com.dezxxx.currency.repository.CurrencyRepository;
+import com.dezxxx.currency.repository.RateCorrectionRepository;
 import com.dezxxx.currency.repository.RateProviderRepository;
 import com.dezxxx.currency.service.ExchangeRateService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -55,6 +56,9 @@ class ExchangeRateServiceTest {
     private RateProviderRepository rateProviderRepository;
 
     @Mock
+    private RateCorrectionRepository rateCorrectionRepository;
+
+    @Mock
     private ExternalRateProviderClient externalRateProviderClient;
 
     @Mock
@@ -65,11 +69,11 @@ class ExchangeRateServiceTest {
     @BeforeEach
     void setUp() {
         RatesProperties properties = new RatesProperties(Duration.ofHours(1), Duration.ZERO, Duration.ofHours(3),
-                Duration.ofMinutes(59), Duration.ofMinutes(59), Duration.ofSeconds(30));
+                Duration.ofMinutes(59), Duration.ofMinutes(59), Duration.ofSeconds(30), Duration.ofHours(2));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         RateMetrics metrics = new RateMetrics(new SimpleMeterRegistry(), conversionRateRepository, clock);
         service = new ExchangeRateService(conversionRateRepository, currencyRepository, rateProviderRepository,
-                externalRateProviderClient, new CurrencyRateMapper(), transactionManager, properties, metrics, clock);
+                rateCorrectionRepository, externalRateProviderClient, new CurrencyRateMapper(), transactionManager, properties, metrics, clock);
     }
 
     @Test

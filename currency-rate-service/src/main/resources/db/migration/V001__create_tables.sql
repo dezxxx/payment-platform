@@ -25,6 +25,19 @@ CREATE TABLE rate_providers (
     CONSTRAINT uk_rate_providers_priority UNIQUE (priority)
 );
 
+CREATE TABLE rate_corrections (
+    id BIGSERIAL PRIMARY KEY,
+    source_code VARCHAR(3) NOT NULL REFERENCES currencies (code),
+    destination_code VARCHAR(3) NOT NULL REFERENCES currencies (code),
+    coefficient NUMERIC(10, 6) NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    modified_at TIMESTAMP,
+    CONSTRAINT uk_rate_corrections_pair UNIQUE (source_code, destination_code),
+    CONSTRAINT ck_rate_corrections_coefficient_positive CHECK (coefficient > 0),
+    CONSTRAINT ck_rate_corrections_pair_differs CHECK (source_code <> destination_code)
+);
+
 CREATE TABLE conversion_rates (
     id BIGSERIAL PRIMARY KEY,
     source_code VARCHAR(3) NOT NULL REFERENCES currencies (code),

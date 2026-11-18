@@ -12,9 +12,9 @@ Container_Boundary(crs, "currency-rate-service") {
     Component(errors, "GlobalExceptionHandler", "@RestControllerAdvice", "ErrorResponse: 400, 401, 403, 404, 500")
     Component(controller, "CurrencyRateRestControllerV1", "generated from OpenAPI", "GET /rates, /currencies, /rate-providers")
     Component(scheduler, "RateUpdateScheduler", "@Scheduled + @SchedulerLock", "On start and every hour; lock 59 min")
-    Component(service, "ExchangeRateService", "business logic", "Builds every pair through USD, saves; finds the rate valid at a moment")
+    Component(service, "ExchangeRateService", "business logic", "Builds every pair through USD × pair coefficient, valid 3 h from the publication; finds the rate valid at a moment")
     Component(client, "ExternalRateProviderClient", "RestClient + @HttpExchange", "Connect 10 s, response 5 s, 3 attempts")
-    Component(repos, "JPA repositories", "Spring Data JPA", "currencies, rate_providers, conversion_rates")
+    Component(repos, "JPA repositories", "Spring Data JPA", "currencies, rate_providers, rate_corrections, conversion_rates")
 }
 
 Rel(individualsApi, security, "GET /api/v1/rates", "REST, Bearer service token")

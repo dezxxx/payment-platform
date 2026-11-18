@@ -52,7 +52,7 @@ openApiGenerate {
     invokerPackage.set("com.dezxxx.individuals.api")
 
     // transaction-service's models: no copies, the endpoints take and return the client's classes.
-    // TransferInitRequest is our own: the client sends no rates, the service adds them from currency-rate-service
+    // TransferInitUserRequest is our own: the client sends no rates, the service adds them from currency-rate-service
     val transactionModel = "com.dezxxx.transaction.client.model"
     schemaMappings.set(
         listOf(

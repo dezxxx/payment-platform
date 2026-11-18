@@ -194,13 +194,15 @@ The full port map is in §4 of `CONTEXT.md`.
 
 | Collection | Requests | Assertions | Covers |
 |---|---|---|---|
-| `postman/individuals-api.postman_collection.json` | 84 | 184 | two users through every endpoint, wallets and money, a transfer between currencies at the live rate, every failure, Swagger, metrics; run it on a fresh stack (`make reset-db`) |
+| `postman/individuals-api.postman_collection.json` | 86 | 200 | a warm-up of every service first (the first call after a start is slow), two users through every endpoint, wallets and money, transfers between currencies at the live rate from USD and from UAH (two rates, the 1.00 USD minimum through UAH → USD), every failure, Swagger, metrics; run it on a fresh stack (`make reset-db`) |
 | `postman/person-service.postman_collection.json` | 31 | 124 | all six operations, every RFC 9457 failure, soft delete, compensation; a fresh email on each run |
 | `postman/transaction-service.postman_collection.json` | 87 | 212 | wallets, a deposit completed and one declined by the provider, withdrawal, transfer, status, every search filter, every error; fresh users on each run |
 | `postman/currency-rate-service.postman_collection.json` | 24 | 51 | live rates and how they relate (reverse pair, cross rate through USD), currencies, providers, every RFC 9457 failure, metrics, a direct call without the service token refused |
 
-The person-service, transaction-service and currency-rate-service collections take the service token
-first: set their `clientSecret` variable to `KEYCLOAK_CLIENT_SECRET`.
+A status poll repeats its request until the payment provider answers, so a run may count more.
+
+Every collection takes the service token first (individuals-api for its warm-up): set its
+`clientSecret` variable to `KEYCLOAK_CLIENT_SECRET`.
 
 ```bash
 npx newman run postman/transaction-service.postman_collection.json --env-var clientSecret=<KEYCLOAK_CLIENT_SECRET>
@@ -208,10 +210,10 @@ npx newman run postman/transaction-service.postman_collection.json --env-var cli
 
 | Service | Tests | Unit | Integration |
 |---|---|---|---|
-| individuals-api | 149 | 106 | 43, real Keycloak and PostgreSQL |
+| individuals-api | 154 | 104 | 50, real Keycloak and PostgreSQL |
 | person-service | 65 | 38 | 27, real PostgreSQL; 97% of lines |
 | transaction-service | 240 | 126 | 114, two real PostgreSQL shards and Kafka |
-| currency-rate-service | 50 | 23 | 27, real PostgreSQL, a stub of the rate provider |
+| currency-rate-service | 57 | 27 | 30, real PostgreSQL, a stub of the rate provider |
 | fake-payment-provider | 8 | 6 | 2 |
 
 individuals-api, person-service and currency-rate-service fail the build below 80% line coverage.

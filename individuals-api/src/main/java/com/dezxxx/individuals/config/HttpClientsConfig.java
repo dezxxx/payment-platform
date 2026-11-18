@@ -42,65 +42,39 @@ public class HttpClientsConfig {
     @Bean
     WebClient personWebClient(WebClient.Builder builder, PersonServiceProperties properties,
                               KeycloakClient keycloakClient) {
-        return builder
-                .baseUrl(properties.baseUrl())
-                .clientConnector(connector(properties.responseTimeout()))
-                .filter(serviceToken(keycloakClient))
-                .build();
+        return serviceWebClient(builder, properties.baseUrl(), properties.responseTimeout(), keycloakClient);
     }
 
     @Bean
     WebClient transactionWebClient(WebClient.Builder builder, TransactionServiceProperties properties,
                                    KeycloakClient keycloakClient) {
-        return builder
-                .baseUrl(properties.baseUrl())
-                .clientConnector(connector(properties.responseTimeout()))
-                .filter(serviceToken(keycloakClient))
-                .build();
+        return serviceWebClient(builder, properties.baseUrl(), properties.responseTimeout(), keycloakClient);
     }
 
     @Bean
     WebClient currencyRateWebClient(WebClient.Builder builder, CurrencyRateServiceProperties properties,
                                     KeycloakClient keycloakClient) {
-        return builder
-                .baseUrl(properties.baseUrl())
-                .clientConnector(connector(properties.responseTimeout()))
-                .filter(serviceToken(keycloakClient))
-                .build();
+        return serviceWebClient(builder, properties.baseUrl(), properties.responseTimeout(), keycloakClient);
     }
 
     @Bean
     CurrencyRateApi currencyRateApi(WebClient currencyRateWebClient) {
-        return HttpServiceProxyFactory
-                .builderFor(WebClientAdapter.create(currencyRateWebClient))
-                .build()
-                .createClient(CurrencyRateApi.class);
+        return client(currencyRateWebClient, CurrencyRateApi.class);
     }
 
     @Bean
     IndividualsApi individualsApi(WebClient personWebClient) {
-        return HttpServiceProxyFactory
-                .builderFor(WebClientAdapter.create(personWebClient))
-                .build()
-                .createClient(IndividualsApi.class);
+        return client(personWebClient, IndividualsApi.class);
     }
 
     @Bean
     WalletsApi walletsApi(WebClient transactionWebClient) {
-        return HttpServiceProxyFactory
-                .builderFor(WebClientAdapter.create(transactionWebClient))
-                .conversionService(transactionQueryValues())
-                .build()
-                .createClient(WalletsApi.class);
+        return transactionClient(transactionWebClient, WalletsApi.class);
     }
 
     @Bean
     TransactionsApi transactionsApi(WebClient transactionWebClient) {
-        return HttpServiceProxyFactory
-                .builderFor(WebClientAdapter.create(transactionWebClient))
-                .conversionService(transactionQueryValues())
-                .build()
-                .createClient(TransactionsApi.class);
+        return transactionClient(transactionWebClient, TransactionsApi.class);
     }
 
     // ?type=deposit: by default the proxy writes an enum by its constant name (DEPOSIT), the contract wants the value
@@ -109,6 +83,30 @@ public class HttpClientsConfig {
         conversions.addConverter(TransactionTypeDto.class, String.class, TransactionTypeDto::getValue);
         conversions.addConverter(TransactionStatusDto.class, String.class, TransactionStatusDto::getValue);
         return conversions;
+    }
+
+    private static WebClient serviceWebClient(WebClient.Builder builder, String baseUrl, Duration responseTimeout,
+                                              KeycloakClient keycloakClient) {
+        return builder
+                .baseUrl(baseUrl)
+                .clientConnector(connector(responseTimeout))
+                .filter(serviceToken(keycloakClient))
+                .build();
+    }
+
+    private static <T> T client(WebClient webClient, Class<T> api) {
+        return HttpServiceProxyFactory
+                .builderFor(WebClientAdapter.create(webClient))
+                .build()
+                .createClient(api);
+    }
+
+    private static <T> T transactionClient(WebClient webClient, Class<T> api) {
+        return HttpServiceProxyFactory
+                .builderFor(WebClientAdapter.create(webClient))
+                .conversionService(transactionQueryValues())
+                .build()
+                .createClient(api);
     }
 
     // person-service, transaction-service and currency-rate-service let in only a token with the realm role SERVICE:

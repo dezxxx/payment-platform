@@ -26,6 +26,20 @@ entity rate_providers {
     modified_at : timestamp
 }
 
+entity rate_corrections {
+    * id : bigserial <<PK>>
+    --
+    * source_code : varchar(3) <<FK>>
+    * destination_code : varchar(3) <<FK>>
+    * coefficient : numeric(10,6) CHECK > 0
+    * active : boolean = true
+    * created_at : timestamp = now()
+    modified_at : timestamp
+    ..
+    UNIQUE (source_code, destination_code)
+    CHECK source_code <> destination_code
+}
+
 entity conversion_rates {
     * id : bigserial <<PK>>
     --
@@ -52,8 +66,11 @@ entity shedlock {
 
 currencies ||--o{ conversion_rates : "source / destination code"
 rate_providers ||--o{ conversion_rates : provider_code
+currencies ||--o{ rate_corrections : "source / destination code"
 
 legend bottom
   * = NOT NULL. Every timestamp is UTC.
+  rate_begin_time = the moment the provider published the rate.
+  No rate_corrections row for a pair = coefficient 1.
 end legend
 @enduml

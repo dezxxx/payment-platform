@@ -20,7 +20,7 @@ alt no token, expired or bad signature
 end
 
 Sec -> Ctl : request + verified Jwt
-alt @Valid fails: required fields, uuid, amount > 0, page / size,\nthe two wallets of a transfer (@DifferentWallets on the client's class)
+alt @Valid fails: required fields, uuid, amount > 0, page / size,\nthe two wallets of a transfer (@DifferentWallets on TransferInitUserRequest)
   Ctl --> Client : 400 VALIDATION_ERROR
 end
 

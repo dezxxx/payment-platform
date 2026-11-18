@@ -1,6 +1,6 @@
 package com.dezxxx.individuals.service;
 
-import com.dezxxx.individuals.api.model.TransferInitRequestDto;
+import com.dezxxx.individuals.api.model.TransferInitUserRequestDto;
 import com.dezxxx.individuals.gateway.currency.CurrencyRateServiceClient;
 import com.dezxxx.individuals.gateway.transaction.TransactionClient;
 import com.dezxxx.individuals.gateway.transaction.TransactionSearch;
@@ -11,12 +11,12 @@ import com.dezxxx.transaction.client.model.TransactionConfirmResponseDto;
 import com.dezxxx.transaction.client.model.TransactionInitResponseDto;
 import com.dezxxx.transaction.client.model.TransactionStatusResponseDto;
 import com.dezxxx.transaction.client.model.TransferConfirmRequestDto;
+import com.dezxxx.transaction.client.model.TransferInitRequestDto;
 import com.dezxxx.transaction.client.model.WalletResponseDto;
 import com.dezxxx.transaction.client.model.WithdrawalConfirmRequestDto;
 import com.dezxxx.transaction.client.model.WithdrawalInitRequestDto;
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -56,10 +56,10 @@ public class TransactionService {
                         .doOnSuccess(confirmed -> logConfirmed("withdrawal", confirmed, userUid)));
     }
 
-    public Mono<TransactionInitResponseDto> initTransfer(Jwt jwt, TransferInitRequestDto request) {
+    public Mono<TransactionInitResponseDto> initTransfer(Jwt jwt, TransferInitUserRequestDto request) {
         return CurrentUser.userUid(jwt)
                 .flatMap(userUid -> transactionClient.getWalletsByUserUid(userUid)
-                        .flatMap(wallets -> transferRequest(request, wallets))
+                        .flatMap(wallets -> withRates(request, wallets))
                         .flatMap(transfer -> transactionClient.initTransfer(userUid, transfer)));
     }
 
@@ -79,45 +79,36 @@ public class TransactionService {
                 .flatMap(userUid -> transactionClient.searchTransactions(userUid, search));
     }
 
-    // a wallet not found among the user's, or one currency: no rates, transaction-service gives the exact refusal
-    private Mono<com.dezxxx.transaction.client.model.TransferInitRequestDto> transferRequest(
-            TransferInitRequestDto request, List<WalletResponseDto> wallets) {
-        var transfer = new com.dezxxx.transaction.client.model.TransferInitRequestDto(
-                request.getWalletUid(), request.getTargetWalletUid(), request.getAmount());
-        Optional<String> sourceCode = currencyOf(wallets, request.getWalletUid());
-        Optional<String> destinationCode = currencyOf(wallets, request.getTargetWalletUid());
-        if (sourceCode.isEmpty() || destinationCode.isEmpty() || sourceCode.get().equals(destinationCode.get())) {
-            return Mono.just(transfer);
+    // a wallet not among the user's goes without rates: transaction-service gives the exact refusal
+    private Mono<TransferInitRequestDto> withRates(TransferInitUserRequestDto request, List<WalletResponseDto> wallets) {
+        String sourceCode = currencyOf(wallets, request.getWalletUid());
+        String destinationCode = currencyOf(wallets, request.getTargetWalletUid());
+        if (sourceCode == null || destinationCode == null || sourceCode.equals(destinationCode)) {
+            return Mono.just(transfer(request));
         }
-        return rates(sourceCode.get(), destinationCode.get())
-                .map(rates -> transfer
-                        .sourceCode(sourceCode.get())
-                        .destinationCode(destinationCode.get())
-                        .rate(rates.rate())
-                        .rateToUsd(rates.rateToUsd()));
+        return Mono.zip(currencyRateServiceClient.getRate(sourceCode, destinationCode), rateToUsd(sourceCode),
+                (rate, rateToUsd) -> transfer(request)
+                        .sourceCode(sourceCode)
+                        .destinationCode(destinationCode)
+                        .rate(rate)
+                        .rateToUsd(rateToUsd));
     }
 
-    // rateToUsd checks the minimum conversion amount; a pair with USD already holds it, no second call
-    private Mono<Rates> rates(String sourceCode, String destinationCode) {
-        Mono<BigDecimal> rate = currencyRateServiceClient.getRate(sourceCode, destinationCode);
-        if (USD.equals(sourceCode)) {
-            return rate.map(pairRate -> new Rates(pairRate, BigDecimal.ONE));
-        }
-        if (USD.equals(destinationCode)) {
-            return rate.map(pairRate -> new Rates(pairRate, pairRate));
-        }
-        return Mono.zip(rate, currencyRateServiceClient.getRate(sourceCode, USD))
-                .map(both -> new Rates(both.getT1(), both.getT2()));
+    // transaction-service checks the minimum conversion amount in USD with this rate
+    private Mono<BigDecimal> rateToUsd(String sourceCode) {
+        return USD.equals(sourceCode) ? Mono.just(BigDecimal.ONE) : currencyRateServiceClient.getRate(sourceCode, USD);
     }
 
-    private static Optional<String> currencyOf(List<WalletResponseDto> wallets, UUID walletUid) {
+    private static TransferInitRequestDto transfer(TransferInitUserRequestDto request) {
+        return new TransferInitRequestDto(request.getWalletUid(), request.getTargetWalletUid(), request.getAmount());
+    }
+
+    private static String currencyOf(List<WalletResponseDto> wallets, UUID walletUid) {
         return wallets.stream()
                 .filter(wallet -> wallet.getUid().equals(walletUid))
                 .map(WalletResponseDto::getCurrencyCode)
-                .findFirst();
-    }
-
-    private record Rates(BigDecimal rate, BigDecimal rateToUsd) {
+                .findFirst()
+                .orElse(null);
     }
 
     private static void logConfirmed(String type, TransactionConfirmResponseDto confirmed, UUID userUid) {

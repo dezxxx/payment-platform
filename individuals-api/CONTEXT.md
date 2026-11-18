@@ -776,7 +776,7 @@ the single place where the token is checked, so it is also the single place
 | Trust boundary | transaction-service and person-service let in only a caller with the service token: the token of our service account, realm role `SERVICE`, sent by the `WebClient` filter. transaction-service trusts `X-User-Uid` only from such a caller. Their ports stay published for development and their own Postman collections, which take the same token | the teacher's review of PR #2: with the port published and no check, anyone could call transaction-service with any `X-User-Uid`. The earlier rule "reachable from the Docker network only" is replaced; the decision and the rejected options are rule 7 in §3 of the root `CONTEXT.md` |
 | Endpoints | the 11 operations of transaction-service under the same paths; own wallets are `GET /api/v1/wallets` (→ `/api/v1/wallets/user/{user_uid}`), search takes no `userUid` (added from the token) | the client never names a user |
 | Client | `TransactionClient` in `gateway/transaction`, an adapter over the generated `transaction-service-client` (`WalletsApi`, `TransactionsApi` beans on `transactionWebClient`), like `PersonClient`; it sets `X-User-Uid` and translates errors | one client per external system |
-| Models | the endpoints take and return the client's classes (`com.dezxxx.transaction.client.model`): the contract keeps the schemas for Swagger, `schemaMappings` in `build.gradle.kts` stops the generator from copying them; `@Valid` checks their annotations, `@DifferentWallets` included | the bodies are the same on both sides: copies would only be moved field by field; a new client version must be compared with the schemas in `individuals-api.yaml`. One exception, `TransferInitRequest` (section 7) |
+| Models | the endpoints take and return the client's classes (`com.dezxxx.transaction.client.model`): the contract keeps the schemas for Swagger, `schemaMappings` in `build.gradle.kts` stops the generator from copying them; `@Valid` checks their annotations, `@DifferentWallets` included | the bodies are the same on both sides: copies would only be moved field by field; a new client version must be compared with the schemas in `individuals-api.yaml`. One exception, `TransferInitUserRequest` (section 7) |
 | Classes | `WalletController`, `TransactionController` → `WalletService`, `TransactionService` → `TransactionClient` | `rest -> service -> gateway`, as in section 1 |
 | Configuration | `individuals.transaction-service.base-url` from `TRANSACTION_SERVICE_URL` (`http://localhost:8084` locally, `http://transaction-service:8084` in Docker), `response-timeout` 5 s by default | only the address differs between environments; paths come from the contract |
 | Error body | our `ErrorResponse`, not transaction-service's RFC 9457 problem details; the `error` code is kept | one error format on every individuals-api endpoint |
@@ -848,7 +848,7 @@ Diagrams: `currency-rate-service/diagrams-c4/sequence-transfer-between-currencie
 
 ### Transfer init, step by step
 
-1. `TransactionController.initTransfer` takes our own `TransferInitRequest`
+1. `TransactionController.initTransfer` takes our own `TransferInitUserRequest`
    (`walletUid`, `targetWalletUid`, `amount`). A field the client adds, `rate`
    included, is dropped by the JSON reader.
 2. `TransactionService.initTransfer` reads the user's wallets:
@@ -860,9 +860,9 @@ Diagrams: `currency-rate-service/diagrams-c4/sequence-transfer-between-currencie
    (HTTP `GET /api/v1/rates?from=&to=`) and `rateToUsd`, the rate of the source
    currency to USD, for the minimum of 1.00 USD:
    - source is USD: `rateToUsd` = 1, one call;
-   - target is USD: `rateToUsd` = the pair rate, one call;
-   - otherwise a second call `getRate(source, USD)`; both calls run in parallel
-     (`Mono.zip`).
+   - otherwise a second call `getRate(source, USD)`, also when the target is USD
+     (the same rate is asked twice: one rule, no special branch); both calls run
+     in parallel (`Mono.zip`).
 5. `TransactionClient.initTransfer` sends transaction-service's
    `TransferInitRequest` with `sourceCode`, `destinationCode`, `rate`,
    `rateToUsd`. transaction-service checks the codes against the wallets,
@@ -874,8 +874,8 @@ Diagrams: `currency-rate-service/diagrams-c4/sequence-transfer-between-currencie
 | Topic | Decision | Why | Rejected |
 |---|---|---|---|
 | Who asks for the rate | individuals-api | the orchestrator drives every synchronous flow and is the only Keycloak client; inner services never call each other | transaction-service calling currency-rate-service: a second caller with its own token and a new failure path inside the money service |
-| Request model | `TransferInitRequest` is generated from our contract (left out of `schemaMappings`); transaction-service's class of the same name is built in `TransactionService` and written there with its full package | the client must not be able to send a rate; with the shared class it could | the shared class with `rate` dropped by hand: the contract would show fields the client must not send |
-| Two equal wallets | our `TransferInitRequest` carries `x-class-extra-annotation: @DifferentWallets` and `x-implements: TransferWallets`; the annotation and its validator come in `transaction-service-client` | without them the own class loses the check the shared class had, and two equal wallets would reach transaction-service (`WalletTransactionIT.sameWalletStopsHere` catches it) | a copy of the validator in individuals-api: the same rule in two places |
+| Request model | `TransferInitUserRequest` is generated from our contract (left out of `schemaMappings`); `TransactionService` builds transaction-service's `TransferInitRequest` from it; the different names let both be imported | the client must not be able to send a rate; with the shared class it could | the shared class with `rate` dropped by hand: the contract would show fields the client must not send; the same schema name on both sides: one of the two classes written with its full package |
+| Two equal wallets | our `TransferInitUserRequest` carries `x-class-extra-annotation: @DifferentWallets` and `x-implements: TransferWallets`; the annotation and its validator come in `transaction-service-client` | without them the own class loses the check the shared class had, and two equal wallets would reach transaction-service (`WalletTransactionIT.sameWalletStopsHere` catches it) | a copy of the validator in individuals-api: the same rule in two places |
 | Where the currencies come from | the user's wallet list, one call | the list holds `currencyCode` of both wallets; two `getWalletById` calls cost more and give the same | a currency in the request: the client could lie |
 | Missing wallet, one currency | no rates, transaction-service decides | its checks and error codes stay in one place | refusing in individuals-api: a copy of transaction-service's rules |
 | `CURRENCY_MISMATCH` | **500** `INTERNAL_ERROR`, body only in the log | the codes and rates are ours; a mismatch is an individuals-api bug, not the client's | passing it through as 400: tells the client to fix what they never sent |
@@ -936,18 +936,22 @@ the Grafana panel "Circuit breakers" on the individuals-api dashboard; the alert
   503 and a refused connection → `DEPENDENCY_UNAVAILABLE`, a 200 without a body; with the
   production breaker settings: 5 × 503 open it and the 6th call never leaves, 5 × 404 keep it closed
 - `DependencyFailurePredicateTest`: a 4xx is not a failure, 5xx and transport errors are
-- `TransactionServiceTest`: one currency (no rate calls), a foreign wallet, UAH → EUR (two rates),
-  USD → EUR and UAH → USD (one call each), `RATE_NOT_FOUND` stops before transaction-service
+- `TransactionServiceTest`: one currency (no rate calls), a foreign wallet (no rates), UAH → EUR
+  (pair rate + UAH → USD), USD → EUR (one call, `rateToUsd` 1), UAH → USD (the same rate asked twice),
+  `RATE_NOT_FOUND` stops before transaction-service
 - `TransactionClientTest`: `AMOUNT_TOO_SMALL` passed through, `CURRENCY_MISMATCH` → 500
-- `WalletTransactionIT` (currency-rate-service is a Reactor Netty stub): the rates reach
-  transaction-service, currency-rate-service gets the service token, a client's `rate` is dropped;
-  422; 503; 500 on `CURRENCY_MISMATCH`; 400 `AMOUNT_TOO_SMALL`. `IntegrationTest` resets every
-  breaker before each test: the Spring context is shared, and a stubbed failure must not leave a
-  breaker open for the next test
-- Postman folder 9: USD → EUR at the live rate, a client's rate ignored, balances, status, 400 below 1.00 USD
+- `CurrencyRateIT` (12 tests; currency-rate-service and transaction-service are Reactor Netty stubs):
+  UAH → EUR gets both rates and ignores a client's `rate`; USD → EUR asks one rate; UAH → USD asks the
+  same rate twice; one currency asks none; 422 `RATE_NOT_FOUND`; 503 on a failure and on an answer
+  after the response timeout (1 s in tests); 500 when our service token is refused; the breaker opens
+  after 5 failures and the next call never leaves; 500 on `CURRENCY_MISMATCH`; 400 `AMOUNT_TOO_SMALL`
+  passed through; confirm sends the token as is. `IntegrationTest` resets every breaker before each
+  test: the Spring context is shared, and a stubbed failure must not leave a breaker open for the next test
+- Postman folder 9: USD → EUR and UAH → EUR at the live rate, a client's rate ignored, balances,
+  status, 20 UAH → 400 `AMOUNT_TOO_SMALL` (below 1.00 USD through UAH → USD)
 
 ### Progress
 
 - [x] Client, orchestration, error codes, breakers, meters, panel, alert, tests, contract, Postman
-- [ ] Publish `currency-rate-service-client` and `transaction-service-client` to Nexus, rebuild the
-      images, run every Postman collection on the stack
+- [x] `currency-rate-service-client` and `transaction-service-client` in Nexus, images rebuilt,
+      every Postman collection green on the stack

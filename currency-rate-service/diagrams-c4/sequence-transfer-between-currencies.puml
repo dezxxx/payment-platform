@@ -22,8 +22,11 @@ TS --> IA: 200 wallets with currencies
 alt a wallet not found or same currency
     IA -> TS: transfer/init without rates (sequence-transfer)
 else different currencies
-    IA -> CRS: GET /api/v1/rates?from=UAH&to=EUR
-    IA -> CRS: GET /api/v1/rates?from=UAH&to=USD\n(no call: source USD → 1, target USD → the pair rate)
+    par in parallel (Mono.zip)
+        IA -> CRS: GET /api/v1/rates?from=UAH&to=EUR
+    else
+        IA -> CRS: GET /api/v1/rates?from=UAH&to=USD\n(no call when the source is USD: rateToUsd = 1;\ntarget USD: the same rate is asked twice)
+    end
     alt CRS 404
         IA --> Client: 422 RATE_NOT_FOUND, transaction-service not called
     else CRS 400 / 401 / 403

@@ -4,6 +4,7 @@ import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.QueryStringDecoder;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,6 +30,8 @@ public final class StubCurrencyRateService {
 
     private final AtomicReference<Failure> failure = new AtomicReference<>();
 
+    private final AtomicReference<Duration> delay = new AtomicReference<>(Duration.ZERO);
+
     private DisposableServer server;
 
     public void start() {
@@ -36,7 +39,7 @@ public final class StubCurrencyRateService {
                 .port(0)
                 .handle((request, response) -> {
                     received.add(new Received(request.uri(), request.requestHeaders().get(HttpHeaderNames.AUTHORIZATION)));
-                    return answer(request, response);
+                    return Mono.delay(delay.get()).then(Mono.defer(() -> answer(request, response)));
                 })
                 .bindNow();
     }
@@ -49,6 +52,7 @@ public final class StubCurrencyRateService {
         received.clear();
         rates.clear();
         failure.set(null);
+        delay.set(Duration.ZERO);
     }
 
     public void answerRate(String from, String to, String rate) {
@@ -57,6 +61,10 @@ public final class StubCurrencyRateService {
 
     public void answerProblem(int status, String error) {
         failure.set(new Failure(status, error));
+    }
+
+    public void answerLate(Duration answerDelay) {
+        delay.set(answerDelay);
     }
 
     public List<Received> received() {

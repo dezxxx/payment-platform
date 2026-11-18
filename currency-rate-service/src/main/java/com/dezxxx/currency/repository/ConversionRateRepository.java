@@ -15,6 +15,8 @@ public interface ConversionRateRepository extends JpaRepository<ConversionRateEn
             + " order by r.rateBeginTime desc limit 1")
     Optional<ConversionRateEntity> findValid(String sourceCode, String destinationCode, Instant moment);
 
+    boolean existsByProviderCodeAndRateBeginTime(String providerCode, Instant rateBeginTime);
+
     @Query("select max(r.rateBeginTime) from ConversionRateEntity r")
     Optional<Instant> findNewestBeginTime();
 

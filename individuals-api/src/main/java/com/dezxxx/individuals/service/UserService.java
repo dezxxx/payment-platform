@@ -10,6 +10,7 @@ import com.dezxxx.individuals.gateway.person.PersonClient;
 import com.dezxxx.individuals.gateway.person.PersonProfile;
 import com.dezxxx.individuals.logging.RequestLog;
 import com.dezxxx.individuals.metrics.AuthMetrics;
+import com.dezxxx.individuals.util.CurrentUser;
 import com.dezxxx.individuals.util.KeycloakClaims;
 import com.dezxxx.individuals.util.Spans;
 import io.micrometer.observation.ObservationRegistry;
@@ -101,15 +102,13 @@ public class UserService {
     }
 
     public Mono<CurrentUserResponseDto> currentUser(Jwt jwt) {
-        return Mono.defer(() -> {
-            UUID userUid = KeycloakClaims.requireUserUid(jwt);
-            RequestLog.userUid(userUid);
-            String keycloakUserId = jwt.getSubject();
-            return Mono.zip(
-                            personClient.findProfile(userUid).transform(span("me.findProfile")),
-                            keycloakClient.findRegisteredAt(keycloakUserId).transform(span("me.findRegisteredAt")))
-                    .map(found -> toCurrentUser(jwt, userUid, keycloakUserId, found.getT1(), found.getT2()));
-        }).transform(span("me"));
+        String keycloakUserId = jwt.getSubject();
+        return CurrentUser.userUid(jwt)
+                .flatMap(userUid -> Mono.zip(
+                        personClient.findProfile(userUid).transform(span("me.findProfile")),
+                        keycloakClient.findRegisteredAt(keycloakUserId).transform(span("me.findRegisteredAt")),
+                        (profile, registeredAt) -> toCurrentUser(jwt, userUid, keycloakUserId, profile, registeredAt)))
+                .transform(span("me"));
     }
 
     private CurrentUserResponseDto toCurrentUser(Jwt jwt, UUID userUid, String keycloakUserId,

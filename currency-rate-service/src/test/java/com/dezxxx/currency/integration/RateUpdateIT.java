@@ -8,6 +8,7 @@ import com.dezxxx.currency.metrics.RateMetrics;
 import com.dezxxx.currency.scheduler.RateUpdateScheduler;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -133,8 +134,8 @@ class RateUpdateIT extends IntegrationTest {
     void refusesIncompleteAnswer() {
         // given
         double failed = updates("failure");
-        OXR.willAnswer(200, """
-                {"timestamp": 1794682806, "base": "USD", "rates": {"EUR": 0.90715, "UAH": 45.477786, "USD": 1}}""");
+        OXR.willAnswer(200, OxrStub.body(Instant.now(), """
+                {"EUR": 0.90715, "UAH": 45.477786, "USD": 1}"""));
 
         // when
         scheduler.updateRates();
@@ -198,7 +199,7 @@ class RateUpdateIT extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("given the update has run, when the metrics refresh, then 12 valid pairs and the newest rate is seconds old")
+    @DisplayName("given the update has run, when the metrics refresh, then 12 valid pairs and the age counts from the publication")
     void refreshesGaugesFromTable() {
         // given
         scheduler.updateRates();
@@ -208,6 +209,63 @@ class RateUpdateIT extends IntegrationTest {
 
         // then
         assertThat(meterRegistry.get("rate.valid.pairs").gauge().value()).isEqualTo(12);
-        assertThat(meterRegistry.get("rate.newest.age").gauge().value()).isBetween(0.0, 60.0);
+        double age = OxrStub.AGE.toSeconds();
+        assertThat(meterRegistry.get("rate.newest.age").gauge().value()).isBetween(age, age + 60);
+    }
+
+    @Test
+    @DisplayName("given a coefficient 0.98 for USD to EUR, when the update runs, then the saved rate and GET /rates carry it, the reverse pair does not")
+    void appliesCorrection() {
+        // given
+        jdbc.update("INSERT INTO rate_corrections (source_code, destination_code, coefficient) VALUES ('USD', 'EUR', 0.98)");
+
+        // when
+        scheduler.updateRates();
+
+        // then
+        assertThat(rateOf("USD", "EUR")).isEqualByComparingTo("0.88900700");
+        assertThat(rateOf("EUR", "USD")).isEqualByComparingTo("1.10235352");
+        client.get().uri("/api/v1/rates?from=USD&to=EUR")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.rate").isEqualTo(0.889007);
+    }
+
+    @Test
+    @DisplayName("given OXR repeats an answer published 90 minutes ago, when the update runs again, then the rates are not extended and their age counts from the publication")
+    void repeatedAnswerDoesNotExtendRates() {
+        // given
+        Instant published = Instant.now().truncatedTo(ChronoUnit.SECONDS).minus(Duration.ofMinutes(90));
+        OXR.willAnswerRatesPublishedAt(published);
+        OXR.willAnswerRatesPublishedAt(published);
+        scheduler.updateRates();
+        releaseLock();
+
+        // when
+        scheduler.updateRates();
+        rateMetrics.refresh();
+
+        // then
+        assertThat(OXR.requests()).hasSize(2);
+        assertThat(rates()).isEqualTo(12);
+        assertThat(ratesEndingAt(published.plus(Duration.ofHours(3)))).isEqualTo(12);
+        assertThat(meterRegistry.get("rate.newest.age").gauge().value()).isBetween(5400.0, 5460.0);
+    }
+
+    @Test
+    @DisplayName("given OXR answers with rates published two days ago, when the update runs, then nothing is saved: one call, the failure counted")
+    void refusesStaleAnswer() {
+        // given
+        double failed = updates("failure");
+        OXR.willAnswerRatesPublishedAt(Instant.now().minus(Duration.ofDays(2)));
+
+        // when
+        scheduler.updateRates();
+
+        // then
+        assertThat(OXR.requests()).hasSize(1);
+        assertThat(rates()).isZero();
+        assertThat(updates("failure")).isEqualTo(failed + 1);
     }
 }

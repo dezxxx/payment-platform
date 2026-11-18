@@ -145,7 +145,7 @@ components:
         rateTimestamp:
           type: string
           format: date-time
-          description: Moment the rate became valid (rate_begin_time)
+          description: Moment the provider published the rate; the rate is valid from it (rate_begin_time)
           example: "2026-11-14T12:00:00Z"
         providerCode:
           type: string

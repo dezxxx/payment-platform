@@ -98,54 +98,39 @@ public class KeycloakClient {
 
     public Mono<String> createAccount(String email, String firstName, String lastName, String userUid) {
         KeycloakUserRequestDto body = KeycloakUserRequestDto.forRegistration(email, firstName, lastName, userUid);
-        return withAdminToken(token -> keycloakWebClient.post()
-                .uri(properties.usersUri())
-                .headers(headers -> headers.setBearerAuth(token))
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .retrieve()
-                .onStatus(HttpStatusCode::isError, KeycloakClient::translate)
-                .toBodilessEntity()                 // 201 has no body, the id is in Location
-                .map(KeycloakClient::idFromLocation));
+        return withAdminToken(keycloakWebClient.post()
+                        .uri(properties.usersUri())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(body),
+                response -> response.toBodilessEntity()   // 201 has no body, the id is in Location
+                        .map(KeycloakClient::idFromLocation));
     }
 
     public Mono<Void> resetUserPassword(String keycloakUserId, String password) {
         KeycloakCredential body = KeycloakCredential.password(password);
-        return withAdminToken(token -> keycloakWebClient.put()
-                .uri(properties.usersUri() + RESET_PASSWORD, keycloakUserId)
-                .headers(headers -> headers.setBearerAuth(token))
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .retrieve()
-                .onStatus(HttpStatusCode::isError, KeycloakClient::translate)
-                .toBodilessEntity()
-                .then());
+        return withAdminToken(keycloakWebClient.put()
+                        .uri(properties.usersUri() + RESET_PASSWORD, keycloakUserId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(body),
+                KeycloakClient::noBody);
     }
 
     // Keycloak maps roles by id, so the role is read first
     public Mono<Void> assignPlatformRole(String keycloakUserId) {
         return findRealmRole(PLATFORM_ROLE)
-                .flatMap(role -> withAdminToken(token -> keycloakWebClient.post()
-                        .uri(properties.usersUri() + REALM_ROLE_MAPPINGS, keycloakUserId)
-                        .headers(headers -> headers.setBearerAuth(token))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(List.of(role))
-                        .retrieve()
-                        .onStatus(HttpStatusCode::isError, KeycloakClient::translate)
-                        .toBodilessEntity()
-                        .then()));
+                .flatMap(role -> withAdminToken(keycloakWebClient.post()
+                                .uri(properties.usersUri() + REALM_ROLE_MAPPINGS, keycloakUserId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .bodyValue(List.of(role)),
+                        KeycloakClient::noBody));
     }
 
     // a failed delete is only logged, so it never hides the original error
     public Mono<Void> rollbackAccountWithError(String keycloakUserId, Throwable cause) {
         log.warn("Registration failed after Keycloak account {} was created, removing it", keycloakUserId, cause);
-        return withAdminToken(token -> keycloakWebClient.delete()
-                        .uri(properties.usersUri() + BY_ID, keycloakUserId)
-                        .headers(headers -> headers.setBearerAuth(token))
-                        .retrieve()
-                        .onStatus(HttpStatusCode::isError, KeycloakClient::translate)
-                        .toBodilessEntity()
-                        .then())
+        return withAdminToken(keycloakWebClient.delete()
+                        .uri(properties.usersUri() + BY_ID, keycloakUserId),
+                KeycloakClient::noBody)
                 .onErrorResume(cleanupFailed -> {
                     log.error("Could not remove the incomplete Keycloak account {}", keycloakUserId, cleanupFailed);
                     return Mono.empty();
@@ -154,38 +139,40 @@ public class KeycloakClient {
     }
 
     public Mono<OffsetDateTime> findRegisteredAt(String keycloakUserId) {
-        return withAdminToken(token -> keycloakWebClient.get()
-                .uri(properties.usersUri() + BY_ID, keycloakUserId)
-                .headers(headers -> headers.setBearerAuth(token))
-                .retrieve()
-                .onStatus(HttpStatusCode::isError, KeycloakClient::translate)
-                .bodyToMono(KeycloakUserRepresentation.class)
-                .map(account -> toRegisteredAt(account, keycloakUserId)));
+        return withAdminToken(keycloakWebClient.get()
+                        .uri(properties.usersUri() + BY_ID, keycloakUserId),
+                response -> response.bodyToMono(KeycloakUserRepresentation.class)
+                        .map(account -> toRegisteredAt(account, keycloakUserId)));
     }
 
     private Mono<KeycloakRealmRole> findRealmRole(String name) {
-        return withAdminToken(token -> keycloakWebClient.get()
-                .uri(properties.rolesUri() + BY_NAME, name)
-                .headers(headers -> headers.setBearerAuth(token))
-                .retrieve()
-                .onStatus(HttpStatusCode::isError, KeycloakClient::translate)
-                .bodyToMono(KeycloakRealmRole.class));
+        return withAdminToken(keycloakWebClient.get()
+                        .uri(properties.rolesUri() + BY_NAME, name),
+                response -> response.bodyToMono(KeycloakRealmRole.class));
     }
 
-    private <T> Mono<T> withAdminToken(Function<String, Mono<T>> call) {
+    private <T> Mono<T> withAdminToken(WebClient.RequestHeadersSpec<?> request,
+                                       Function<WebClient.ResponseSpec, Mono<T>> result) {
         return adminLogin()
-                .flatMap(token -> metrics.timeKeycloak(call.apply(token)))
+                .flatMap(token -> metrics.timeKeycloak(
+                        result.apply(send(request.headers(headers -> headers.setBearerAuth(token))))))
                 .transform(GatewayErrors.transportFailures(KEYCLOAK, properties.baseUrl()));
     }
 
     private Mono<KeycloakTokenResponseDto> requestToken(MultiValueMap<String, String> form) {
-        return metrics.timeKeycloak(keycloakWebClient.post()
-                        .uri(properties.tokenUri())
-                        .body(BodyInserters.fromFormData(form))
-                        .retrieve()
-                        .onStatus(HttpStatusCode::isError, KeycloakClient::translate)
+        return metrics.timeKeycloak(send(keycloakWebClient.post()
+                                .uri(properties.tokenUri())
+                                .body(BodyInserters.fromFormData(form)))
                         .bodyToMono(KeycloakTokenResponseDto.class))
                 .transform(GatewayErrors.transportFailures(KEYCLOAK, properties.baseUrl()));
+    }
+
+    private static WebClient.ResponseSpec send(WebClient.RequestHeadersSpec<?> request) {
+        return request.retrieve().onStatus(HttpStatusCode::isError, KeycloakClient::translate);
+    }
+
+    private static Mono<Void> noBody(WebClient.ResponseSpec response) {
+        return response.toBodilessEntity().then();
     }
 
     private MultiValueMap<String, String> clientForm(String grantType) {

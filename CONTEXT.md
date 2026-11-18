@@ -432,8 +432,19 @@ run in the image - `make test` and `make it` do that.
 - `make verify` checks everything from scratch; `make verify-down` stops the
   stack first, because the integration tests need its memory.
 - Every service answers `/actuator/health` on its port (section 4).
+  Healthchecks of Keycloak, Kafka, Schema Registry and every application have
+  `start_period: 300s`: when the whole stack starts at once the CPU is shared
+  and the first answer can take minutes; failed checks inside that window are
+  not counted and the service is healthy at the first passing one, so a fast
+  start is not slowed down. With 20–30 s `docker compose up --wait` gave up on
+  a starting Keycloak or Kafka. The Kafka check runs a JVM tool, so its timeout
+  is 30 s.
 - `postman/` holds one collection per service; run it on a fresh stack
-  (`make reset-db`).
+  (`make reset-db`). The first call of a service after a start is slow (keys of
+  Keycloak, the first database connection, the JIT) while individuals-api waits
+  only seconds for a neighbour, so the individuals-api collection first calls
+  every service directly once (warm-up); status polling waits up to about a
+  minute for the payment provider, whose first Kafka round trip is slow too.
 
 ---
 

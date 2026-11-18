@@ -7,14 +7,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dezxxx.currency.client.ExternalRateProviderClient;
+import com.dezxxx.currency.client.PublishedRates;
 import com.dezxxx.currency.config.RatesProperties;
 import com.dezxxx.currency.entity.ConversionRateEntity;
 import com.dezxxx.currency.entity.CurrencyEntity;
+import com.dezxxx.currency.entity.RateCorrectionEntity;
 import com.dezxxx.currency.entity.RateProviderEntity;
 import com.dezxxx.currency.mapper.CurrencyRateMapper;
 import com.dezxxx.currency.metrics.RateMetrics;
 import com.dezxxx.currency.repository.ConversionRateRepository;
 import com.dezxxx.currency.repository.CurrencyRepository;
+import com.dezxxx.currency.repository.RateCorrectionRepository;
 import com.dezxxx.currency.repository.RateProviderRepository;
 import com.dezxxx.currency.service.ExchangeRateService;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -44,6 +47,8 @@ class ExchangeRateServiceUpdateTest {
 
     private static final Instant NOW = Instant.parse("2026-11-14T12:00:00Z");
 
+    private static final Instant PUBLISHED = NOW.minus(Duration.ofMinutes(10));
+
     private static final List<String> CODES = List.of("USD", "EUR", "UAH", "ILS");
 
     // the answer of Open Exchange Rates on 2026-11-14
@@ -53,6 +58,8 @@ class ExchangeRateServiceUpdateTest {
             "UAH", new BigDecimal("45.477786"),
             "ILS", new BigDecimal("3.216745"));
 
+    private static final PublishedRates OXR_ANSWER = new PublishedRates(PUBLISHED, OXR_RATES);
+
     @Mock
     private ConversionRateRepository conversionRateRepository;
 
@@ -61,6 +68,9 @@ class ExchangeRateServiceUpdateTest {
 
     @Mock
     private RateProviderRepository rateProviderRepository;
+
+    @Mock
+    private RateCorrectionRepository rateCorrectionRepository;
 
     @Mock
     private ExternalRateProviderClient externalRateProviderClient;
@@ -78,21 +88,21 @@ class ExchangeRateServiceUpdateTest {
     @BeforeEach
     void setUp() {
         RatesProperties properties = new RatesProperties(Duration.ofHours(1), Duration.ZERO, Duration.ofHours(3),
-                Duration.ofMinutes(59), Duration.ofMinutes(59), Duration.ofSeconds(30));
+                Duration.ofMinutes(59), Duration.ofMinutes(59), Duration.ofSeconds(30), Duration.ofHours(2));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         registry = new SimpleMeterRegistry();
         RateMetrics metrics = new RateMetrics(registry, conversionRateRepository, clock);
         service = new ExchangeRateService(conversionRateRepository, currencyRepository, rateProviderRepository,
-                externalRateProviderClient, new CurrencyRateMapper(), transactionManager, properties, metrics, clock);
+                rateCorrectionRepository, externalRateProviderClient, new CurrencyRateMapper(), transactionManager, properties, metrics, clock);
         when(currencyRepository.findAllActive()).thenReturn(CODES.stream().map(ExchangeRateServiceUpdateTest::currency).toList());
     }
 
     @Test
-    @DisplayName("given valid OXR rates, when updating, then 12 pairs are saved through USD, valid 3 hours")
+    @DisplayName("given valid OXR rates, when updating, then 12 pairs are saved through USD, valid 3 hours from the publication")
     void savesEveryPairThroughUsd() {
         // given
         when(rateProviderRepository.findAllActiveByPriority()).thenReturn(List.of(provider("OXR")));
-        when(externalRateProviderClient.fetchUsdRates("OXR", CODES)).thenReturn(OXR_RATES);
+        when(externalRateProviderClient.fetchUsdRates("OXR", CODES)).thenReturn(OXR_ANSWER);
 
         // when
         service.updateRates();
@@ -102,8 +112,8 @@ class ExchangeRateServiceUpdateTest {
         List<ConversionRateEntity> rates = saved.getValue();
         assertThat(rates).hasSize(12);
         assertThat(rates).noneMatch(rate -> rate.getSourceCode().equals(rate.getDestinationCode()));
-        assertThat(rates).allMatch(rate -> rate.getRateBeginTime().equals(NOW)
-                && rate.getRateEndTime().equals(NOW.plus(Duration.ofHours(3)))
+        assertThat(rates).allMatch(rate -> rate.getRateBeginTime().equals(PUBLISHED)
+                && rate.getRateEndTime().equals(PUBLISHED.plus(Duration.ofHours(3)))
                 && rate.getProviderCode().equals("OXR"));
         assertThat(rateOf(rates, "UAH", "EUR")).isEqualByComparingTo("0.01994710");
         assertThat(rateOf(rates, "EUR", "UAH")).isEqualByComparingTo("50.13259770");
@@ -120,8 +130,8 @@ class ExchangeRateServiceUpdateTest {
         // given
         when(rateProviderRepository.findAllActiveByPriority()).thenReturn(List.of(provider("OXR"), provider("FXR")));
         when(externalRateProviderClient.fetchUsdRates("OXR", CODES))
-                .thenReturn(Map.of("USD", BigDecimal.ONE, "EUR", new BigDecimal("0.90715")));
-        when(externalRateProviderClient.fetchUsdRates("FXR", CODES)).thenReturn(OXR_RATES);
+                .thenReturn(new PublishedRates(PUBLISHED, Map.of("USD", BigDecimal.ONE, "EUR", new BigDecimal("0.90715"))));
+        when(externalRateProviderClient.fetchUsdRates("FXR", CODES)).thenReturn(OXR_ANSWER);
 
         // when
         service.updateRates();
@@ -136,10 +146,10 @@ class ExchangeRateServiceUpdateTest {
     void skipsProviderWithZeroRate() {
         // given
         when(rateProviderRepository.findAllActiveByPriority()).thenReturn(List.of(provider("OXR"), provider("FXR")));
-        when(externalRateProviderClient.fetchUsdRates("OXR", CODES)).thenReturn(Map.of(
+        when(externalRateProviderClient.fetchUsdRates("OXR", CODES)).thenReturn(new PublishedRates(PUBLISHED, Map.of(
                 "USD", BigDecimal.ONE, "EUR", BigDecimal.ZERO, "UAH", new BigDecimal("45.477786"),
-                "ILS", new BigDecimal("3.216745")));
-        when(externalRateProviderClient.fetchUsdRates("FXR", CODES)).thenReturn(OXR_RATES);
+                "ILS", new BigDecimal("3.216745"))));
+        when(externalRateProviderClient.fetchUsdRates("FXR", CODES)).thenReturn(OXR_ANSWER);
 
         // when
         service.updateRates();
@@ -156,7 +166,7 @@ class ExchangeRateServiceUpdateTest {
         when(rateProviderRepository.findAllActiveByPriority()).thenReturn(List.of(provider("OXR"), provider("FXR")));
         when(externalRateProviderClient.fetchUsdRates("OXR", CODES))
                 .thenThrow(new ResourceAccessException("Connect timed out"));
-        when(externalRateProviderClient.fetchUsdRates("FXR", CODES)).thenReturn(OXR_RATES);
+        when(externalRateProviderClient.fetchUsdRates("FXR", CODES)).thenReturn(OXR_ANSWER);
 
         // when
         service.updateRates();
@@ -189,7 +199,7 @@ class ExchangeRateServiceUpdateTest {
     void countsFailedWrite() {
         // given
         when(rateProviderRepository.findAllActiveByPriority()).thenReturn(List.of(provider("OXR")));
-        when(externalRateProviderClient.fetchUsdRates("OXR", CODES)).thenReturn(OXR_RATES);
+        when(externalRateProviderClient.fetchUsdRates("OXR", CODES)).thenReturn(OXR_ANSWER);
         when(conversionRateRepository.saveAll(anyList()))
                 .thenThrow(new DataIntegrityViolationException("ck_conversion_rates_rate_positive"));
 
@@ -199,6 +209,76 @@ class ExchangeRateServiceUpdateTest {
         // then
         assertThat(updates("failure")).isEqualTo(1);
         assertThat(updates("success")).isZero();
+    }
+
+    @Test
+    @DisplayName("given coefficients 0.98 for USD to EUR and 1.02 for UAH to EUR, when updating, then they are applied before rounding, other pairs untouched")
+    void appliesCorrectionBeforeRounding() {
+        // given
+        when(rateProviderRepository.findAllActiveByPriority()).thenReturn(List.of(provider("OXR")));
+        when(externalRateProviderClient.fetchUsdRates("OXR", CODES)).thenReturn(OXR_ANSWER);
+        when(rateCorrectionRepository.findAllActive())
+                .thenReturn(List.of(correction("USD", "EUR", "0.98"), correction("UAH", "EUR", "1.02")));
+
+        // when
+        service.updateRates();
+
+        // then
+        verify(conversionRateRepository).saveAll(saved.capture());
+        List<ConversionRateEntity> rates = saved.getValue();
+        assertThat(rateOf(rates, "USD", "EUR")).isEqualByComparingTo("0.88900700");
+        assertThat(rateOf(rates, "UAH", "EUR")).isEqualByComparingTo("0.02034604");
+        assertThat(rateOf(rates, "EUR", "USD")).isEqualByComparingTo("1.10235352");
+        assertThat(rateOf(rates, "ILS", "UAH")).isEqualByComparingTo("14.13782752");
+    }
+
+    @Test
+    @DisplayName("given OXR answers with rates published 3 hours ago, when updating, then nothing is saved and the failure is counted")
+    void refusesStaleAnswer() {
+        // given
+        when(rateProviderRepository.findAllActiveByPriority()).thenReturn(List.of(provider("OXR")));
+        when(externalRateProviderClient.fetchUsdRates("OXR", CODES))
+                .thenReturn(new PublishedRates(NOW.minus(Duration.ofHours(3)), OXR_RATES));
+
+        // when
+        service.updateRates();
+
+        // then
+        verify(conversionRateRepository, never()).saveAll(anyList());
+        assertThat(updates("failure")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("given OXR answers with a publication time in the future, when updating, then nothing is saved and the failure is counted")
+    void refusesFuturePublication() {
+        // given
+        when(rateProviderRepository.findAllActiveByPriority()).thenReturn(List.of(provider("OXR")));
+        when(externalRateProviderClient.fetchUsdRates("OXR", CODES))
+                .thenReturn(new PublishedRates(NOW.plus(Duration.ofMinutes(5)), OXR_RATES));
+
+        // when
+        service.updateRates();
+
+        // then
+        verify(conversionRateRepository, never()).saveAll(anyList());
+        assertThat(updates("failure")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("given the rates of this publication are already saved, when updating, then nothing is written and the update counts as a success")
+    void writesNothingForSavedPublication() {
+        // given
+        when(rateProviderRepository.findAllActiveByPriority()).thenReturn(List.of(provider("OXR")));
+        when(externalRateProviderClient.fetchUsdRates("OXR", CODES)).thenReturn(OXR_ANSWER);
+        when(conversionRateRepository.existsByProviderCodeAndRateBeginTime("OXR", PUBLISHED)).thenReturn(true);
+
+        // when
+        service.updateRates();
+
+        // then
+        verify(conversionRateRepository, never()).saveAll(anyList());
+        assertThat(updates("success")).isEqualTo(1);
+        assertThat(updates("failure")).isZero();
     }
 
     private double updates(String result) {
@@ -218,6 +298,15 @@ class ExchangeRateServiceUpdateTest {
         currency.setCode(code);
         currency.setActive(true);
         return currency;
+    }
+
+    private static RateCorrectionEntity correction(String source, String destination, String coefficient) {
+        RateCorrectionEntity correction = new RateCorrectionEntity();
+        correction.setSourceCode(source);
+        correction.setDestinationCode(destination);
+        correction.setCoefficient(new BigDecimal(coefficient));
+        correction.setActive(true);
+        return correction;
     }
 
     private static RateProviderEntity provider(String code) {

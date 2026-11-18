@@ -71,11 +71,16 @@ public abstract class IntegrationTest {
     @BeforeEach
     void cleanRatesAndLock() {
         jdbc.update("DELETE FROM conversion_rates");
+        jdbc.update("DELETE FROM rate_corrections");
         // ShedLock caches the row in memory: a deleted row is never recreated, every next update is skipped;
         // usingDbTime keeps lock_until in UTC, a bare now() would be in the connection's time zone
-        jdbc.update("UPDATE shedlock SET lock_until = timezone('utc', now())");
+        releaseLock();
         jdbc.update("UPDATE currencies SET active = TRUE");
         OXR.reset();
+    }
+
+    protected void releaseLock() {
+        jdbc.update("UPDATE shedlock SET lock_until = timezone('utc', now()) - interval '1 second'");
     }
 
     protected void insertRate(String source, String destination, String rate, Instant begin, Instant end) {
@@ -86,6 +91,10 @@ public abstract class IntegrationTest {
 
     protected int rates() {
         return jdbc.queryForObject("SELECT count(*) FROM conversion_rates", Integer.class);
+    }
+
+    protected int ratesEndingAt(Instant end) {
+        return jdbc.queryForObject("SELECT count(*) FROM conversion_rates WHERE rate_end_time = ?", Integer.class, utc(end));
     }
 
     protected BigDecimal rateOf(String source, String destination) {

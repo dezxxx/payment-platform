@@ -49,6 +49,8 @@ public abstract class IntegrationTest {
 
     protected static final String TRANSACTION_SERVICE_TIMEOUT = "1s";
 
+    protected static final String CURRENCY_RATE_SERVICE_TIMEOUT = "1s";
+
     static {
         KEYCLOAK.start();
         PERSON_SERVICE.start();
@@ -93,6 +95,7 @@ public abstract class IntegrationTest {
         registry.add("individuals.transaction-service.base-url", TRANSACTION_SERVICE::baseUrl);
         registry.add("individuals.transaction-service.response-timeout", () -> TRANSACTION_SERVICE_TIMEOUT);
         registry.add("individuals.currency-rate-service.base-url", CURRENCY_RATE_SERVICE::baseUrl);
+        registry.add("individuals.currency-rate-service.response-timeout", () -> CURRENCY_RATE_SERVICE_TIMEOUT);
         registry.add("management.opentelemetry.tracing.export.otlp.endpoint", OTLP_COLLECTOR::tracesEndpoint);
     }
 

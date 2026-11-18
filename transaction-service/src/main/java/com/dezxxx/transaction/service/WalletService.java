@@ -87,19 +87,13 @@ public class WalletService {
 
     @Transactional
     public void credit(UUID walletUid, UUID userUid, BigDecimal amount) {
-        int updated = walletRepository.credit(walletUid, userUid, amount, Instant.now(clock));
-        if (updated == 0) {
-            throw new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND);
-        }
+        requireUpdated(walletRepository.credit(walletUid, userUid, amount, Instant.now(clock)));
         log.info("Credited {} to wallet {} of user {}", amount, walletUid, userUid);
     }
 
     @Transactional
     public void debit(UUID walletUid, UUID userUid, BigDecimal amount) {
-        int updated = walletRepository.debit(walletUid, userUid, amount, Instant.now(clock));
-        if (updated == 0) {
-            throw new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND);
-        }
+        requireUpdated(walletRepository.debit(walletUid, userUid, amount, Instant.now(clock)));
         log.info("Debited {} from wallet {} of user {}", amount, walletUid, userUid);
     }
 
@@ -165,5 +159,11 @@ public class WalletService {
         wallet.setStatus(WalletStatus.ACTIVE);
         wallet.setBalance(BigDecimal.ZERO);
         return wallet;
+    }
+
+    private static void requireUpdated(int updatedRows) {
+        if (updatedRows == 0) {
+            throw new TransactionServiceException(ErrorCode.WALLET_NOT_FOUND);
+        }
     }
 }

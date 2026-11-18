@@ -1,7 +1,7 @@
 package com.dezxxx.individuals.rest;
 
 import com.dezxxx.individuals.api.TransactionsApi;
-import com.dezxxx.individuals.api.model.TransferInitRequestDto;
+import com.dezxxx.individuals.api.model.TransferInitUserRequestDto;
 import com.dezxxx.individuals.gateway.transaction.TransactionSearch;
 import com.dezxxx.individuals.service.TransactionService;
 import com.dezxxx.individuals.util.CurrentUser;
@@ -64,7 +64,7 @@ public class TransactionController implements TransactionsApi {
     }
 
     @Override
-    public Mono<ResponseEntity<TransactionInitResponseDto>> initTransfer(Mono<TransferInitRequestDto> transferInitRequest,
+    public Mono<ResponseEntity<TransactionInitResponseDto>> initTransfer(Mono<TransferInitUserRequestDto> transferInitRequest,
                                                                          ServerWebExchange exchange) {
         return CurrentUser.jwt(exchange)
                 .flatMap(jwt -> transferInitRequest.flatMap(request -> transactionService.initTransfer(jwt, request)))

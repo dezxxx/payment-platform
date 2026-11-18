@@ -10,9 +10,11 @@ import static org.mockito.Mockito.when;
 import com.dezxxx.currency.client.ExternalRateProviderClient;
 import com.dezxxx.currency.client.OxrApi;
 import com.dezxxx.currency.client.OxrLatestResponse;
+import com.dezxxx.currency.client.PublishedRates;
 import com.dezxxx.currency.exception.CurrencyRateServiceException;
 import com.dezxxx.currency.exception.ErrorCode;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,17 +39,18 @@ class ExternalRateProviderClientTest {
     }
 
     @Test
-    @DisplayName("given OXR, when fetching, then only our currencies are asked for and the USD rates are returned")
+    @DisplayName("given OXR, when fetching, then only our currencies are asked for and the USD rates come with the publication time")
     void fetchesOnlyOurCurrencies() {
         // given
         Map<String, BigDecimal> rates = Map.of("USD", BigDecimal.ONE, "EUR", new BigDecimal("0.90715"));
         when(oxrApi.latest("USD,EUR")).thenReturn(new OxrLatestResponse(1794682806L, "USD", rates));
 
         // when
-        Map<String, BigDecimal> result = client.fetchUsdRates("OXR", List.of("USD", "EUR"));
+        PublishedRates result = client.fetchUsdRates("OXR", List.of("USD", "EUR"));
 
         // then
-        assertThat(result).isEqualTo(rates);
+        assertThat(result.usdRates()).isEqualTo(rates);
+        assertThat(result.publishedAt()).isEqualTo(Instant.parse("2026-11-14T19:00:06Z"));
     }
 
     @Test

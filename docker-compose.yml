@@ -38,7 +38,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 30s
+      start_period: 300s
     ports:
       - "${KEYCLOAK_PORT}:8080"
 
@@ -65,7 +65,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      start_period: 300s
     ports:
       - "${PERSON_SERVICE_PORT}:8082"
 
@@ -114,7 +114,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      start_period: 300s
     ports:
       - "${TRANSACTION_SERVICE_PORT}:8084"
 
@@ -193,7 +193,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      start_period: 300s
     ports:
       - "${CURRENCY_RATE_SERVICE_PORT}:8088"
 
@@ -238,9 +238,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:19092 > /dev/null"]
       interval: 10s
-      timeout: 10s
+      timeout: 30s
       retries: 12
-      start_period: 20s
+      start_period: 300s
     ports:
       - "${KAFKA_PORT}:9092"
 
@@ -260,7 +260,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 20s
+      start_period: 300s
     ports:
       - "${SCHEMA_REGISTRY_PORT}:8081"
 
@@ -280,7 +280,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      start_period: 300s
     ports:
       - "${KAFKA_UI_PORT}:8080"
 
@@ -309,7 +309,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      start_period: 300s
     ports:
       - "${FAKE_PAYMENT_PROVIDER_PORT}:8086"
 
@@ -346,7 +346,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      start_period: 300s
     ports:
       - "${INDIVIDUALS_API_PORT}:8081"
 
