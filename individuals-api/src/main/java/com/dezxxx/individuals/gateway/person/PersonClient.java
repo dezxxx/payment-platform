@@ -15,8 +15,12 @@ import com.dezxxx.person.client.model.CreateIndividualRequestUserDto;
 import com.dezxxx.person.client.model.IndividualResponseDto;
 import com.dezxxx.person.client.model.IndividualResponseUserDto;
 import com.dezxxx.person.client.model.ProblemResponseDto;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -38,24 +42,25 @@ public class PersonClient {
     private final IndividualsApi individualsApi;
     private final PersonServiceProperties properties;
     private final AuthMetrics metrics;
+    private final CircuitBreakerRegistry breakers;
 
     public Mono<UUID> createPerson(RegistrationRequestDto request) {
-        return metrics.timePersonService(Mono.defer(() -> individualsApi.createIndividual(Mono.just(toCreateIndividual(request)))))
-                .map(PersonClient::userUidOf)
-                .onErrorMap(WebClientResponseException.class, PersonClient::translate)
-                .transform(GatewayErrors.transportFailures(PERSON_SERVICE, properties.baseUrl()));
+        return guarded(() -> individualsApi.createIndividual(Mono.just(toCreateIndividual(request))),
+                PersonClient::userUidOf);
     }
 
     public Mono<PersonProfile> findProfile(UUID userUid) {
-        return metrics.timePersonService(Mono.defer(() -> individualsApi.getIndividualById(userUid)))
-                .map(PersonClient::profileOf)
-                .onErrorMap(WebClientResponseException.class, PersonClient::translate)
-                .transform(GatewayErrors.transportFailures(PERSON_SERVICE, properties.baseUrl()));
+        return guarded(() -> individualsApi.getIndividualById(userUid), PersonClient::profileOf);
     }
 
     public Mono<Void> compensateRegistration(UUID userUid) {
-        return metrics.timePersonService(Mono.defer(() -> individualsApi.compensateRegistration(userUid)))
-                .then()
+        return guarded(() -> individualsApi.compensateRegistration(userUid), Function.identity()).then();
+    }
+
+    private <T, R> Mono<R> guarded(Supplier<Mono<T>> call, Function<T, R> result) {
+        return metrics.timePersonService(Mono.defer(call))
+                .transformDeferred(CircuitBreakerOperator.of(breakers.circuitBreaker(PERSON_SERVICE)))
+                .map(result)
                 .onErrorMap(WebClientResponseException.class, PersonClient::translate)
                 .transform(GatewayErrors.transportFailures(PERSON_SERVICE, properties.baseUrl()));
     }

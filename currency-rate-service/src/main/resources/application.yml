@@ -1,0 +1,88 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: currency-rate-service
+  web:
+    locale: en
+    locale-resolver: fixed
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${KEYCLOAK_URL:http://localhost:8080}/realms/${KEYCLOAK_REALM:payment-platform}/protocol/openid-connect/certs
+  datasource:
+    url: jdbc:postgresql://${CURRENCY_DB_HOST:localhost}:${CURRENCY_DB_PORT:5437}/${CURRENCY_DB_NAME:currency}
+    username: ${CURRENCY_DB_USER:currency}
+    password: ${CURRENCY_DB_PASSWORD:currency}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+      hibernate.type.preferred_instant_jdbc_type: TIMESTAMP
+
+springdoc:
+  swagger-ui:
+    url: /openapi/currency-rate-service.yaml
+
+currency:
+  rates:
+    update-interval: 1h
+    initial-delay: 0s
+    lifetime: 3h
+    lock-at-most-for: 59m
+    lock-at-least-for: 59m
+    transaction-timeout: 30s
+    max-age: 2h
+  provider:
+    connect-timeout: 10s
+    response-timeout: 5s
+    oxr:
+      url: ${OXR_URL:https://openexchangerates.org/api}
+      app-id: ${OXR_APP_ID:}
+  metrics:
+    refresh-interval: 30s
+
+resilience4j:
+  retry:
+    instances:
+      rateProvider:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.RestClientException
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,prometheus,metrics"
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+  observations:
+    annotations:
+      enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  structured:
+    format:
+      console: ecs

@@ -1,0 +1,266 @@
+openapi: 3.0.3
+
+info:
+  title: currency-rate-service
+  description: Exchange rates of every currency pair, updated hourly from external providers
+  version: 1.0.0
+  contact:
+    name: dezxxx
+    email: web7tudio@gmail.com
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8088
+    description: Local
+  - url: http://currency-rate-service:8088
+    description: Docker network
+
+tags:
+  - name: currency-rate
+    description: Rates, currencies and rate providers
+
+security:
+  - serviceToken: []
+
+paths:
+
+  /api/v1/rates:
+    get:
+      tags: [currency-rate]
+      operationId: getRate
+      summary: Rate of a pair valid at the given moment
+      description: The newest rate with rate_begin_time <= timestamp < rate_end_time. from and to must differ.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: Source currency code
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+            example: USD
+        - name: to
+          in: query
+          required: true
+          description: Destination currency code
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+            example: EUR
+        - name: timestamp
+          in: query
+          required: false
+          description: Moment the rate is needed for, ISO 8601 UTC; now when absent
+          schema:
+            type: string
+            format: date-time
+            example: "2026-11-14T12:30:00Z"
+      responses:
+        "200":
+          description: Rate found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RateNotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/currencies:
+    get:
+      tags: [currency-rate]
+      operationId: getCurrencies
+      summary: Every currency, active or not
+      responses:
+        "200":
+          description: Currencies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CurrencyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/rate-providers:
+    get:
+      tags: [currency-rate]
+      operationId: getRateProviders
+      summary: Every rate provider, by priority
+      responses:
+        "200":
+          description: Rate providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RateProviderResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+
+  securitySchemes:
+    serviceToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: The service account token of individuals-api from Keycloak, realm role SERVICE
+
+  schemas:
+
+    RateResponse:
+      type: object
+      required: [sourceCode, destinationCode, rate, rateTimestamp, providerCode]
+      properties:
+        sourceCode:
+          type: string
+          example: USD
+        destinationCode:
+          type: string
+          example: EUR
+        rate:
+          type: number
+          description: Units of destinationCode for one unit of sourceCode, 8 decimal places (HALF_UP)
+          example: 0.90715000
+        rateTimestamp:
+          type: string
+          format: date-time
+          description: Moment the provider published the rate; the rate is valid from it (rate_begin_time)
+          example: "2026-11-14T12:00:00Z"
+        providerCode:
+          type: string
+          example: OXR
+
+    CurrencyResponse:
+      type: object
+      required: [code, isoCode, description, active]
+      properties:
+        code:
+          type: string
+          description: ISO 4217 letter code
+          example: EUR
+        isoCode:
+          type: string
+          description: ISO 4217 numeric code, three digits with leading zeros
+          pattern: "^[0-9]{3}$"
+          example: "978"
+        description:
+          type: string
+          example: Euro
+        active:
+          type: boolean
+          example: true
+        symbol:
+          type: string
+          example: €
+
+    RateProviderResponse:
+      type: object
+      required: [providerCode, providerName, priority, active]
+      properties:
+        providerCode:
+          type: string
+          example: OXR
+        providerName:
+          type: string
+          example: Open Exchange Rates
+        description:
+          type: string
+        priority:
+          type: integer
+          format: int32
+          description: 1 is asked first
+          example: 1
+        active:
+          type: boolean
+          example: true
+
+    ErrorResponse:
+      type: object
+      description: RFC 9457 problem details
+      required: [type, title, status, detail, instance, timestamp, error, traceId, details]
+      properties:
+        type:
+          type: string
+          format: uri
+          example: https://example.org/problems/rate-not-found
+        title:
+          type: string
+          example: Not Found
+        status:
+          type: integer
+          format: int32
+          example: 404
+        detail:
+          type: string
+          example: No rate USD to EUR valid at 2026-11-14T12:30:00Z
+        instance:
+          type: string
+          example: /api/v1/rates
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-11-14T12:30:00Z"
+        error:
+          type: string
+          example: RATE_NOT_FOUND
+        traceId:
+          type: string
+          example: 4bf92f3577b34da6a3ce929d0e0e4736
+        details:
+          type: array
+          items:
+            type: string
+          example: []
+
+  responses:
+    BadRequest:
+      description: VALIDATION_ERROR - from or to not three capital letters, from equals to, timestamp not ISO 8601
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: AUTHENTICATION_REQUIRED - no token, bad signature or expired
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: ACCESS_DENIED - the token has no realm role SERVICE, a user token for instance
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateNotFound:
+      description: RATE_NOT_FOUND - no rate of the pair valid at that moment
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalServerError:
+      description: INTERNAL_ERROR - unexpected error
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

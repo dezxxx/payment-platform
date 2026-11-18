@@ -1,0 +1,298 @@
+import org.gradle.api.publish.maven.tasks.GenerateMavenPom
+import org.openapitools.generator.gradle.plugin.tasks.GenerateTask
+
+plugins {
+    java
+    id("org.springframework.boot") version "4.1.0"
+    id("io.spring.dependency-management") version "1.1.7"
+    id("org.openapi.generator") version "7.25.0"
+    jacoco
+    `maven-publish`
+}
+
+java {
+    toolchain {
+        languageVersion.set(
+            JavaLanguageVersion.of(providers.gradleProperty("javaToolchainVersion").get().toInt())
+        )
+    }
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.encoding = "UTF-8"
+    options.compilerArgs.addAll(listOf("-parameters", "-Xlint:all", "-Xlint:-processing"))
+}
+
+val shedlockVersion = "7.11.0"
+val resilience4jVersion = "2.4.0"
+
+dependencies {
+    // lombok
+    compileOnly("org.projectlombok:lombok")
+    annotationProcessor("org.projectlombok:lombok")
+    testCompileOnly("org.projectlombok:lombok")
+    testAnnotationProcessor("org.projectlombok:lombok")
+
+    // web
+    implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.springframework.boot:spring-boot-starter-restclient")
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0")
+
+    // data
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
+    implementation("org.flywaydb:flyway-database-postgresql")
+    runtimeOnly("org.postgresql:postgresql")
+
+    // security
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+
+    // scheduling
+    implementation("net.javacrumbs.shedlock:shedlock-spring:$shedlockVersion")
+    implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:$shedlockVersion")
+
+    // resilience
+    implementation("io.github.resilience4j:resilience4j-spring-boot4:$resilience4jVersion")
+    implementation("io.github.resilience4j:resilience4j-retry:$resilience4jVersion")
+
+    // observability
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
+    implementation("io.micrometer:micrometer-registry-prometheus")
+    implementation("org.springframework.boot:spring-boot-starter-aspectj")
+
+    // tests
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-resttestclient")
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-postgresql")
+    testImplementation("org.awaitility:awaitility")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}
+
+jacoco {
+    toolVersion = "0.8.14"
+}
+
+tasks.test {
+    filter { includeTestsMatching("com.dezxxx.currency.unit.*") }
+}
+
+val integrationTest = tasks.register<Test>("integrationTest") {
+    description = "Runs Testcontainers-backed integration tests."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter { includeTestsMatching("com.dezxxx.currency.integration.*") }
+    shouldRunAfter(tasks.test)
+}
+
+tasks.check { dependsOn(integrationTest) }
+
+val coveredClasses = { classes: FileCollection ->
+    files(classes.files.map {
+        fileTree(it) {
+            exclude("com/dezxxx/currency/api/**", "com/dezxxx/currency/CurrencyRateServiceApplication.class")
+        }
+    })
+}
+
+tasks.named<JacocoReport>("jacocoTestReport") {
+    dependsOn(tasks.test, integrationTest)
+    executionData(fileTree(layout.buildDirectory).include("jacoco/*.exec"))
+    classDirectories.setFrom(coveredClasses(classDirectories))
+    reports {
+        html.required.set(true)
+        xml.required.set(true)
+    }
+}
+
+tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
+    dependsOn(tasks.named("jacocoTestReport"))
+    executionData(fileTree(layout.buildDirectory).include("jacoco/*.exec"))
+    classDirectories.setFrom(coveredClasses(classDirectories))
+    violationRules {
+        rule {
+            limit {
+                counter = "LINE"
+                minimum = "0.80".toBigDecimal()
+            }
+        }
+    }
+}
+
+tasks.check { dependsOn(tasks.named("jacocoTestCoverageVerification")) }
+
+// openapi
+val contract = layout.projectDirectory.file("openapi/currency-rate-service.yaml")
+val generatedDir = layout.buildDirectory.dir("generated/openapi")
+
+tasks.processResources {
+    from(contract) { into("static/openapi") }
+}
+
+openApiValidate {
+    inputSpec.set(contract.asFile.absolutePath)
+    recommend.set(true)
+}
+
+tasks.named("check") { dependsOn("openApiValidate") }
+
+openApiGenerate {
+    generatorName.set("spring")
+    inputSpec.set(contract.asFile.absolutePath)
+    outputDir.set(generatedDir)
+    cleanupOutput.set(true)
+
+    apiPackage.set("com.dezxxx.currency.api")
+    modelPackage.set("com.dezxxx.currency.api.model")
+    modelNameSuffix.set("Dto")
+    invokerPackage.set("com.dezxxx.currency.api")
+
+    globalProperties.set(mapOf("apis" to "", "models" to "", "supportingFiles" to "ApiUtil.java"))
+
+    configOptions.set(
+        mapOf(
+            "interfaceOnly" to "true",
+            "delegatePattern" to "true",
+            "useSpringBoot4" to "true",
+            "useJspecify" to "true",
+            "useBeanValidation" to "true",
+            "useTags" to "true",
+            "openApiNullable" to "false",
+            "documentationProvider" to "none",
+            "annotationLibrary" to "none",
+            "dateLibrary" to "java8"
+        )
+    )
+}
+
+tasks.named("openApiGenerate") { dependsOn("openApiValidate") }
+
+// client for individuals-api
+val generatedClientDir = layout.buildDirectory.dir("generated/client")
+
+val openApiGenerateClient = tasks.register<GenerateTask>("openApiGenerateClient") {
+    dependsOn("openApiValidate")
+    generatorName.set("spring")
+    library.set("spring-http-interface")
+    inputSpec.set(contract.asFile.absolutePath)
+    outputDir.set(generatedClientDir)
+    cleanupOutput.set(true)
+
+    apiPackage.set("com.dezxxx.currency.client.api")
+    modelPackage.set("com.dezxxx.currency.client.model")
+    modelNameSuffix.set("Dto")
+    invokerPackage.set("com.dezxxx.currency.client")
+
+    globalProperties.set(mapOf("apis" to "", "models" to ""))
+
+    configOptions.set(
+        mapOf(
+            "reactive" to "true",
+            "useSpringBoot4" to "true",
+            "useJspecify" to "true",
+            "useBeanValidation" to "true",
+            "useTags" to "true",
+            "openApiNullable" to "false",
+            "documentationProvider" to "none",
+            "annotationLibrary" to "none",
+            "dateLibrary" to "java8"
+        )
+    )
+}
+
+sourceSets {
+    main {
+        java.srcDir(tasks.named("openApiGenerate").map { generatedDir.get().dir("src/main/java") })
+    }
+    create("client") {
+        java.srcDir(openApiGenerateClient.map { generatedClientDir.get().dir("src/main/java") })
+    }
+}
+
+dependencies {
+    "clientImplementation"("org.springframework:spring-web")
+    "clientImplementation"("org.springframework:spring-context")
+    "clientImplementation"("io.projectreactor:reactor-core")
+    "clientImplementation"("jakarta.validation:jakarta.validation-api")
+    "clientImplementation"("com.fasterxml.jackson.core:jackson-annotations")
+    "clientCompileOnly"("jakarta.annotation:jakarta.annotation-api")
+}
+
+val clientJar = tasks.register<Jar>("clientJar") {
+    archiveBaseName.set("currency-rate-service-client")
+    from(sourceSets["client"].output)
+}
+
+tasks.named("assemble") { dependsOn(clientJar) }
+
+tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
+    archiveFileName.set("currency-rate-service.jar")
+}
+
+// publishing
+// io.spring.dependency-management edits every pom with objects the configuration cache cannot store
+tasks.withType<GenerateMavenPom>().configureEach {
+    notCompatibleWithConfigurationCache("io.spring.dependency-management edits every generated pom")
+}
+
+val clientDependencies = configurations["clientRuntimeClasspath"].incoming.resolutionResult.rootComponent.map { root ->
+    root.dependencies
+        .filterIsInstance<org.gradle.api.artifacts.result.ResolvedDependencyResult>()
+        .mapNotNull { it.selected.moduleVersion }
+        .map { Triple(it.group, it.name, it.version) }
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("client") {
+            val dependencyList = clientDependencies
+            artifact(clientJar)
+            groupId = project.group.toString()
+            artifactId = "currency-rate-service-client"
+            version = project.version.toString()
+            pom {
+                name.set("currency-rate-service-client")
+                description.set("Generated DTOs and HTTP service client of currency-rate-service")
+                // a jar built by hand has no dependencies in its pom
+                withXml {
+                    val dependencies = asNode().appendNode("dependencies")
+                    dependencyList.get().forEach { (group, name, version) ->
+                        dependencies.appendNode("dependency").apply {
+                            appendNode("groupId", group)
+                            appendNode("artifactId", name)
+                            appendNode("version", version)
+                            appendNode("scope", "compile")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "nexus"
+            val releases = providers.gradleProperty("nexusReleasesUrl").get()
+            val snapshots = providers.gradleProperty("nexusSnapshotsUrl").get()
+            url = uri(if (version.toString().endsWith("SNAPSHOT")) snapshots else releases)
+            isAllowInsecureProtocol = providers.gradleProperty("nexusAllowInsecureProtocol").get().toBoolean()
+            val user = providers.environmentVariable("NEXUS_USERNAME").orNull
+            val pass = providers.environmentVariable("NEXUS_PASSWORD").orNull
+            if (user != null && pass != null) {
+                credentials {
+                    username = user
+                    password = pass
+                }
+                // Nexus answers an anonymous request with 403, and Gradle sends credentials only after a 401
+                authentication { create<BasicAuthentication>("basic") }
+            }
+        }
+    }
+}

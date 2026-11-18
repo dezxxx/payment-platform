@@ -8,7 +8,7 @@ Module 2. Shared rules, ports and how the platform is started: [`CONTEXT.md`](..
 
 The module 1 handout names the domain service `person-service`, and this
 repository follows it: the Gradle module, the contract, the generated
-`person-client` artifact, the `person` database schema and the
+`person-service-client` artifact, the `person` database schema and the
 `individuals.person-service.*` properties all use that name. The platform
 description in §1 of `../CONTEXT.md` calls the same service **Users Service**.
 
@@ -92,7 +92,7 @@ The API never frees it - that is a deliberate support action.
 | Caller | only a platform service gets in: every request except the actuator, the OpenAPI documents and Swagger UI needs a Keycloak token with the realm role `SERVICE` (`SecurityConfig`, resource server, `jwk-set-uri` from `KEYCLOAK_URL` / `KEYCLOAK_REALM`). No token or a foreign signature → `401 AUTHENTICATION_REQUIRED`, a user token → `403 ACCESS_DENIED`, both in the usual problem body through `GlobalExceptionHandler`. Why: the port 8082 is published, and without it anyone could read a passport by email or hard-delete an individual through `/compensate-registration/{id}`. The decision, the rejected options and the `iss` trap: rule 7 in §3 of the root `CONTEXT.md`. `SecurityConfig` is deliberately this service's own: the same text sits in the other internal service, but a shared jar was rejected - they are settings of two applications and may diverge (another open path in one of them must not touch the other) |
 | Exceptions | one `PersonException` carrying an `ErrorCode` (status + message), the same pattern as module 1's `ApiException`. `VALIDATION_ERROR` / `MALFORMED_REQUEST` / `COUNTRY_NOT_FOUND` 400, `AUTHENTICATION_REQUIRED` 401, `ACCESS_DENIED` 403, `INDIVIDUAL_NOT_FOUND` 404, `EMAIL_ALREADY_EXISTS` / `CONCURRENT_MODIFICATION` 409, framework `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR` 500. A second create racing past the email check is stopped by `uk_users_email_lower` and still answers 409 |
 | Transactions | `IndividualService` is `@Transactional(readOnly = true)`; create, update and delete open a writing transaction. The response is built inside the transaction, so LAZY associations load there and nothing lazy leaves the service |
-| Client | `person-service-client` replaces `person-client`; individuals-api moves to it and gains the registration compensation - `DELETE /compensate-registration/{id}` when the Keycloak part fails |
+| Client | `person-service-client`, generated from the contract and published by person-service; individuals-api calls it, including the registration compensation - `DELETE /compensate-registration/{id}` when the Keycloak part fails |
 | Contract evolution | module 2 publishes no Kafka events yet, but later modules will carry the same data as Avro events with schemas in Confluent Schema Registry, which refuses an incompatible schema. The OpenAPI contract follows the same rules now: fields are only added, and only as optional ones with a default; a published field is never renamed, removed or retyped; a breaking change is a new version (`/api/v2/...`), not an edit of v1. Events will reuse the REST names and formats: the individual's id as `user_uid`, times in UTC ISO-8601, `status` as a string (`NEW`, `VERIFIED`, `ARCHIVED`) |
 
 ### Done
@@ -186,7 +186,7 @@ The API never frees it - that is a deliberate support action.
       - `KeycloakTokenResponseDto`, `KeycloakUserRequestDto`
       - waits for a healthy person-service and a healthy Keycloak, and has a
         healthcheck of its own;
-        the WireMock stub and the old `person-client` module are gone
+        the WireMock stub is gone
 - [x] Both services answer in English whatever the client's `Accept-Language` or
       the server locale (`spring.web.locale: en`, fixed resolver): an API returns
       stable texts and codes, the user interface translates

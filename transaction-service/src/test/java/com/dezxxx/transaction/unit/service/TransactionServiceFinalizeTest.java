@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.dezxxx.transaction.config.FeeProperties;
 import com.dezxxx.transaction.config.OfferTokenProperties;
+import com.dezxxx.transaction.config.TransferProperties;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
 import com.dezxxx.transaction.entity.transaction.TransactionStatus;
@@ -87,7 +88,7 @@ class TransactionServiceFinalizeTest {
     void setUp() {
         transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
                 new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.01"), new BigDecimal("0.005")),
-                transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
+                new TransferProperties(new BigDecimal("1.00")), transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
                 new OfferTokenProperties("secret", Duration.ofMinutes(5)), transactionMetrics, Clock.systemUTC());
     }
 

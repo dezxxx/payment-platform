@@ -55,7 +55,7 @@ class TransactionTransferIT extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("given a USD and an EUR wallet, when init, then 400 CURRENCY_MISMATCH and no offer")
+    @DisplayName("given a USD and an EUR wallet and no currency codes, when init, then 400 CURRENCY_MISMATCH and no offer")
     void initRefusesOtherCurrency() {
         // given
         UUID user = UUID.randomUUID();
@@ -118,10 +118,12 @@ class TransactionTransferIT extends IntegrationTest {
         assertThat(balance(source, user)).isEqualByComparingTo("49.50");
         assertThat(balance(target, user)).isEqualByComparingTo("100.00");
         Map<String, Object> transaction = jdbc.queryForMap(
-                "SELECT type::text AS type, status, wallet_uid, target_wallet_uid, amount, fee, request_id"
-                        + " FROM transactions WHERE uid = ? AND user_uid = ?", confirmed.getTransactionId(), user);
+                "SELECT type::text AS type, status, wallet_uid, target_wallet_uid, amount, fee, rate, target_amount,"
+                        + " request_id FROM transactions WHERE uid = ? AND user_uid = ?",
+                confirmed.getTransactionId(), user);
         assertThat(transaction).containsEntry("type", "TRANSFER").containsEntry("status", "COMPLETED")
-                .containsEntry("wallet_uid", source).containsEntry("target_wallet_uid", target);
+                .containsEntry("wallet_uid", source).containsEntry("target_wallet_uid", target)
+                .containsEntry("rate", null).containsEntry("target_amount", null);
         assertThat(transaction.get("request_id")).isNotNull();
         assertThat((BigDecimal) transaction.get("fee")).isEqualByComparingTo("0.50");
         assertThat(events(user)).isZero();

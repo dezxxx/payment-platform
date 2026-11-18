@@ -1,0 +1,703 @@
+{
+  "info": {
+    "name": "currency-rate-service",
+    "description": "Every endpoint of currency-rate-service and every error it answers with.\n\nThe rates are live: once an hour the service takes them from Open Exchange Rates, so the requests check how the rates relate to each other (EUR → USD is 1 / USD → EUR, UAH → EUR goes through USD), not fixed numbers. The service takes the first rates right after the start; run the collection once it is up.\n\nOnly a platform service gets in: the first request takes the service token of individuals-api (client_credentials, realm role SERVICE), every request below carries it.\n\nbaseUrl is http://localhost:8088 - currency-rate-service in docker compose (make up), with OXR_APP_ID in .env.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Infrastructure",
+      "item": [
+        {
+          "name": "Service token - client_credentials of individuals-api, realm role SERVICE",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('clientSecret')) {",
+                  "    throw new Error('clientSecret is empty: set KEYCLOAK_CLIENT_SECRET from .env');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const token = pm.response.json().access_token;",
+                  "const claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));",
+                  "pm.test('the realm role SERVICE', () => pm.expect(claims.realm_access.roles).to.include('SERVICE'));",
+                  "pm.collectionVariables.set('serviceToken', token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{clientId}}"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "{{clientSecret}}"
+                }
+              ]
+            },
+            "url": "{{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/token",
+            "description": "The token individuals-api sends to this service. Every request below carries it (collection auth); the infrastructure requests need none."
+          }
+        },
+        {
+          "name": "Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/health",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Swagger UI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/swagger-ui.html",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Contract file",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('our contract', () => pm.expect(pm.response.text()).to.include('operationId: getRate'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/openapi/currency-rate-service.yaml",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Rates",
+      "description": "Every pair of the active currencies (USD, EUR, UAH, ILS) is computed once an hour through USD: source → destination = (USD → destination) / (USD → source), 8 decimals, HALF_UP.",
+      "item": [
+        {
+          "name": "USD → EUR now",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('the pair as asked', () => { pm.expect(r.sourceCode).to.eql('USD'); pm.expect(r.destinationCode).to.eql('EUR'); });",
+                  "pm.test('a positive rate, at most 8 decimals', () => { pm.expect(r.rate).to.be.above(0); pm.expect((String(r.rate).split('.')[1] || '').length).to.be.at.most(8); });",
+                  "pm.test('from OXR', () => pm.expect(r.providerCode).to.eql('OXR'));",
+                  "pm.test('rateTimestamp in UTC, not in the future', () => { pm.expect(r.rateTimestamp).to.match(/Z$/); pm.expect(Date.parse(r.rateTimestamp)).to.be.at.most(Date.now()); });",
+                  "pm.collectionVariables.set('usdEur', r.rate);",
+                  "pm.collectionVariables.set('rateTimestamp', r.rateTimestamp);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=USD&to=EUR"
+          }
+        },
+        {
+          "name": "EUR → USD now - the reverse of USD → EUR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const usdEur = Number(pm.collectionVariables.get('usdEur'));",
+                  "pm.test('EUR → USD × USD → EUR = 1', () => pm.expect(pm.response.json().rate * usdEur).to.be.closeTo(1, 0.000001));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=EUR&to=USD"
+          }
+        },
+        {
+          "name": "UAH → USD now",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('uahUsd', pm.response.json().rate);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=UAH&to=USD"
+          }
+        },
+        {
+          "name": "UAH → EUR now - through USD",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const uahUsd = Number(pm.collectionVariables.get('uahUsd'));",
+                  "const usdEur = Number(pm.collectionVariables.get('usdEur'));",
+                  "pm.test('UAH → EUR = UAH → USD × USD → EUR', () => pm.expect(pm.response.json().rate).to.be.closeTo(uahUsd * usdEur, 0.0000001));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=UAH&to=EUR"
+          }
+        },
+        {
+          "name": "USD → EUR at the moment it began - the same rate",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('the same rate and begin', () => { pm.expect(r.rate).to.eql(Number(pm.collectionVariables.get('usdEur'))); pm.expect(r.rateTimestamp).to.eql(pm.collectionVariables.get('rateTimestamp')); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/rates?from=USD&to=EUR&timestamp={{rateTimestamp}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "rates"],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "USD"
+                },
+                {
+                  "key": "to",
+                  "value": "EUR"
+                },
+                {
+                  "key": "timestamp",
+                  "value": "{{rateTimestamp}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Currencies and providers",
+      "item": [
+        {
+          "name": "Currencies - four, by code",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const list = pm.response.json();",
+                  "pm.test('EUR, ILS, UAH, USD in this order', () => pm.expect(list.map(c => c.code)).to.eql(['EUR', 'ILS', 'UAH', 'USD']));",
+                  "pm.test('USD: ISO 840, $, active', () => { const usd = list.find(c => c.code === 'USD'); pm.expect(usd.isoCode).to.eql('840'); pm.expect(usd.symbol).to.eql('$'); pm.expect(usd.active).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/currencies"
+          }
+        },
+        {
+          "name": "Rate providers - OXR first",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json()[0];",
+                  "pm.test('OXR, priority 1, active', () => { pm.expect(p.providerCode).to.eql('OXR'); pm.expect(p.providerName).to.eql('Open Exchange Rates'); pm.expect(p.priority).to.eql(1); pm.expect(p.active).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rate-providers"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Failures - RFC 9457",
+      "item": [
+        {
+          "name": "404 - no rate valid in 2000",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "const p = pm.response.json();",
+                  "pm.test('error RATE_NOT_FOUND', () => pm.expect(p.error).to.eql('RATE_NOT_FOUND'));",
+                  "pm.test('RFC 9457 body: type, title, status, detail, instance, timestamp, traceId, details', () => {",
+                  "  ['type', 'title', 'status', 'detail', 'instance', 'timestamp', 'traceId', 'details'].forEach(f => pm.expect(p).to.have.property(f));",
+                  "  pm.expect(p.status).to.eql(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=USD&to=EUR&timestamp=2000-01-01T00:00:00Z"
+          }
+        },
+        {
+          "name": "404 - a currency the service does not keep",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "pm.test('error RATE_NOT_FOUND', () => pm.expect(pm.response.json().error).to.eql('RATE_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=USD&to=GBP"
+          }
+        },
+        {
+          "name": "400 - from equals to",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(pm.response.json().error).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=USD&to=USD"
+          }
+        },
+        {
+          "name": "400 - a code in small letters",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(pm.response.json().error).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=usd&to=EUR"
+          }
+        },
+        {
+          "name": "400 - to missing",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(pm.response.json().error).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=USD"
+          }
+        },
+        {
+          "name": "400 - timestamp is not ISO 8601",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('error VALIDATION_ERROR', () => pm.expect(pm.response.json().error).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=USD&to=EUR&timestamp=yesterday"
+          }
+        },
+        {
+          "name": "405 - rates are only read",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('405', () => pm.response.to.have.status(405));",
+                  "pm.test('error METHOD_NOT_ALLOWED', () => pm.expect(pm.response.json().error).to.eql('METHOD_NOT_ALLOWED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=USD&to=EUR"
+          }
+        },
+        {
+          "name": "404 - an unknown path",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "pm.test('error NOT_FOUND', () => pm.expect(pm.response.json().error).to.eql('NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/exchange"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Observability",
+      "item": [
+        {
+          "name": "Prometheus scrape - every pair has a valid rate",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const m = pm.response.text();",
+                  "pm.test('12 valid pairs', () => pm.expect(m).to.match(/^rate_valid_pairs(\\{[^}]*\\})? 12(\\.0)?$/m));",
+                  "pm.test('updates counted, age gauge present', () => { pm.expect(m).to.include('rate_updates_total'); pm.expect(m).to.include('rate_newest_age_seconds'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/prometheus",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Direct request is refused - only a platform service gets in",
+      "description": "The port is published: a request may skip individuals-api. Without the service token it gets nothing.",
+      "item": [
+        {
+          "name": "401 - no token, straight on the published port",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('AUTHENTICATION_REQUIRED', () => pm.expect(pm.response.json().error).to.eql('AUTHENTICATION_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=USD&to=EUR"
+          }
+        },
+        {
+          "name": "401 - a forged token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('AUTHENTICATION_REQUIRED', () => pm.expect(pm.response.json().error).to.eql('AUTHENTICATION_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJSUzI1NiJ9.eyJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsiU0VSVklDRSJdfX0.Zm9yZ2Vk",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=USD&to=EUR"
+          }
+        },
+        {
+          "name": "Register a user through individuals-api - a user token, role USER",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('userToken', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"refused-{{$guid}}@example.com\",\n  \"password\": \"Str0ngPass!\",\n  \"confirmPassword\": \"Str0ngPass!\",\n  \"firstName\": \"Oleg\",\n  \"lastName\": \"Sidorov\",\n  \"address\": {\n    \"countryAlpha3\": \"UKR\",\n    \"city\": \"Kyiv\",\n    \"zipCode\": \"01001\",\n    \"addressLine\": \"1 Example St.\"\n  },\n  \"individual\": {\n    \"passportNumber\": \"123456789\",\n    \"phoneNumber\": \"+380441234567\"\n  }\n}"
+            },
+            "url": "{{individualsUrl}}/api/v1/auth/registration"
+          }
+        },
+        {
+          "name": "403 - a user token: role USER, not SERVICE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));",
+                  "pm.test('ACCESS_DENIED', () => pm.expect(pm.response.json().error).to.eql('ACCESS_DENIED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/rates?from=USD&to=EUR"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8088"
+    },
+    {
+      "key": "usdEur",
+      "value": ""
+    },
+    {
+      "key": "uahUsd",
+      "value": ""
+    },
+    {
+      "key": "rateTimestamp",
+      "value": ""
+    },
+    {
+      "key": "keycloakUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "realm",
+      "value": "payment-platform"
+    },
+    {
+      "key": "clientId",
+      "value": "individuals-api"
+    },
+    {
+      "key": "clientSecret",
+      "value": "",
+      "description": "KEYCLOAK_CLIENT_SECRET from .env - set it here or pass --env-var clientSecret=... to newman; it is never stored in the collection."
+    },
+    {
+      "key": "serviceToken",
+      "value": ""
+    },
+    {
+      "key": "individualsUrl",
+      "value": "http://localhost:8081",
+      "description": "Only to register a user whose token must be refused here."
+    },
+    {
+      "key": "userToken",
+      "value": ""
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{serviceToken}}",
+        "type": "string"
+      }
+    ]
+  }
+}

@@ -10,6 +10,7 @@ testcontainersKeycloak      = "4.3.1"
 jacoco                      = "0.8.14"
 swaggerAnnotations          = "2.2.42"
 jacksonDatabindNullable     = "0.2.6"
+resilience4j                = "2.4.0"
 
 keycloakImage               = "26.7.2"
 postgresImage               = "18.2"
@@ -34,6 +35,12 @@ reactor-core-micrometer              = { module = "io.projectreactor:reactor-cor
 
 # --- Observability ---
 micrometer-registry-prometheus       = { module = "io.micrometer:micrometer-registry-prometheus" }
+
+# --- Resilience: the circuit breaker on the calls to the platform services ---
+resilience4j-spring-boot4            = { module = "io.github.resilience4j:resilience4j-spring-boot4", version.ref = "resilience4j" }
+resilience4j-circuitbreaker          = { module = "io.github.resilience4j:resilience4j-circuitbreaker", version.ref = "resilience4j" }
+resilience4j-reactor                 = { module = "io.github.resilience4j:resilience4j-reactor", version.ref = "resilience4j" }
+resilience4j-micrometer              = { module = "io.github.resilience4j:resilience4j-micrometer", version.ref = "resilience4j" }
 
 # --- API documentation ---
 springdoc-openapi-starter-webflux-ui = { module = "org.springdoc:springdoc-openapi-starter-webflux-ui", version.ref = "springdocOpenapi" }

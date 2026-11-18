@@ -54,6 +54,27 @@ class TransactionMapperTest {
         assertThat(offer.getTotal()).isEqualByComparingTo("101.00");
         assertThat(offer.getExpiresAt()).isEqualTo(OffsetDateTime.of(2026, 10, 29, 12, 5, 0, 0, ZoneOffset.UTC));
         assertThat(offer.getOfferToken()).isEqualTo("payload.signature");
+        assertThat(offer.getRate()).isNull();
+        assertThat(offer.getTargetAmount()).isNull();
+    }
+
+    @Test
+    @DisplayName("given 150.00 UAH, fee 0.75, rate 0.01994710 and 2.99 EUR, when mapping the transfer offer, then total"
+            + " 150.75, the rate and targetAmount as is")
+    void mapsTransferInitOffer() {
+        // when
+        TransactionInitResponseDto offer = transactionMapper.toTransferInitResponse(new BigDecimal("150.00"),
+                new BigDecimal("0.75"), new BigDecimal("0.01994710"), new BigDecimal("2.99"),
+                Instant.parse("2026-10-29T12:05:00Z"), "payload.signature");
+
+        // then
+        assertThat(offer.getAmount()).isEqualByComparingTo("150.00");
+        assertThat(offer.getFee()).isEqualByComparingTo("0.75");
+        assertThat(offer.getTotal()).isEqualByComparingTo("150.75");
+        assertThat(offer.getRate()).isEqualByComparingTo("0.01994710");
+        assertThat(offer.getTargetAmount()).isEqualByComparingTo("2.99");
+        assertThat(offer.getExpiresAt()).isEqualTo(OffsetDateTime.of(2026, 10, 29, 12, 5, 0, 0, ZoneOffset.UTC));
+        assertThat(offer.getOfferToken()).isEqualTo("payload.signature");
     }
 
     @Test
@@ -191,8 +212,40 @@ class TransactionMapperTest {
         assertThat(status.getTargetWalletUid()).isNull();
         assertThat(status.getAmount()).isEqualByComparingTo("100.00");
         assertThat(status.getFee()).isEqualByComparingTo("1.00");
+        assertThat(status.getRate()).isNull();
+        assertThat(status.getTargetAmount()).isNull();
         assertThat(status.getFailureReason()).isEqualTo("Declined by the provider");
         assertThat(status.getCreatedAt()).isEqualTo(OffsetDateTime.of(2026, 10, 25, 12, 0, 0, 0, ZoneOffset.UTC));
+    }
+
+    @Test
+    @DisplayName("given a completed transfer between currencies, when mapping its status, then the target wallet,"
+            + " the rate and targetAmount")
+    void mapsConversionStatus() {
+        // given
+        UUID targetWalletUid = UUID.fromString("7e6d5c4b-3a29-4180-9f8e-7d6c5b4a3928");
+        TransactionEntity transaction = new TransactionEntity();
+        transaction.setUid(TRANSACTION_UID);
+        transaction.setType(TransactionPaymentType.TRANSFER);
+        transaction.setStatus(TransactionStatus.COMPLETED);
+        transaction.setWalletUid(WALLET_UID);
+        transaction.setTargetWalletUid(targetWalletUid);
+        transaction.setAmount(new BigDecimal("150.00"));
+        transaction.setFee(new BigDecimal("0.75"));
+        transaction.setRate(new BigDecimal("0.01994710"));
+        transaction.setTargetAmount(new BigDecimal("2.99"));
+        transaction.setCreatedAt(Instant.parse("2026-10-25T12:00:00Z"));
+
+        // when
+        TransactionStatusResponseDto status = transactionMapper.toStatusResponse(transaction);
+
+        // then
+        assertThat(status.getType()).isEqualTo(TransactionTypeDto.TRANSFER);
+        assertThat(status.getTargetWalletUid()).isEqualTo(targetWalletUid);
+        assertThat(status.getAmount()).isEqualByComparingTo("150.00");
+        assertThat(status.getFee()).isEqualByComparingTo("0.75");
+        assertThat(status.getRate()).isEqualByComparingTo("0.01994710");
+        assertThat(status.getTargetAmount()).isEqualByComparingTo("2.99");
     }
 
     @Test

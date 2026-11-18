@@ -16,6 +16,7 @@ import com.dezxxx.transaction.api.model.WithdrawalConfirmRequestDto;
 import com.dezxxx.transaction.api.model.WithdrawalInitRequestDto;
 import com.dezxxx.transaction.config.FeeProperties;
 import com.dezxxx.transaction.config.OfferTokenProperties;
+import com.dezxxx.transaction.config.TransferProperties;
 import com.dezxxx.transaction.entity.transaction.OutboxEventEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionEntity;
 import com.dezxxx.transaction.entity.transaction.TransactionPaymentType;
@@ -113,7 +114,7 @@ class TransactionServiceWithdrawalTest {
     @BeforeEach
     void setUp() {
         transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
-                FEES, transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner,
+                FEES, new TransferProperties(new BigDecimal("1.00")), transactionMapper, dateRangeValidator, tracer, propagator, offerTokenSigner,
                 offerTokenValidator, new OfferTokenProperties("secret", Duration.ofMinutes(5)), transactionMetrics,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -190,7 +191,7 @@ class TransactionServiceWithdrawalTest {
     void debitsFeeFromToken() {
         // given
         transactionService = new TransactionService(transactionRepository, outboxEventRepository, walletService,
-                new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.05"), BigDecimal.ZERO), transactionMapper,
+                new FeeProperties(BigDecimal.ZERO, new BigDecimal("0.05"), BigDecimal.ZERO), new TransferProperties(new BigDecimal("1.00")), transactionMapper,
                 dateRangeValidator, tracer, propagator, offerTokenSigner, offerTokenValidator,
                 new OfferTokenProperties("secret", Duration.ofMinutes(5)), transactionMetrics, Clock.fixed(NOW, ZoneOffset.UTC));
         givenOffer(EXPIRES_AT);
@@ -287,7 +288,7 @@ class TransactionServiceWithdrawalTest {
     private void givenOffer(Instant expiresAt) {
         when(offerTokenValidator.validate(OFFER_TOKEN, USER_UID, TransactionPaymentType.WITHDRAWAL))
                 .thenReturn(new OfferTerms(REQUEST_ID, USER_UID, TransactionPaymentType.WITHDRAWAL, WALLET_UID, null,
-                        AMOUNT, FEE, expiresAt, null));
+                        AMOUNT, FEE, null, null, expiresAt, null));
     }
 
     private void givenClaimed() {
