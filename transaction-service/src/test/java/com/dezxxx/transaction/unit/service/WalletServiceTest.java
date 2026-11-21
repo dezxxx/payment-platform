@@ -206,8 +206,8 @@ class WalletServiceTest {
     }
 
     @Test
-    @DisplayName("given two ACTIVE USD wallets of the user, when taking them for a transfer, then the source is returned")
-    void givesActiveSameCurrencyWallet() {
+    @DisplayName("given two ACTIVE USD wallets and no currency codes, when taking them for a transfer, then the source is returned")
+    void givesActiveWallets() {
         // given
         WalletEntity source = wallet(WALLET_UID, "USD");
         WalletEntity target = wallet(TARGET_UID, "USD");
@@ -215,34 +215,75 @@ class WalletServiceTest {
                 .thenReturn(List.of(target, source));
 
         // when
-        WalletEntity result = walletService.getActiveSameCurrencyWallet(WALLET_UID, TARGET_UID, USER_UID);
+        WalletEntity result = walletService.getActiveWallets(WALLET_UID, TARGET_UID, USER_UID, null, null);
 
         // then
         assertThat(result).isSameAs(source);
     }
 
     @Test
-    @DisplayName("given the target not found, when locking the same-currency wallets, then WALLET_NOT_FOUND")
+    @DisplayName("given the target not found, when locking both wallets, then WALLET_NOT_FOUND")
     void refusesTransferWithoutTarget() {
         // given
         when(walletRepository.findAllActiveForUpdate(List.of(WALLET_UID, TARGET_UID), USER_UID))
                 .thenReturn(List.of(wallet(WALLET_UID, "USD")));
 
         // when / then
-        assertThatThrownBy(() -> walletService.lockActiveSameCurrencyWallets(WALLET_UID, TARGET_UID, USER_UID))
+        assertThatThrownBy(() -> walletService.lockActiveWallets(WALLET_UID, TARGET_UID, USER_UID))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.WALLET_NOT_FOUND);
     }
 
     @Test
-    @DisplayName("given a USD and an EUR wallet, when locking the same-currency wallets, then CURRENCY_MISMATCH")
+    @DisplayName("given a USD and an EUR wallet and no currency codes, when taking them for a transfer, then CURRENCY_MISMATCH")
     void refusesTransferBetweenCurrencies() {
         // given
-        when(walletRepository.findAllActiveForUpdate(List.of(WALLET_UID, TARGET_UID), USER_UID))
+        when(walletRepository.findAllActiveByUids(List.of(WALLET_UID, TARGET_UID), USER_UID))
                 .thenReturn(List.of(wallet(WALLET_UID, "USD"), wallet(TARGET_UID, "EUR")));
 
         // when / then
-        assertThatThrownBy(() -> walletService.lockActiveSameCurrencyWallets(WALLET_UID, TARGET_UID, USER_UID))
+        assertThatThrownBy(() -> walletService.getActiveWallets(WALLET_UID, TARGET_UID, USER_UID, null, null))
+                .isInstanceOf(TransactionServiceException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.CURRENCY_MISMATCH);
+    }
+
+    @Test
+    @DisplayName("given a UAH and an EUR wallet and the codes UAH, EUR, when taking them for a transfer, then the source is returned")
+    void givesWalletsOfTwoCurrencies() {
+        // given
+        WalletEntity source = wallet(WALLET_UID, "UAH");
+        when(walletRepository.findAllActiveByUids(List.of(WALLET_UID, TARGET_UID), USER_UID))
+                .thenReturn(List.of(source, wallet(TARGET_UID, "EUR")));
+
+        // when
+        WalletEntity result = walletService.getActiveWallets(WALLET_UID, TARGET_UID, USER_UID, "UAH", "EUR");
+
+        // then
+        assertThat(result).isSameAs(source);
+    }
+
+    @Test
+    @DisplayName("given a UAH and an EUR wallet and the codes EUR, UAH, when taking them for a transfer, then CURRENCY_MISMATCH")
+    void refusesSwappedCodes() {
+        // given
+        when(walletRepository.findAllActiveByUids(List.of(WALLET_UID, TARGET_UID), USER_UID))
+                .thenReturn(List.of(wallet(WALLET_UID, "UAH"), wallet(TARGET_UID, "EUR")));
+
+        // when / then
+        assertThatThrownBy(() -> walletService.getActiveWallets(WALLET_UID, TARGET_UID, USER_UID, "EUR", "UAH"))
+                .isInstanceOf(TransactionServiceException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.CURRENCY_MISMATCH);
+    }
+
+    @Test
+    @DisplayName("given two USD wallets and the codes USD, USD, when taking them for a transfer, then CURRENCY_MISMATCH")
+    void refusesCodesForOneCurrency() {
+        // given
+        when(walletRepository.findAllActiveByUids(List.of(WALLET_UID, TARGET_UID), USER_UID))
+                .thenReturn(List.of(wallet(WALLET_UID, "USD"), wallet(TARGET_UID, "USD")));
+
+        // when / then
+        assertThatThrownBy(() -> walletService.getActiveWallets(WALLET_UID, TARGET_UID, USER_UID, "USD", "USD"))
                 .isInstanceOf(TransactionServiceException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.CURRENCY_MISMATCH);
     }

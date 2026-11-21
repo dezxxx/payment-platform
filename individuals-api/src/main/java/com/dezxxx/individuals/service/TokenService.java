@@ -4,12 +4,10 @@ import com.dezxxx.individuals.api.model.TokenResponseDto;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.gateway.keycloak.client.KeycloakClient;
-import com.dezxxx.individuals.logging.RequestLog;
 import com.dezxxx.individuals.metrics.AuthMetrics;
-import com.dezxxx.individuals.util.KeycloakClaims;
+import com.dezxxx.individuals.util.CurrentUser;
 import com.dezxxx.individuals.util.Spans;
 import io.micrometer.observation.ObservationRegistry;
-import java.util.UUID;
 import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -65,11 +63,8 @@ public class TokenService {
 
     private Mono<TokenResponseDto> withUserUid(TokenResponseDto tokens) {
         return jwtDecoder.decode(tokens.getAccessToken())
-                .map(jwt -> {
-                    UUID userUid = KeycloakClaims.requireUserUid(jwt);
-                    RequestLog.userUid(userUid);
-                    return tokens.userUid(userUid);
-                })
+                .flatMap(CurrentUser::userUid)
+                .map(tokens::userUid)
                 .onErrorMap(ex -> !(ex instanceof ApiException), ex -> {
                     log.error("Could not read the access token Keycloak just issued", ex);
                     return new ApiException(ErrorCode.INTERNAL_ERROR);

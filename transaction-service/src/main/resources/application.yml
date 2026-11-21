@@ -69,6 +69,8 @@ transaction:
     deposit: 0
     withdrawal: 0.01
     transfer: 0.005
+  transfer:
+    min-conversion-amount-usd: 1.00
   kafka:
     # as many as the largest consumer group may have copies
     partitions: 4

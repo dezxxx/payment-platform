@@ -1,6 +1,6 @@
 # CONTEXT - transaction-service
 
-Module 3. Shared rules, ports and how the platform is started: [`CONTEXT.md`](../CONTEXT.md).
+Modules 3 and 4. Shared rules, ports and how the platform is started: [`CONTEXT.md`](../CONTEXT.md).
 
 ---
 
@@ -87,10 +87,10 @@ Avro classes of the events come from `.avsc` files in a later step.
 | Item | Value |
 |---|---|
 | DTO names | schemas exactly the handout's: `CreateWalletRequest`, `WalletResponse`, `DepositInitRequest`, `WithdrawalInitRequest`, `TransferInitRequest`, `TransactionInitResponse`, `DepositConfirmRequest`, `WithdrawalConfirmRequest`, `TransferConfirmRequest`, `TransactionConfirmResponse`, `TransactionStatusResponse`, `ErrorResponse`. The generated Java classes carry a `Dto` suffix (`modelNameSuffix`), as in person-service: `WalletResponseDto` goes over HTTP, the entity stays inside |
-| `TransactionInitResponse` | `amount`, `fee`, `total`, `expiresAt`, `offerToken` |
+| `TransactionInitResponse` | `amount`, `fee`, `total`, `expiresAt`, `offerToken`; a transfer between currencies also `rate`, `targetAmount` (§2) |
 | `*ConfirmRequest` | only `offerToken` (`minLength: 1`); the terms come from inside it |
 | `TransactionConfirmResponse` | `transactionId`, `status` |
-| `TransactionStatusResponse` | the same in the status and in the search: `transactionId`, `type`, `status`, `walletUid`, `targetWalletUid`, `amount`, `fee`, `failureReason`, `createdAt` |
+| `TransactionStatusResponse` | the same in the status and in the search: `transactionId`, `type`, `status`, `walletUid`, `targetWalletUid`, `amount`, `fee`, `rate`, `targetAmount` (between currencies only), `failureReason`, `createdAt` |
 | `amount` checks | `> 0` from `exclusiveMinimum`; at most 2 decimals - the standard `@Digits(fraction = 2)` put on the field through `x-field-extra-annotation` |
 | `walletUid ≠ targetWalletUid` | our own class-level `@DifferentWallets` with a `ConstraintValidator` in the `validation` package, put on `TransferInitRequest` through `x-class-extra-annotation`; confirm gets the wallets from the signed offer. Without it the same wallet twice reads as one row and would answer `404` |
 | `TransferWallets` | interface with `getWalletUid()` and `getTargetWalletUid()`; `TransferInitRequest` implements it through `x-implements`, so the validator reads them without knowing the generated classes and works in the server and in the client jar alike |
@@ -139,9 +139,9 @@ Avro classes of the events come from `.avsc` files in a later step.
       writes the `PENDING` transaction and `WithdrawalRequested` in one database transaction.
       `WithdrawalFailed` returns the reserve, `WithdrawalCompleted` keeps it. `TransactionWithdrawalIT`
       races two confirms on one wallet: one `200`, one `400`, the balance never below zero
-- [x] Transfer init and confirm by the diagram: both wallets are the user's, `ACTIVE` and of one currency
-      (`400 CURRENCY_MISMATCH`); confirm locks both `ORDER BY uid FOR NO KEY UPDATE`, debits `amount + fee`,
-      credits `amount` and finishes the transaction `COMPLETED` in one database transaction, without Kafka.
+- [x] Transfer init and confirm by the diagram: both wallets are the user's and `ACTIVE`
+      (currencies: §2); confirm locks both `ORDER BY uid FOR NO KEY UPDATE`, debits `amount + fee`,
+      credits `amount` (between currencies `targetAmount`) and finishes the transaction `COMPLETED` in one database transaction, without Kafka.
       `TransactionTransferIT` races A→B against B→A: both `200`, no deadlock
 - [x] Transaction status and search by the diagrams: the status of the user's own transaction (another
       user's → `404 TRANSACTION_NOT_FOUND`); the search by wallet, type, status and dates, page by page,
@@ -172,7 +172,7 @@ Avro classes of the events come from `.avsc` files in a later step.
         `TransactionDepositFeeIT` with a 2 % deposit fee
       - an answer of another type is not applied: `finishPending` matches the type,
         `TRANSACTION_TYPE_MISMATCH` → DLT, `answerOfAnotherTypeGoesToDlt`
-      - one trace from init to confirm: `traceparent` in `OfferTerms`, the `offer.link` span with a Span Link
+      - confirm linked to its init (two traces, link one way: confirm → init): `traceparent` in `OfferTerms`, the `offer.link` span with a Span Link
       - the business counter `transaction_finished_total` by type and status, after the commit, only on a real
         status change; the dashboard panel; checked on repeated answers and repeated confirms
 
@@ -185,3 +185,38 @@ Avro classes of the events come from `.avsc` files in a later step.
       The same protection against a wrong value, and plain `t.type = :type` would work through ShardingSphere: no
       literal per operation, no text comparison. Kept for now: it changes the handout's DDL and every workaround
       at once, not part of the review fixes; `finishPending` fell into this trap in the review fixes
+
+---
+
+## 2. Module 4 — transfer between currencies
+
+Branch `module-4-currency-rate-service`. The rates live in currency-rate-service; transaction-service only
+computes with the rates it is given. Diagrams: `diagrams-c4/sequence-transfer.puml` and
+`currency-rate-service/diagrams-c4/sequence-transfer-between-currencies.puml`.
+
+### Decisions
+
+| Decision | Value |
+|---|---|
+| Who gets the rate | individuals-api asks currency-rate-service and passes the rates in `transfer/init`. transaction-service never calls currency-rate-service: no client, no token, no circuit breaker here. Why: the teacher's review of 2026-11-09 - only the orchestrator (individuals-api) holds a token and calls the services; inner services never call each other. Rejected: transaction-service asking for the rate itself |
+| Request | `TransferInitRequest` + optional `sourceCode`, `destinationCode` (`^[A-Z]{3}$`), `rate`, `rateToUsd` (`> 0`, `@Valid`). One currency: none of them; two currencies: all four. The fields exist only in this service's contract: the client of individuals-api has its own three-field request and never sends a rate |
+| `CURRENCY_MISMATCH` | `400`, the codes or rates in the request do not match the wallets: codes other than the wallets' currencies (source, then target), codes or a rate for one currency, no `rate` / `rateToUsd` for two. Codes in `WalletService.getActiveWallets`, rates in `TransactionService.conversion`. The codes come from this service's own wallets through individuals-api, so in normal work they always match: the check catches a bug in individuals-api (source and destination swapped → EUR→UAH ≈ 50.13 applied to 150 UAH, ≈ 7520 EUR credited instead of 2.99). It checks the codes only: a wrong rate under the right codes is not caught. individuals-api answers the client `500` - the client sent no codes |
+| Amounts | `targetAmount = amount × rate`, HALF_UP to 2 digits; the rate is never rounded. Minimum: `amount × rateToUsd`, HALF_UP to 2 digits, `≥ transaction.transfer.min-conversion-amount-usd` (1.00, `TransferProperties`), else `400 AMOUNT_TOO_SMALL`; `targetAmount = 0.00` → `400 AMOUNT_TOO_SMALL`, nothing to credit. The fee stays 0.5 % of `amount` in the source currency; the funds are checked against `amount + fee` |
+| Offer and confirm | `OfferTerms` carries `rate` and `targetAmount`, signed: confirm cannot get another rate, a rate updated after init does not touch an issued offer. The claim INSERT writes `rate` and `target_amount` into `transactions`; confirm debits `amount + fee` and credits `targetAmount` |
+| No currency check on confirm | the currencies are checked at init only: they are inside the signed token, and a wallet never changes its type. If changing a wallet's type is ever added, confirm must check the currencies again after the DB row lock (`FOR NO KEY UPDATE`) |
+| One currency: no rate | `rate` and `targetAmount` stay null in the token, NULL in `transactions`, absent from the answers (individuals-api drops nulls, `non_null`); confirm credits `amount`. Two mapper methods: `toInitResponse` and `toTransferInitResponse`. Rejected: `rate 1` and `targetAmount = amount` on every transfer - the row and the answer would show a conversion that never happened |
+| Several wallets of one currency | allowed: the one-currency transfer of module 3 moves money between them |
+
+### Done
+
+- [x] V001: `transactions.rate`, `transactions.target_amount`; `TransactionEntity` fields; the claim of a transfer writes them
+- [x] `getActiveWallets` / `lockActiveWallets`, the codes check, `TransferProperties`,
+      `AMOUNT_TOO_SMALL`, `OfferTerms` with `rate` and `targetAmount`, `toTransferInitResponse`, the status with both fields
+- [x] Tests: unit `WalletServiceTest`, `TransactionServiceTransferTest`, `TransactionMapperTest` with a non-zero fee
+      and rate; integration `TransactionConversionIT` (offer, confirm with balances and the row, minimum, `0.00`,
+      wrong codes, no rate, a rate for one currency)
+
+### Next
+
+- [ ] `transaction-service-client` published again: individuals-api needs `rate`, `targetAmount` and the new request fields
+- [ ] Postman: a transfer between currencies and its refusals

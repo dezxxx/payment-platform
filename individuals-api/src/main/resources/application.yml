@@ -29,6 +29,28 @@ individuals:
     client-secret: ${KEYCLOAK_CLIENT_SECRET:}
   transaction-service:
     base-url: ${TRANSACTION_SERVICE_URL:http://localhost:8084}
+  currency-rate-service:
+    base-url: ${CURRENCY_RATE_SERVICE_URL:http://localhost:8088}
+
+# one breaker per platform service: 5+ of the last 10 calls failed -> calls are refused at once for 30 s,
+# then a single trial call decides; a 4xx is a working service's answer and is not a failure
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 1
+        record-failure-predicate: com.dezxxx.individuals.config.DependencyFailurePredicate
+    instances:
+      person-service:
+        base-config: default
+      transaction-service:
+        base-config: default
+      currency-rate-service:
+        base-config: default
 
 springdoc:
   swagger-ui:

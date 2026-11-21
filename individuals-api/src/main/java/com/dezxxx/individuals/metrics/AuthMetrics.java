@@ -29,6 +29,8 @@ public class AuthMetrics {
 
     private final Timer transactionServiceRequests;
 
+    private final Timer currencyRateServiceRequests;
+
     public AuthMetrics(MeterRegistry registry) {
         this.registry = registry;
         this.registrations = counter(registry, "auth.registration",
@@ -47,6 +49,8 @@ public class AuthMetrics {
                 "Time spent inside one call to person-service");
         this.transactionServiceRequests = timer(registry, "external.transaction_service.requests",
                 "Time spent inside one call to transaction-service");
+        this.currencyRateServiceRequests = timer(registry, "external.currency_rate_service.requests",
+                "Time spent inside one call to currency-rate-service");
     }
 
     public void registrationStarted() {
@@ -83,6 +87,10 @@ public class AuthMetrics {
 
     public <T> Mono<T> timeTransactionService(Mono<T> call) {
         return time(transactionServiceRequests, call);
+    }
+
+    public <T> Mono<T> timeCurrencyRateService(Mono<T> call) {
+        return time(currencyRateServiceRequests, call);
     }
 
     // defer: the stopwatch starts on subscribe; doFinally: failed and cancelled calls count too

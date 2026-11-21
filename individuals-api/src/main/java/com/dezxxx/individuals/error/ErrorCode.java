@@ -25,7 +25,7 @@ public enum ErrorCode {
 
     INSUFFICIENT_FUNDS(HttpStatus.BAD_REQUEST, "Not enough funds including the fee"),
 
-    CURRENCY_MISMATCH(HttpStatus.BAD_REQUEST, "The wallets have different currencies"),
+    AMOUNT_TOO_SMALL(HttpStatus.BAD_REQUEST, "The amount is below the minimum conversion amount"),
 
     OFFER_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "The offer token is invalid"),
 
@@ -40,6 +40,8 @@ public enum ErrorCode {
     WALLET_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "Wallet type not found"),
 
     TRANSACTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Transaction not found"),
+
+    RATE_NOT_FOUND(HttpStatus.UNPROCESSABLE_CONTENT, "No valid rate for the currency pair"),
 
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "HTTP method is not supported for this path"),
 

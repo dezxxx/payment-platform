@@ -38,6 +38,8 @@ CREATE TABLE transactions (
     status VARCHAR(32) NOT NULL,
     comment VARCHAR(256),
     fee DECIMAL,
+    rate DECIMAL,
+    target_amount DECIMAL,
     target_wallet_uid UUID,
     payment_method_id BIGINT,
     failure_reason VARCHAR(256),

@@ -46,6 +46,17 @@ public class TransactionMapper {
                 .offerToken(offerToken);
     }
 
+    public TransactionInitResponseDto toTransferInitResponse(BigDecimal amount,
+                                                             BigDecimal fee,
+                                                             BigDecimal rate,
+                                                             BigDecimal targetAmount,
+                                                             Instant expiresAt,
+                                                             String offerToken) {
+        return toInitResponse(amount, fee, expiresAt, offerToken)
+                .rate(rate)
+                .targetAmount(targetAmount);
+    }
+
     public TransactionConfirmResponseDto toConfirmResponse(UUID transactionId, TransactionStatus status) {
         return new TransactionConfirmResponseDto()
                 .transactionId(transactionId)
@@ -61,6 +72,8 @@ public class TransactionMapper {
                 .targetWalletUid(transaction.getTargetWalletUid())
                 .amount(transaction.getAmount())
                 .fee(transaction.getFee())
+                .rate(transaction.getRate())
+                .targetAmount(transaction.getTargetAmount())
                 .failureReason(transaction.getFailureReason())
                 .createdAt(transaction.getCreatedAt().atOffset(ZoneOffset.UTC));
     }

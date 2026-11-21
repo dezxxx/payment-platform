@@ -31,12 +31,14 @@ public interface TransactionRepository extends JpaRepository<TransactionEntity, 
                                             BigDecimal fee, UUID requestId);
 
     @Query(value = "INSERT INTO transactions"
-            + " (uid, user_uid, wallet_uid, target_wallet_uid, amount, fee, type, status, request_id)"
-            + " VALUES (:uid, :userUid, :walletUid, :targetWalletUid, :amount, :fee, 'TRANSFER', 'PENDING',"
-            + " :requestId)"
+            + " (uid, user_uid, wallet_uid, target_wallet_uid, amount, fee, rate, target_amount, type, status,"
+            + " request_id)"
+            + " VALUES (:uid, :userUid, :walletUid, :targetWalletUid, :amount, :fee, :rate, :targetAmount,"
+            + " 'TRANSFER', 'PENDING', :requestId)"
             + " ON CONFLICT (user_uid, request_id) DO NOTHING RETURNING uid", nativeQuery = true)
     Optional<UUID> claimTransferRequestId(UUID uid, UUID userUid, UUID walletUid, UUID targetWalletUid,
-                                          BigDecimal amount, BigDecimal fee, UUID requestId);
+                                          BigDecimal amount, BigDecimal fee, BigDecimal rate,
+                                          BigDecimal targetAmount, UUID requestId);
 
     Optional<TransactionEntity> findByUserUidAndRequestId(UUID userUid, UUID requestId);
 

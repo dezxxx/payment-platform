@@ -26,6 +26,8 @@ public final class StubTransactionService {
 
     private final AtomicReference<Answer> answer = new AtomicReference<>(EMPTY_LIST);
 
+    private final AtomicReference<Answer> walletsAnswer = new AtomicReference<>();
+
     private DisposableServer server;
 
     public void start() {
@@ -35,7 +37,7 @@ public final class StubTransactionService {
                     received.add(new Received(request.method().name(), request.uri(),
                             request.requestHeaders().get("X-User-Uid"),
                             request.requestHeaders().get(HttpHeaderNames.AUTHORIZATION), body));
-                    Answer next = answer.get();
+                    Answer next = isWalletList(request) && walletsAnswer.get() != null ? walletsAnswer.get() : answer.get();
                     return Mono.delay(next.delay())
                             .then(response.status(HttpResponseStatus.valueOf(next.status()))
                                     .header(HttpHeaderNames.CONTENT_TYPE, next.contentType())
@@ -52,6 +54,7 @@ public final class StubTransactionService {
     public void reset() {
         received.clear();
         answer.set(EMPTY_LIST);
+        walletsAnswer.set(null);
     }
 
     public void answer(int status, String json) {
@@ -67,8 +70,17 @@ public final class StubTransactionService {
         answer.set(new Answer(200, "application/json", "[]", delay));
     }
 
+    // a transfer reads the user's wallets first, then asks for the terms: two calls, two answers
+    public void answerWallets(String json) {
+        walletsAnswer.set(new Answer(200, "application/json", json, Duration.ZERO));
+    }
+
     public List<Received> received() {
         return List.copyOf(received);
+    }
+
+    private static boolean isWalletList(HttpServerRequest request) {
+        return "GET".equals(request.method().name()) && request.uri().startsWith("/api/v1/wallets/user/");
     }
 
     private static Mono<String> bodyOf(HttpServerRequest request) {

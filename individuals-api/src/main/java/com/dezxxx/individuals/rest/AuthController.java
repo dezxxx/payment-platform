@@ -6,13 +6,11 @@ import com.dezxxx.individuals.api.model.LoginRequestDto;
 import com.dezxxx.individuals.api.model.RefreshTokenRequestDto;
 import com.dezxxx.individuals.api.model.RegistrationRequestDto;
 import com.dezxxx.individuals.api.model.TokenResponseDto;
-import com.dezxxx.individuals.error.ApiException;
-import com.dezxxx.individuals.error.ErrorCode;
 import com.dezxxx.individuals.service.UserService;
+import com.dezxxx.individuals.util.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -49,10 +47,7 @@ public class AuthController implements AuthApi {
 
     @Override
     public Mono<ResponseEntity<CurrentUserResponseDto>> getCurrentUser(ServerWebExchange exchange) {
-        return exchange.getPrincipal()
-                .cast(JwtAuthenticationToken.class)
-                .map(JwtAuthenticationToken::getToken)
-                .switchIfEmpty(Mono.error(() -> new ApiException(ErrorCode.AUTHENTICATION_REQUIRED)))
+        return CurrentUser.jwt(exchange)
                 .flatMap(userService::currentUser)
                 .map(ResponseEntity::ok);
     }

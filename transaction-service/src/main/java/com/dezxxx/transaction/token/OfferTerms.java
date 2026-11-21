@@ -13,6 +13,8 @@ public record OfferTerms(UUID requestId,
                          UUID targetWalletUid,
                          BigDecimal amount,
                          BigDecimal fee,
+                         BigDecimal rate,
+                         BigDecimal targetAmount,
                          Instant expiresAt,
                          String traceparent) {
 }

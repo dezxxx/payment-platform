@@ -34,6 +34,8 @@ class OfferTokenSignerTest {
             UUID.fromString("7e6d5c4b-3a29-4180-9f8e-7d6c5b4a3928"),
             new BigDecimal("100.00"),
             new BigDecimal("0.50"),
+            new BigDecimal("0.01994710"),
+            new BigDecimal("1.99"),
             Instant.parse("2026-10-29T12:05:00Z"),
             "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
 

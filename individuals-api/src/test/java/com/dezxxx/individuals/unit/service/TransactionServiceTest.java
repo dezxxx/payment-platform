@@ -4,11 +4,19 @@ import static com.dezxxx.individuals.unit.service.ServiceTokens.USER_UID;
 import static com.dezxxx.individuals.unit.service.ServiceTokens.accessToken;
 import static com.dezxxx.individuals.unit.service.ServiceTokens.tokenWithoutUserUid;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import com.dezxxx.individuals.api.model.TransferInitUserRequestDto;
 import com.dezxxx.individuals.error.ApiException;
 import com.dezxxx.individuals.error.ErrorCode;
+import com.dezxxx.individuals.gateway.currency.CurrencyRateServiceClient;
 import com.dezxxx.individuals.gateway.transaction.TransactionClient;
 import com.dezxxx.individuals.gateway.transaction.TransactionSearch;
 import com.dezxxx.individuals.service.TransactionService;
@@ -21,6 +29,7 @@ import com.dezxxx.transaction.client.model.TransactionStatusResponseDto;
 import com.dezxxx.transaction.client.model.TransactionTypeDto;
 import com.dezxxx.transaction.client.model.TransferConfirmRequestDto;
 import com.dezxxx.transaction.client.model.TransferInitRequestDto;
+import com.dezxxx.transaction.client.model.WalletResponseDto;
 import com.dezxxx.transaction.client.model.WithdrawalConfirmRequestDto;
 import com.dezxxx.transaction.client.model.WithdrawalInitRequestDto;
 import java.math.BigDecimal;
@@ -30,6 +39,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -50,8 +60,19 @@ class TransactionServiceTest {
 
     private static final BigDecimal AMOUNT = new BigDecimal("100.00");
 
+    private static final BigDecimal CONVERSION_AMOUNT = new BigDecimal("150.00");
+
+    private static final BigDecimal UAH_EUR = new BigDecimal("0.01994710");
+
+    private static final BigDecimal UAH_USD = new BigDecimal("0.02198874");
+
+    private static final BigDecimal USD_EUR = new BigDecimal("0.90715");
+
     @Mock
     private TransactionClient transactionClient;
+
+    @Mock
+    private CurrencyRateServiceClient currencyRateServiceClient;
 
     @InjectMocks
     private TransactionService transactionService;
@@ -109,16 +130,147 @@ class TransactionServiceTest {
     }
 
     @Test
-    @DisplayName("given a token, when initialising a transfer, then the terms come for the token's user_uid")
-    void initTransferForTokenUser() {
+    @DisplayName("given two wallets of one currency, when initialising a transfer, then no rates are asked and none are sent")
+    void initTransferInOneCurrency() {
         // given
-        TransferInitRequestDto request = new TransferInitRequestDto(WALLET_UID, TARGET_WALLET_UID, AMOUNT);
-        when(transactionClient.initTransfer(USER_UID, request)).thenReturn(Mono.just(terms()));
+        when(transactionClient.getWalletsByUserUid(USER_UID))
+                .thenReturn(Mono.just(List.of(wallet(WALLET_UID, "USD"), wallet(TARGET_WALLET_UID, "USD"))));
+        when(transactionClient.initTransfer(eq(USER_UID), any())).thenReturn(Mono.just(terms()));
 
         // when / then
-        StepVerifier.create(transactionService.initTransfer(accessToken(), request))
+        StepVerifier.create(transactionService.initTransfer(accessToken(), transferRequest()))
                 .expectNextCount(1)
                 .verifyComplete();
+
+        // then
+        TransferInitRequestDto sent = sentTransfer();
+        assertThat(sent.getWalletUid()).isEqualTo(WALLET_UID);
+        assertThat(sent.getTargetWalletUid()).isEqualTo(TARGET_WALLET_UID);
+        assertThat(sent.getAmount()).isEqualByComparingTo(CONVERSION_AMOUNT);
+        assertThat(sent.getSourceCode()).isNull();
+        assertThat(sent.getRate()).isNull();
+        assertThat(sent.getRateToUsd()).isNull();
+        verifyNoInteractions(currencyRateServiceClient);
+    }
+
+    @Test
+    @DisplayName("given a target wallet not among the user's, when initialising a transfer, then transaction-service gets it without rates")
+    void initTransferWithForeignWallet() {
+        // given
+        when(transactionClient.getWalletsByUserUid(USER_UID)).thenReturn(Mono.just(List.of(wallet(WALLET_UID, "UAH"))));
+        when(transactionClient.initTransfer(eq(USER_UID), any()))
+                .thenReturn(Mono.error(new ApiException(ErrorCode.WALLET_NOT_FOUND)));
+
+        // when / then
+        StepVerifier.create(transactionService.initTransfer(accessToken(), transferRequest()))
+                .expectErrorSatisfies(error ->
+                        assertThat(((ApiException) error).getErrorCode()).isEqualTo(ErrorCode.WALLET_NOT_FOUND))
+                .verify();
+
+        // then
+        assertThat(sentTransfer().getRate()).isNull();
+        verifyNoInteractions(currencyRateServiceClient);
+    }
+
+    @Test
+    @DisplayName("given UAH -> EUR, when initialising a transfer, then the pair rate and the UAH -> USD rate go to transaction-service")
+    void initTransferBetweenCurrencies() {
+        // given
+        when(transactionClient.getWalletsByUserUid(USER_UID))
+                .thenReturn(Mono.just(List.of(wallet(WALLET_UID, "UAH"), wallet(TARGET_WALLET_UID, "EUR"))));
+        when(currencyRateServiceClient.getRate("UAH", "EUR")).thenReturn(Mono.just(UAH_EUR));
+        when(currencyRateServiceClient.getRate("UAH", "USD")).thenReturn(Mono.just(UAH_USD));
+        when(transactionClient.initTransfer(eq(USER_UID), any())).thenReturn(Mono.just(terms()));
+
+        // when / then
+        StepVerifier.create(transactionService.initTransfer(accessToken(), transferRequest()))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        // then
+        TransferInitRequestDto sent = sentTransfer();
+        assertThat(sent.getSourceCode()).isEqualTo("UAH");
+        assertThat(sent.getDestinationCode()).isEqualTo("EUR");
+        assertThat(sent.getRate()).isEqualByComparingTo(UAH_EUR);
+        assertThat(sent.getRateToUsd()).isEqualByComparingTo(UAH_USD);
+        assertThat(sent.getAmount()).isEqualByComparingTo(CONVERSION_AMOUNT);
+    }
+
+    @Test
+    @DisplayName("given USD -> EUR, when initialising a transfer, then one rate call and rateToUsd is 1")
+    void initTransferFromUsd() {
+        // given
+        when(transactionClient.getWalletsByUserUid(USER_UID))
+                .thenReturn(Mono.just(List.of(wallet(WALLET_UID, "USD"), wallet(TARGET_WALLET_UID, "EUR"))));
+        when(currencyRateServiceClient.getRate("USD", "EUR")).thenReturn(Mono.just(USD_EUR));
+        when(transactionClient.initTransfer(eq(USER_UID), any())).thenReturn(Mono.just(terms()));
+
+        // when / then
+        StepVerifier.create(transactionService.initTransfer(accessToken(), transferRequest()))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        // then
+        TransferInitRequestDto sent = sentTransfer();
+        assertThat(sent.getRate()).isEqualByComparingTo(USD_EUR);
+        assertThat(sent.getRateToUsd()).isEqualByComparingTo(BigDecimal.ONE);
+        verify(currencyRateServiceClient).getRate("USD", "EUR");
+        verifyNoMoreInteractions(currencyRateServiceClient);
+    }
+
+    @Test
+    @DisplayName("given UAH -> USD, when initialising a transfer, then the same rate is asked twice and goes as rate and rateToUsd")
+    void initTransferToUsd() {
+        // given
+        when(transactionClient.getWalletsByUserUid(USER_UID))
+                .thenReturn(Mono.just(List.of(wallet(WALLET_UID, "UAH"), wallet(TARGET_WALLET_UID, "USD"))));
+        when(currencyRateServiceClient.getRate("UAH", "USD")).thenReturn(Mono.just(UAH_USD));
+        when(transactionClient.initTransfer(eq(USER_UID), any())).thenReturn(Mono.just(terms()));
+
+        // when / then
+        StepVerifier.create(transactionService.initTransfer(accessToken(), transferRequest()))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        // then
+        TransferInitRequestDto sent = sentTransfer();
+        assertThat(sent.getRate()).isEqualByComparingTo(UAH_USD);
+        assertThat(sent.getRateToUsd()).isEqualByComparingTo(UAH_USD);
+        verify(currencyRateServiceClient, times(2)).getRate("UAH", "USD");
+        verifyNoMoreInteractions(currencyRateServiceClient);
+    }
+
+    @Test
+    @DisplayName("given no valid rate, when initialising a transfer, then RATE_NOT_FOUND and transaction-service is not asked for terms")
+    void initTransferWithoutRate() {
+        // given
+        when(transactionClient.getWalletsByUserUid(USER_UID))
+                .thenReturn(Mono.just(List.of(wallet(WALLET_UID, "UAH"), wallet(TARGET_WALLET_UID, "EUR"))));
+        when(currencyRateServiceClient.getRate("UAH", "EUR"))
+                .thenReturn(Mono.error(new ApiException(ErrorCode.RATE_NOT_FOUND)));
+        when(currencyRateServiceClient.getRate("UAH", "USD")).thenReturn(Mono.just(UAH_USD));
+
+        // when / then
+        StepVerifier.create(transactionService.initTransfer(accessToken(), transferRequest()))
+                .expectErrorSatisfies(error ->
+                        assertThat(((ApiException) error).getErrorCode()).isEqualTo(ErrorCode.RATE_NOT_FOUND))
+                .verify();
+
+        // then
+        verify(transactionClient, never()).initTransfer(any(), any());
+    }
+
+    @Test
+    @DisplayName("given a token without user_uid, when initialising a transfer, then INTERNAL_ERROR and nobody is called")
+    void initTransferWithoutUserUid() {
+        // when / then
+        StepVerifier.create(transactionService.initTransfer(tokenWithoutUserUid(), transferRequest()))
+                .expectErrorSatisfies(error ->
+                        assertThat(((ApiException) error).getErrorCode()).isEqualTo(ErrorCode.INTERNAL_ERROR))
+                .verify();
+
+        // then
+        verifyNoInteractions(transactionClient, currencyRateServiceClient);
     }
 
     @Test
@@ -173,6 +325,21 @@ class TransactionServiceTest {
 
         // then
         verifyNoInteractions(transactionClient);
+    }
+
+    private TransferInitRequestDto sentTransfer() {
+        ArgumentCaptor<TransferInitRequestDto> sent = ArgumentCaptor.forClass(TransferInitRequestDto.class);
+        verify(transactionClient).initTransfer(eq(USER_UID), sent.capture());
+        return sent.getValue();
+    }
+
+    private static TransferInitUserRequestDto transferRequest() {
+        return new TransferInitUserRequestDto(WALLET_UID, TARGET_WALLET_UID, CONVERSION_AMOUNT);
+    }
+
+    private static WalletResponseDto wallet(UUID uid, String currencyCode) {
+        return new WalletResponseDto(uid, currencyCode + " wallet", UUID.randomUUID(), currencyCode, "ACTIVE",
+                new BigDecimal("200.00"));
     }
 
     private static TransactionInitResponseDto terms() {

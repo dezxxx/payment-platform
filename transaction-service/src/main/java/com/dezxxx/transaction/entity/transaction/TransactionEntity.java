@@ -42,6 +42,10 @@ public class TransactionEntity {
 
     private BigDecimal fee;
 
+    private BigDecimal rate;
+
+    private BigDecimal targetAmount;
+
     private UUID targetWalletUid;
 
     private String failureReason;

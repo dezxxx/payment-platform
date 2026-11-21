@@ -51,12 +51,13 @@ openApiGenerate {
     modelNameSuffix.set("Dto")
     invokerPackage.set("com.dezxxx.individuals.api")
 
-    // transaction-service's models: no copies, the endpoints take and return the client's classes
+    // transaction-service's models: no copies, the endpoints take and return the client's classes.
+    // TransferInitUserRequest is our own: the client sends no rates, the service adds them from currency-rate-service
     val transactionModel = "com.dezxxx.transaction.client.model"
     schemaMappings.set(
         listOf(
             "CreateWalletRequest", "WalletResponse",
-            "DepositInitRequest", "WithdrawalInitRequest", "TransferInitRequest", "TransactionInitResponse",
+            "DepositInitRequest", "WithdrawalInitRequest", "TransactionInitResponse",
             "DepositConfirmRequest", "WithdrawalConfirmRequest", "TransferConfirmRequest",
             "TransactionConfirmResponse", "TransactionStatusResponse", "TransactionType", "TransactionStatus"
         ).associateWith { "$transactionModel.${it}Dto" }
@@ -138,6 +139,17 @@ dependencies {
             "${providers.gradleProperty("transactionClientArtifact").get()}:" +
             providers.gradleProperty("transactionClientVersion").get()
     )
+
+    implementation(
+        "${providers.gradleProperty("currencyClientGroup").get()}:" +
+            "${providers.gradleProperty("currencyClientArtifact").get()}:" +
+            providers.gradleProperty("currencyClientVersion").get()
+    )
+
+    implementation(libs.resilience4j.spring.boot4)
+    implementation(libs.resilience4j.circuitbreaker)
+    implementation(libs.resilience4j.reactor)
+    implementation(libs.resilience4j.micrometer)
 
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.security.test)
