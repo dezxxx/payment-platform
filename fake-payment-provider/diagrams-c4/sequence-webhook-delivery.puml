@@ -1,0 +1,36 @@
+@startuml sequence-webhook-delivery
+title Webhook delivery to the merchant
+skinparam maxMessageSize 260
+skinparam responseMessageBelowArrow true
+
+box "fake-payment-provider" #F5F9FF
+    participant "WebhookDeliveryScheduler" as Del
+    participant "WebhookSigner\n+ SecretEncryptor" as Sig
+    database "DB" as DB
+end box
+participant "webhook-service\n(bank adapter)" as WH
+
+loop @Scheduled
+    group short DB transaction: take rows for sending
+        Del -> DB: SELECT webhooks OUTBOUND\nWHERE delivered = false AND next_attempt_at <= now\nFOR UPDATE SKIP LOCKED
+        Del -> DB: UPDATE next_attempt_at = now + 30 s (lease)
+        Del -> DB: COMMIT
+    end
+    note right of DB: lock held for milliseconds; another instance skips locked rows,\nthen does not see taken rows for 30 s; a crash → the row is due again
+    Del -> Sig: decrypt the merchant's webhook secret,\nHMAC-SHA256(raw body)
+    alt circuit breaker open
+        Del -> Del: no call, the row waits
+    else
+        Del -> WH: POST notificationUrl\nX-Signature, body {id, externalId, status, metadata}\n(outside a DB transaction)
+        alt 2xx
+            Del -> DB: UPDATE delivered = true, delivered_at = now
+        else 4xx / 5xx / timeout
+            Del -> DB: UPDATE attempts + 1, last_error,\nnext_attempt_at = now + 1, 2, 4 … s (≤ 5 min)
+        end
+    end
+end
+note over Del, WH
+  retried until delivered; metrics: errors and the age
+  of the oldest undelivered row → alert
+end note
+@enduml

@@ -1,0 +1,32 @@
+@startuml sequence-merchant-registration
+title Merchant registration
+skinparam maxMessageSize 260
+skinparam responseMessageBelowArrow true
+
+actor "Bank admin" as Admin
+box "fake-payment-provider" #F5F9FF
+    participant "SecurityConfig" as Sec
+    participant "MerchantService" as MS
+    database "DB" as DB
+end box
+
+Admin -> Sec: POST /api/v1/merchants (name)\nBasic Auth admin:password
+alt no / wrong credentials
+    Sec --> Admin: 401 UNAUTHORIZED
+else not ADMIN
+    Sec --> Admin: 403 FORBIDDEN
+else invalid body
+    Sec --> Admin: 400 VALIDATION_ERROR
+else
+    Sec -> MS: register(name)
+    MS -> MS: merchantId, secretKey, webhook secret (SecureRandom)
+    MS -> MS: BCrypt(secretKey); AES-GCM(webhook secret, key from env)
+    MS -> DB: INSERT merchants (hash, cipher)
+    MS --> Admin: 201 merchantId, secretKey, webhookSecret
+    note right of Admin
+      shown once, never stored in clear;
+      the three values go to the project .env
+    end note
+end
+note right of DB: DB error → 500, nothing stored
+@enduml

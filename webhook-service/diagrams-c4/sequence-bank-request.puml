@@ -1,0 +1,33 @@
+@startuml sequence-bank-request
+title Request to the bank
+skinparam maxMessageSize 260
+skinparam responseMessageBelowArrow true
+
+queue "Kafka" as Kafka
+box "webhook-service" #F5F9FF
+    participant "BankRequestConsumer" as Cons
+    participant "FakePaymentProviderAdapter" as Ad
+    participant "OutcomeKafkaProducer" as Prod
+end box
+participant "fake-payment-provider" as Bank
+
+Kafka -> Cons: DepositRequested / WithdrawalRequested
+Cons -> Ad: send
+Ad -> Bank: POST /api/v1/transactions (amount = total, CARD)\nor /api/v1/payouts (amount, BANK_TRANSFER)\nexternalId = transactionId, notificationUrl, metadata.userId\nBasic Auth (client from Nexus)
+alt 201 / 200: accepted or a repeat
+    Ad -> Ad: the outcome comes by webhook
+else 400: the bank refused (LIMIT_EXCEEDED, VALIDATION_ERROR, IDEMPOTENCY_CONFLICT)
+    Ad -> Prod: *Failed (reason from the bank)
+    Prod -> Kafka: send, wait for the ack
+else 401 / connection refused: the bank created nothing
+    Ad -> Bank: short retries
+    Ad -> Prod: still failing → *Failed PROVIDER_UNAVAILABLE + alert
+    Prod -> Kafka: send, wait for the ack
+else timeout / broken connection / 5xx: outcome unknown
+    Ad -> Bank: retry POST with the same externalId
+    Ad -> Kafka: bank silent too long → DLT + alert, no *Failed
+    note right: the bank may have paid;\nsupport checks it by GET /transactions/{id}
+end
+Cons -> Kafka: commit offset
+note over Kafka, Bank: Kafka ack missing → offset not committed → the event is read again; the bank answers 200 by externalId
+@enduml

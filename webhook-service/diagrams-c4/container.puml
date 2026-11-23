@@ -1,0 +1,25 @@
+@startuml container
+!include <C4/C4_Container>
+
+title webhook-service — container diagram (C4, level 2)
+
+Container_Ext(transactionService, "transaction-service", "Spring Boot MVC", "Wallets and money")
+Container_Ext(kafka, "Kafka", "event broker, Avro", "deposit-*, withdrawal-*")
+
+System_Boundary(ws, "webhook-service") {
+    Container(app, "webhook-service", "Spring Boot MVC, Java 25", "Merchant; bank adapter; no database")
+}
+
+Container_Ext(bank, "fake-payment-provider", "Spring Boot MVC", "Payment gateway")
+Container_Ext(nexus, "Nexus", "artifact repository", "fake-payment-provider-client jar")
+Container_Ext(observability, "Prometheus, Loki, Tempo, Grafana", "observability", "Metrics, logs, traces")
+
+Rel(transactionService, kafka, "DepositRequested, WithdrawalRequested", "outbox, Avro")
+Rel(kafka, app, "*-requested")
+Rel(app, kafka, "*Completed / *Failed", "Avro, waits for the broker ack")
+Rel(kafka, transactionService, "*Completed / *Failed")
+Rel(app, bank, "POST /api/v1/transactions, /payouts", "HTTPS, Basic Auth")
+Rel(bank, app, "POST /webhook/transaction, /payout", "HTTPS, X-Signature")
+Rel(app, nexus, "client jar at build time", "Gradle")
+Rel(app, observability, "metrics, logs, traces")
+@enduml

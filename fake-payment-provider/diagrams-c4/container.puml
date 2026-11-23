@@ -1,0 +1,35 @@
+@startuml container
+!include <C4/C4_Container>
+
+title fake-payment-provider — container diagram (C4, level 2)
+
+Person(client, "Client", "Tops up a wallet and withdraws from it")
+Person_Ext(admin, "Bank admin", "Registers merchants")
+
+Container_Ext(individualsApi, "individuals-api", "Spring Boot WebFlux", "The only entry point; init / confirm of deposits and withdrawals")
+Container_Ext(transactionService, "transaction-service", "Spring Boot MVC", "Wallets and money; deposit-requested / withdrawal-requested through the outbox, the outcome changes the balance")
+Container_Ext(kafka, "Kafka", "event broker, Avro", "deposit-* and withdrawal-* (requested, completed, failed)")
+System_Boundary(platform, "webhook-service (merchant)") {
+    Container_Ext(bankAdapter, "Bank adapter", "", "Kafka ⇄ bank HTTP")
+}
+
+System_Boundary(bank, "fake-payment-provider") {
+    Container(app, "fake-payment-provider", "Spring Boot MVC, Java 25", "Payment gateway simulation: accepts operations, limits, outcome simulator, webhooks until delivered")
+    ContainerDb(db, "PostgreSQL provider-postgres", "merchants, transactions, payouts, webhooks", "Own database; no balances")
+}
+
+System_Ext(network, "External payment network (simulated)", "Manual outcome of an operation: Postman, tests")
+Container_Ext(observability, "Prometheus, Loki, Tempo, Grafana", "observability", "Metrics, logs, traces")
+
+Rel(client, individualsApi, "deposit and withdrawal: init / confirm", "HTTPS, JWT")
+Rel(individualsApi, transactionService, "init / confirm", "REST, service token, circuit breaker")
+Rel(transactionService, kafka, "DepositRequested, WithdrawalRequested; reads outcomes", "outbox, Avro")
+Rel(kafka, bankAdapter, "*-requested")
+Rel(bankAdapter, kafka, "DepositCompleted / Failed, WithdrawalCompleted / Failed", "Avro, waits for the broker ack")
+Rel(bankAdapter, app, "POST /api/v1/transactions, /payouts", "HTTPS, Basic Auth, client from Nexus")
+Rel(app, bankAdapter, "outcome webhook to notificationUrl", "HTTPS, X-Signature (HMAC)")
+Rel(admin, app, "POST /api/v1/merchants", "HTTPS, Basic Auth ADMIN")
+Rel(network, app, "POST /webhook/transaction, /payout", "HTTPS, X-Signature")
+Rel(app, db, "reads and writes", "JDBC, Flyway")
+Rel(app, observability, "metrics, logs, traces")
+@enduml

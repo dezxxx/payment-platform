@@ -1,0 +1,56 @@
+@startuml sequence-payout
+title Payout at the bank
+skinparam maxMessageSize 260
+skinparam responseMessageBelowArrow true
+
+participant "webhook-service\n(bank adapter)" as WH
+box "fake-payment-provider" #F5F9FF
+    participant "SecurityConfig" as Sec
+    participant "PayoutService" as TS
+    participant "PaymentMethodStrategy\n(BANK_TRANSFER)" as Str
+    participant "SimulatorScheduler" as Sim
+    participant "WebhookService" as WS
+    database "DB" as DB
+end box
+
+== POST: accept the operation ==
+WH -> Sec: POST /api/v1/payouts\n(externalId = transactionId, amount, currency,\nmethod BANK_TRANSFER, notificationUrl, metadata.userId)
+Sec -> DB: SELECT merchant; BCrypt check
+alt no / wrong credentials
+    Sec --> WH: 401 UNAUTHORIZED
+else
+    Sec -> TS: create
+    alt invalid body (amount < 0.01, currency, method)
+        TS --> WH: 400 VALIDATION_ERROR
+    else amount > limit
+        TS -> Str: limit(BANK_TRANSFER) = 100 000
+        TS --> WH: 400 LIMIT_EXCEEDED (nothing written)
+    else
+        group one DB transaction
+            TS -> DB: INSERT payouts PENDING\nON CONFLICT (merchant_id, external_id) DO NOTHING
+            alt new row
+                TS --> WH: 201 PENDING, id
+            else same externalId, same data: a repeat
+                TS -> DB: SELECT by externalId
+                TS --> WH: 200 the same operation
+            else same externalId, other data
+                TS --> WH: 400 IDEMPOTENCY_CONFLICT
+            end
+        end
+    end
+end
+note right of DB: DB error → 500, nothing stored
+
+== simulator: the outcome, once ==
+loop @Scheduled
+    Sim -> Str: delay(BANK_TRANSFER) = 15 s
+    group one DB transaction
+        Sim -> DB: SELECT PENDING older than 15 s\nFOR UPDATE SKIP LOCKED
+        Sim -> WS: applyResult(SUCCESS)
+        WS -> DB: UPDATE status = SUCCESS WHERE status = PENDING
+        WS -> DB: INSERT webhooks OUTBOUND\n(payload, delivered = false, next_attempt_at = now)
+        WS -> DB: COMMIT
+    end
+end
+note over WH, DB: the webhook goes out in sequence-webhook-delivery
+@enduml

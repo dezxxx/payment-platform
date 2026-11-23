@@ -1,0 +1,33 @@
+@startuml sequence-webhook-receive
+title Webhook from the bank
+skinparam maxMessageSize 260
+skinparam responseMessageBelowArrow true
+
+participant "fake-payment-provider" as Bank
+box "webhook-service" #F5F9FF
+    participant "WebhookController" as WC
+    participant "SignatureVerifier" as Ver
+    participant "FakePaymentProviderAdapter" as Ad
+    participant "OutcomeKafkaProducer" as Prod
+end box
+queue "Kafka" as Kafka
+
+Bank -> WC: POST /webhook/transaction or /webhook/payout\nX-Signature, {id, externalId, status, metadata.userId}
+WC -> Ver: HMAC-SHA256(raw body, secret from .env)
+alt signature does not match
+    WC --> Bank: 401 UNAUTHORIZED
+else status not SUCCESS / FAILED, no externalId / userId
+    WC --> Bank: 400 VALIDATION_ERROR
+else
+    WC -> Ad: outcome
+    Ad -> Ad: path + status → DepositCompleted / DepositFailed\nor WithdrawalCompleted / WithdrawalFailed\n(transactionId = externalId, userId from metadata)
+    Ad -> Prod: send
+    Prod -> Kafka: key = transactionId, wait for the ack
+    alt ack
+        WC --> Bank: 200 OK
+    else Kafka unavailable
+        WC --> Bank: 503 SERVICE_UNAVAILABLE → the bank retries
+    end
+end
+note over Bank, Kafka: a repeated webhook gives a repeated event; transaction-service ignores it (UPDATE … WHERE status = PENDING → 0 rows)
+@enduml

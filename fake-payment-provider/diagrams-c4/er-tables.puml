@@ -1,0 +1,83 @@
+@startuml er-tables
+title fake-payment-provider — tables (PostgreSQL provider-postgres)
+hide circle
+skinparam linetype ortho
+
+entity merchants {
+    * id : bigserial <<PK>>
+    --
+    * merchant_id : varchar(50) <<UNIQUE>>
+    * secret_key : varchar(255) BCrypt hash
+    * webhook_secret : bytea AES-GCM cipher
+    name : varchar(100)
+    * created_at : timestamptz = now()
+}
+
+entity transactions {
+    * id : bigserial <<PK>>
+    --
+    * uid : uuid <<UNIQUE>>
+    * merchant_id : bigint <<FK>>
+    * external_id : varchar(100)
+    * amount : numeric(18,2) CHECK > 0
+    * currency : varchar(3)
+    * method : varchar(50) CARD / BANK_TRANSFER
+    * status : varchar(20) PENDING / SUCCESS / FAILED
+    description : varchar(255)
+    * notification_url : varchar(2048)
+    metadata : jsonb
+    * created_at : timestamptz = now()
+    updated_at : timestamptz
+    ..
+    UNIQUE (merchant_id, external_id)
+    INDEX (merchant_id, created_at)
+}
+
+entity payouts {
+    * id : bigserial <<PK>>
+    --
+    * uid : uuid <<UNIQUE>>
+    * merchant_id : bigint <<FK>>
+    * external_id : varchar(100)
+    * amount : numeric(18,2) CHECK > 0
+    * currency : varchar(3)
+    * status : varchar(20) PENDING / SUCCESS / FAILED
+    * notification_url : varchar(2048)
+    metadata : jsonb
+    * created_at : timestamptz = now()
+    updated_at : timestamptz
+    ..
+    UNIQUE (merchant_id, external_id)
+    INDEX (merchant_id, created_at)
+}
+
+entity webhooks {
+    * id : bigserial <<PK>>
+    --
+    * merchant_id : bigint <<FK>>
+    * direction : varchar(10) INBOUND / OUTBOUND
+    * event_type : varchar(50) TRANSACTION / PAYOUT
+    * entity_id : bigint
+    * payload : jsonb
+    notification_url : varchar(2048)
+    * delivered : boolean = false
+    * attempts : integer = 0
+    next_attempt_at : timestamptz
+    last_error : varchar(500)
+    * created_at : timestamptz = now()
+    delivered_at : timestamptz
+    ..
+    INDEX (event_type, entity_id)
+    INDEX (next_attempt_at) WHERE OUTBOUND AND NOT delivered
+}
+
+merchants ||--o{ transactions : merchant_id
+merchants ||--o{ payouts : merchant_id
+merchants ||--o{ webhooks : merchant_id
+
+legend bottom
+  * = NOT NULL. Timestamps in UTC. No balances: the bank keeps operations, not money.
+  uid goes out in the API; id stays inside. entity_id = transactions.id or payouts.id by event_type.
+  OUTBOUND: to the merchant, retried until delivered. INBOUND: from the payment network, audit only.
+end legend
+@enduml
