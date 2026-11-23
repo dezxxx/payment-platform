@@ -1,0 +1,31 @@
+@startuml component
+!include <C4/C4_Component>
+
+title webhook-service — component diagram (C4, level 3)
+
+Container_Ext(kafka, "Kafka", "event broker, Avro", "deposit-*, withdrawal-*")
+Container_Ext(bank, "fake-payment-provider", "Spring Boot MVC", "Payment gateway")
+
+Container_Boundary(ws, "webhook-service") {
+    Component(consumer, "BankRequestConsumer", "@KafkaListener", "DepositRequested, WithdrawalRequested")
+    Container_Boundary(adapterBox, "Bank adapter") {
+        Component(adapter, "FakePaymentProviderAdapter", "Kafka ⇄ bank HTTP", "Event → TransactionRequest / PayoutRequest; bank answer → outcome")
+        Component(client, "FakePaymentProviderClient", "jar from Nexus", "Generated from the bank's OpenAPI; Basic Auth")
+        Component(verifier, "SignatureVerifier", "HMAC-SHA256", "Raw body + secret from .env, MessageDigest.isEqual")
+    }
+    Component(controller, "WebhookController", "REST", "POST /webhook/transaction, /webhook/payout")
+    Component(producer, "OutcomeKafkaProducer", "KafkaTemplate", "*Completed / *Failed, waits for the ack")
+    Component(metrics, "Metrics", "Micrometer", "Bank errors, rejected signatures")
+}
+
+Rel(kafka, consumer, "*-requested")
+Rel(consumer, adapter, "send")
+Rel(adapter, client, "create")
+Rel(client, bank, "POST /api/v1/transactions, /payouts", "HTTPS, Basic Auth")
+Rel(bank, controller, "webhook", "HTTPS, X-Signature")
+Rel(controller, verifier, "check")
+Rel(controller, adapter, "outcome")
+Rel(adapter, producer, "*Completed / *Failed")
+Rel(producer, kafka, "Avro")
+Rel(adapter, metrics, "counters")
+@enduml

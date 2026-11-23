@@ -1,0 +1,24 @@
+@startuml circuit-breaker
+title Circuit breaker on requests to the bank (Resilience4j)
+hide empty description
+
+[*] --> Closed
+Closed : POST /transactions, /payouts goes through,
+Closed : the last 10 calls are counted
+Open : no call, treated as connection refused:
+Open : the bank created nothing
+HalfOpen : one trial call
+
+Closed --> Open : half of the last 10 calls failed, at least 5 calls\n(timeout, 5xx, no connection)
+Open --> HalfOpen : the first call after 30 s
+HalfOpen --> Closed : the trial call succeeded
+HalfOpen --> Open : the trial call failed
+
+legend bottom
+  4xx is not a failure: it is the bank's answer.
+  | Situation | Result |
+  | open, still open after short retries | *Failed PROVIDER_UNAVAILABLE + alert |
+  | timeout / 5xx while closed | retry with the same externalId, then DLT |
+  Metrics resilience4j_circuitbreaker_* → Grafana; an alert when open for 1 min.
+end legend
+@enduml

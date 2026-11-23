@@ -1,0 +1,39 @@
+@startuml sequence-webhook-incoming
+title Incoming webhook from the payment network
+skinparam maxMessageSize 260
+skinparam responseMessageBelowArrow true
+
+actor "Payment network\n(simulated: Postman, tests)" as Net
+box "fake-payment-provider" #F5F9FF
+    participant "WebhookController" as WC
+    participant "WebhookService" as WS
+    database "DB" as DB
+end box
+
+Net -> WC: POST /webhook/transaction or /webhook/payout\nX-Signature, {id, status SUCCESS / FAILED, reason}
+alt wrong signature
+    WC --> Net: 401 UNAUTHORIZED (nothing written)
+else invalid body
+    WC --> Net: 400 VALIDATION_ERROR
+else
+    WC -> WS: applyIncoming
+    group one DB transaction
+        WS -> DB: SELECT by id FOR UPDATE
+        alt not found
+            WS -> DB: ROLLBACK
+            WS --> Net: 404 NOT_FOUND
+        else
+            WS -> DB: INSERT webhooks INBOUND (payload, audit)
+            alt PENDING
+                WS -> DB: UPDATE status
+                WS -> DB: INSERT webhooks OUTBOUND to the merchant
+            else outcome already set
+                WS -> WS: status unchanged, no OUTBOUND
+            end
+            WS -> DB: COMMIT
+            WS --> Net: 200 OK
+        end
+    end
+end
+note right of DB: DB error → 500, nothing stored
+@enduml

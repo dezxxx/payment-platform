@@ -1,0 +1,22 @@
+@startuml circuit-breaker
+title Circuit breaker on webhook delivery (Resilience4j)
+hide empty description
+
+[*] --> Closed
+Closed : POST to notificationUrl goes through,
+Closed : the last 10 calls are counted
+Open : no call, the row waits;
+Open : attempts are not spent
+HalfOpen : one trial call
+
+Closed --> Open : half of the last 10 calls failed, at least 5 calls\n(timeout, 5xx, no connection)
+Open --> HalfOpen : the first call after 30 s
+HalfOpen --> Closed : the trial call succeeded
+HalfOpen --> Open : the trial call failed
+
+legend bottom
+  One instance per merchant (its notificationUrl). 4xx is a failed attempt but not a breaker failure.
+  Rows stay in webhooks with delivered = false; nothing is lost while open.
+  Metrics resilience4j_circuitbreaker_* → Grafana; an alert when open for 1 min.
+end legend
+@enduml

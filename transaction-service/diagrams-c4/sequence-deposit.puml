@@ -13,7 +13,7 @@ box "transaction-service" #F5F9FF
     participant "TransactionKafkaConsumer" as Cons
 end box
 queue "Kafka" as Kafka
-participant "Fake Payment Provider" as PP
+participant "webhook-service\n(bank adapter)" as PP
 
 note over Client
   individuals-api checks the client's token (401),
@@ -72,7 +72,7 @@ else
 end
 note right of DB: any DB error → ROLLBACK, 500
 
-== async: outbox → provider ==
+== async: outbox → bank ==
 loop @Scheduled
     Pub -> DB: SELECT outbox_events WHERE sent_at IS NULL (both shards)
     Pub -> Kafka: DepositRequested (key = transactionId)
@@ -83,7 +83,7 @@ loop @Scheduled
     end
 end
 Kafka -> PP: DepositRequested (amount, total)
-PP -> PP: charge the card total (amount + fee)
+PP -> PP: POST to the bank, amount = total (amount + fee);\nthe outcome comes by signed webhook (webhook-service sequences)
 PP -> Kafka: DepositCompleted / DepositFailed
 
 == async: finalization, one DB transaction ==

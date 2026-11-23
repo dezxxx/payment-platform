@@ -1,0 +1,70 @@
+@startuml component
+!include <C4/C4_Component>
+
+title fake-payment-provider — component diagram (C4, level 3)
+
+Person_Ext(admin, "Bank admin", "Registers merchants")
+Container_Ext(kafka, "Kafka", "event broker, Avro", "deposit-* and withdrawal-* (requested, completed, failed)")
+Container_Boundary(platform, "webhook-service (merchant)") {
+    Component_Ext(bankAdapter, "Bank adapter", "", "Kafka ⇄ bank HTTP")
+}
+System_Ext(network, "External payment network (simulated)", "Manual outcome of an operation: Postman, tests")
+ContainerDb_Ext(db, "PostgreSQL provider-postgres", "own database", "merchants, transactions, payouts, webhooks")
+
+Container_Boundary(provider, "fake-payment-provider") {
+    Component(security, "SecurityConfig", "Spring Security, Basic Auth", "Roles ADMIN (account from env) and MERCHANT (table merchants); /webhook/* — no Basic Auth, signature check; 401 / 403 → ErrorResponse")
+    Component(authService, "AuthService", "UserDetailsService", "Finds the merchant by merchantId; BCryptPasswordEncoder.matches(secretKey, hash)")
+    Component(errors, "GlobalExceptionHandler", "@RestControllerAdvice", "ErrorResponse {error, message}: 400, 401, 403, 404")
+
+    Component(merchantController, "MerchantController", "generated from OpenAPI", "POST /api/v1/merchants — ADMIN only")
+    Component(transactionController, "TransactionController", "generated from OpenAPI", "POST / GET /api/v1/transactions, GET /{id}")
+    Component(payoutController, "PayoutController", "generated from OpenAPI", "POST / GET /api/v1/payouts, GET /{id}")
+    Component(webhookController, "WebhookController", "generated from OpenAPI", "POST /webhook/transaction, /webhook/payout — incoming outcome from the network")
+
+    Component(merchantService, "MerchantService", "business logic", "Generates merchantId, secretKey and the webhook secret; shows them once; stores a hash and a cipher")
+    Component(transactionService, "TransactionService", "business logic", "Method limit, repeat by externalId (200 / 400 IDEMPOTENCY_CONFLICT), PENDING; only the merchant's own operations (another's → 404)")
+    Component(payoutService, "PayoutService", "business logic", "The same for payouts, method BANK_TRANSFER")
+    Component(webhookSvc, "WebhookService", "business logic", "Sets the outcome once (only from PENDING) + an OUTBOUND row in webhooks; an incoming one — an INBOUND row (audit)")
+
+    Component(simulator, "SimulatorScheduler", "@Scheduled, package simulator", "Takes PENDING older than the method delay (FOR UPDATE SKIP LOCKED) → SUCCESS through WebhookService")
+    Component(strategies, "PaymentMethodStrategy", "Strategy: CARD, BANK_TRANSFER", "Limit and delay of a method: CARD 10 000 / 3 s, BANK_TRANSFER 100 000 / 15 s")
+    Component(delivery, "WebhookDeliveryScheduler", "@Scheduled", "Undelivered OUTBOUND rows (FOR UPDATE SKIP LOCKED) → POST to notificationUrl outside the transaction; retried until delivered, pause ≤ 5 min; circuit breaker")
+    Component(crypto, "WebhookSigner + SecretEncryptor", "HMAC-SHA256, AES-GCM", "Decrypts the merchant's secret (key from env), signs the body → X-Signature")
+
+    Component(repos, "JPA repositories", "Spring Data JPA", "MerchantRepository, TransactionRepository, PayoutRepository, WebhookRepository")
+    Component(metrics, "Metrics", "Micrometer", "Successful and failed operations, webhook errors and the age of the oldest undelivered one")
+}
+
+Rel(admin, security, "POST /api/v1/merchants", "HTTPS, Basic Auth")
+Rel(kafka, bankAdapter, "DepositRequested, WithdrawalRequested")
+Rel(bankAdapter, kafka, "DepositCompleted / Failed, WithdrawalCompleted / Failed")
+Rel(bankAdapter, security, "POST / GET /api/v1/transactions, /payouts", "HTTPS, Basic Auth merchantId:secretKey")
+Rel(network, security, "POST /webhook/transaction, /payout", "HTTPS, X-Signature")
+Rel(security, authService, "credentials check")
+Rel(security, errors, "401 / 403")
+Rel(security, merchantController, "ADMIN")
+Rel(security, transactionController, "MERCHANT")
+Rel(security, payoutController, "MERCHANT")
+Rel(security, webhookController, "valid signature")
+Rel(merchantController, merchantService, "register")
+Rel(transactionController, transactionService, "create, find")
+Rel(payoutController, payoutService, "create, find")
+Rel(webhookController, webhookSvc, "applyIncoming")
+Rel(transactionService, strategies, "method limit")
+Rel(payoutService, strategies, "method limit")
+Rel(simulator, strategies, "method delay")
+Rel(simulator, webhookSvc, "applyResult")
+Rel(merchantService, crypto, "encrypts the webhook secret")
+Rel(delivery, crypto, "signs the body")
+Rel(delivery, bankAdapter, "POST webhook to notificationUrl", "HTTPS, X-Signature")
+Rel(authService, repos, "reads merchants")
+Rel(merchantService, repos, "writes merchants")
+Rel(transactionService, repos, "transactions")
+Rel(payoutService, repos, "payouts")
+Rel(webhookSvc, repos, "status + webhooks")
+Rel(delivery, repos, "webhooks: take for sending and result")
+Rel(repos, db, "JDBC")
+Rel(delivery, metrics, "errors, age")
+Rel(transactionService, metrics, "counters")
+Rel(payoutService, metrics, "counters")
+@enduml
